@@ -1,0 +1,37 @@
+{
+  "name": "agent-ide",
+  "version": "1.0.0",
+  "description": "Agent IDE — standalone cockpit for supervising AI coding-agent sessions",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "rebuild": "electron-rebuild -f -w node-pty,better-sqlite3",
+    "postinstall": "electron-rebuild -f -w node-pty,better-sqlite3"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "better-sqlite3": "12.10.1",
+    "electron": "42.4.0",
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "4.0.4",
+    "@playwright/test": "1.61.0",
+    "@types/node": "25.9.3",
+    "electron-vite": "5.0.0",
+    "jsdom": "29.1.1",
+    "playwright": "1.61.0",
+    "typescript": "6.0.3",
+    "vite": "7.3.5",
+    "vitest": "4.1.9"
+  }
+}
