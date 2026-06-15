@@ -1,6 +1,6 @@
 import './cockpit.css'
 import type { Provider, Project, Session } from '@shared/types'
-import { initialState, liveCounts, type AppState } from './state'
+import { initialState, liveCounts, liveSessionsFor, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit, type ProviderHealth } from './components/Cockpit'
 import { SupervisionView } from './components/SupervisionView'
@@ -282,9 +282,17 @@ function openSessionMenu(session: Session, x: number, y: number) {
       label: 'Close + Archive',
       danger: true,
       onClick: () => {
-        window.agentIDE.ptyKill(session.id)
+        window.agentIDE.sessionArchive(session.id) // kills pty + persists archived
         session.status = 'archived'
         reconnect.delete(session.id)
+        terminals.delete(session.id)
+        if (state.activeSessionId === session.id) {
+          // focus another live session in this project, if any
+          const next = state.sessions.find(
+            (s) => s.projectId === session.projectId && s.status !== 'archived' && s.id !== session.id
+          )
+          state.activeSessionId = next?.id ?? null
+        }
         render()
       }
     }
@@ -335,7 +343,8 @@ function render() {
   }
 
   const proj = currentProject()!
-  const projectSessions = state.sessions.filter((s) => s.projectId === proj.id)
+  // The cockpit shows live sessions only; archived ones live on the ⌘ home board.
+  const projectSessions = liveSessionsFor(state.sessions, proj.id)
   const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
 
   loadTree(proj.id, proj.localPath)

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('agentIDE', {
   modelsAll: () => ipcRenderer.invoke('models:all'),
   sessionLaunch: (req: unknown) => ipcRenderer.invoke('session:launch', req),
   sessionRename: (id: string, name: string) => ipcRenderer.invoke('session:rename', id, name),
+  sessionArchive: (id: string) => ipcRenderer.invoke('session:archive', id),
 
   // provider connection (F8/F9/F10)
   providerHealth: (provider: string, projectId: string) => ipcRenderer.invoke('provider:health', provider, projectId),

@@ -121,6 +121,12 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     store?.renameSession(id, name)
   })
 
+  // close + archive a session: kill its pty and persist archived status (F6).
+  ipcMain.handle('session:archive', (_e, id: string) => {
+    mgr.kill(id)
+    store?.archiveSession(id)
+  })
+
   // F8: provider connection health, in the project's context (host or container).
   ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string) => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)

@@ -11,6 +11,7 @@ interface AgentIDEBridge {
     projectId: string; provider: string; model: string; objective: string; cwd: string; useContainer: boolean; importConfig?: boolean
   }): Promise<import('@shared/types').Session>
   sessionRename(id: string, name: string): Promise<void>
+  sessionArchive(id: string): Promise<void>
   providerHealth(provider: string, projectId: string): Promise<'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'>
   providerLogin(provider: string, projectId: string, cwd: string): Promise<string>
   providerInstall(provider: string, projectId: string): Promise<'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'>

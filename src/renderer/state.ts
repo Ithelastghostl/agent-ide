@@ -48,6 +48,11 @@ export function initialState(): AppState {
   }
 }
 
+/** Live (non-archived) sessions for a project — what the cockpit shows. */
+export function liveSessionsFor(sessions: Session[], projectId: string): Session[] {
+  return sessions.filter((s) => s.projectId === projectId && s.status !== 'archived')
+}
+
 /** Count of running/idle (non-archived) sessions per project — drives rail badges. */
 export function liveCounts(sessions: Session[]): Record<string, number> {
   const out: Record<string, number> = {}
