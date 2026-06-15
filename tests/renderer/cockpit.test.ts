@@ -60,4 +60,28 @@ describe('Cockpit', () => {
     btn.click()
     expect(launched).toBe('codex')
   })
+
+  it('shows a ⋯ menu button per card and fires onSessionMenu (F6)', () => {
+    let opened: string | null = null
+    const el = Cockpit({
+      sessions, activeSessionId: 's1',
+      onLaunch: () => {}, onSelectSession: () => {},
+      onSessionMenu: (s) => { opened = s.id }
+    })
+    const dots = el.querySelectorAll('.scard .dots')
+    expect(dots.length).toBe(2)
+    ;(dots[0] as HTMLElement).click()
+    expect(opened).toBe('s1')
+  })
+
+  it('marks a session needing reconnect and tags it (F4)', () => {
+    const el = Cockpit({
+      sessions, activeSessionId: 's1',
+      reconnect: new Set(['s1']),
+      onLaunch: () => {}, onSelectSession: () => {}, onSessionMenu: () => {}
+    })
+    const card = el.querySelector('.scard.reconnect')
+    expect(card).toBeTruthy()
+    expect(el.querySelector('.reconnect-tag')!.textContent).toContain('reconnect')
+  })
 })
