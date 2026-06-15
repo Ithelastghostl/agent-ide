@@ -155,9 +155,35 @@ async function launchFlow(provider: Provider) {
   document.body.appendChild(picker)
 }
 
-// F6: three-dot session menu — rename, close+archive.
+// F7: reconnect a crashed session via the existing resume path. Drops the stale
+// terminal so it rebuilds attach-only against the freshly-spawned pty; the
+// resumed CLI re-renders its conversation (history is preserved in the store).
+async function reconnectSession(session: Session) {
+  const proj = state.projects.find((p) => p.id === session.projectId)
+  const cwd = proj?.localPath ?? ''
+  try {
+    terminals.delete(session.id) // discard dead-pty terminal element
+    const resumed = await window.agentIDE.sessionResume(session, cwd)
+    launchedSessions.add(session.id) // rebuilt terminal attaches to the new pty
+    session.status = resumed.status
+    reconnect.delete(session.id)
+    state.activeSessionId = session.id
+    render()
+  } catch (err) {
+    console.error('reconnect failed', err)
+  }
+}
+
+// F6/F7: three-dot session menu — reconnect (if crashed), rename, close+archive.
 function openSessionMenu(session: Session, x: number, y: number) {
-  showMenu(x, y, [
+  const items = []
+  if (reconnect.has(session.id)) {
+    items.push({
+      label: '↻ Reconnect',
+      onClick: () => { void reconnectSession(session) }
+    })
+  }
+  items.push(
     {
       label: 'Rename…',
       onClick: async () => {
@@ -178,7 +204,8 @@ function openSessionMenu(session: Session, x: number, y: number) {
         render()
       }
     }
-  ])
+  )
+  showMenu(x, y, items)
 }
 
 function render() {
