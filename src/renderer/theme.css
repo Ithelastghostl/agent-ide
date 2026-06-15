@@ -1,0 +1,58 @@
+/* Talentchain dark palette — from docs/palette.md (dark theme only) */
+:root {
+  /* backgrounds (deep -> raised) */
+  --bg-page: #000101;
+  --bg-page-alt: #020403;
+  --bg-body: #040605;
+  --bg-base: #07080a;
+  --bg-surface: #0e1110;
+  --bg-surface-alt: #161a19;
+
+  /* accent (brand purple) */
+  --accent: #533afd;
+  --accent-hover: #564ceb;
+  --accent-cta: #502ee3;
+  --accent-muted: #a1a7ec;
+  --accent-glow: rgba(83, 58, 253, 0.4);
+  --accent-bg10: rgba(83, 58, 253, 0.08);
+  --accent-dim: rgba(83, 58, 253, 0.3);
+  --accent-border: rgba(83, 58, 253, 0.1);
+
+  /* text */
+  --text-primary: #f0f5f4;
+  --text-secondary: #c0d0cc;
+  --text-muted: #7a8b88;
+  --text-dim: #222e2b;
+
+  /* borders */
+  --border: #222e2b;
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --card-border: rgba(255, 255, 255, 0.05);
+
+  /* status / semantic */
+  --success: #00c758;
+  --warning: #fcbb00;
+  --error: #c61583;
+  --red: #fb2c36;
+  --purple: #ac4bff;
+
+  /* provider colors (branded dots) */
+  --codex: #10a37f;
+  --claude: #d97757;
+  --gemini: #4285f4;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { height: 100vh; }

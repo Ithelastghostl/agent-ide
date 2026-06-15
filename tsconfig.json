@@ -8,6 +8,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": { "@shared/*": ["src/shared/*"] },
     "types": ["node"],
     "lib": ["ES2022", "DOM", "DOM.Iterable"]

@@ -4,12 +4,18 @@ import { resolve } from 'path'
 export default defineConfig({
   main: {
     build: {
-      rollupOptions: { external: ['node-pty', 'better-sqlite3'] }
+      rollupOptions: {
+        input: resolve('src/main/index.ts'),
+        external: ['node-pty', 'better-sqlite3']
+      }
     }
   },
   preload: {
     build: {
-      rollupOptions: { external: ['node-pty', 'better-sqlite3'] }
+      rollupOptions: {
+        input: resolve('src/preload/bridge.ts'),
+        external: ['node-pty', 'better-sqlite3']
+      }
     }
   },
   renderer: {
