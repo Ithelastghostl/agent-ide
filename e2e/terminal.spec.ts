@@ -4,8 +4,7 @@ import { join } from 'path'
 // Requires a display. Run with: xvfb-run -a npm run e2e
 test('a session shows a live terminal that echoes typed input', async () => {
   const app = await electron.launch({
-    args: [join(__dirname, '..'), '--no-sandbox'],
-    env: { ...process.env }
+    args: [join(__dirname, '..'), '--no-sandbox']
   })
   const win = await app.firstWindow()
 

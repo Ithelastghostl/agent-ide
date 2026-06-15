@@ -5,6 +5,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('agentIDE', {
   ping: () => ipcRenderer.invoke('ping'),
 
+  // model registry + session launch
+  modelsAll: () => ipcRenderer.invoke('models:all'),
+  sessionLaunch: (req: unknown) => ipcRenderer.invoke('session:launch', req),
+
   // terminal / session pty
   ptySpawn: (o: unknown) => ipcRenderer.invoke('pty:spawn', o),
   ptyWrite: (id: string, data: string) => ipcRenderer.send('pty:write', id, data),

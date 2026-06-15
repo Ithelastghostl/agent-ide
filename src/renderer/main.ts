@@ -14,10 +14,15 @@ const state: AppState = initialState()
 
 // Cache one terminal element per session so re-renders don't respawn the pty.
 const terminals = new Map<string, HTMLElement>()
+// Sessions launched via session:launch already have a pty spawned in main, so
+// their terminals attach-only. Seed/mock sessions spawn a plain bash.
+const launchedSessions = new Set<string>()
 function terminalFor(sessionId: string, cwd: string): HTMLElement {
   let el = terminals.get(sessionId)
   if (!el) {
-    el = SessionTerminal(sessionId, { shell: 'bash', args: [], cwd, env: {} })
+    el = launchedSessions.has(sessionId)
+      ? SessionTerminal(sessionId) // attach-only
+      : SessionTerminal(sessionId, { shell: 'bash', args: [], cwd, env: {} })
     terminals.set(sessionId, el)
   }
   return el
@@ -45,10 +50,27 @@ function openPicker(provider: Provider) {
   const picker = ModelPicker({
     provider,
     models: modelsFor(provider),
-    onPick: (prov, modelId) => {
-      // L3 wires this to a real session launch. For L1, just log + close.
-      console.log('launch', prov, modelId)
+    onPick: async (prov, modelId) => {
       closePicker()
+      const proj = currentProject()
+      try {
+        const session = await window.agentIDE.sessionLaunch({
+          projectId: proj.id,
+          provider: prov,
+          model: modelId,
+          objective: `New ${prov} session`,
+          cwd: proj.localPath,
+          // D26: auto-approve only inside a devcontainer; host projects prompt.
+          autoApprove: proj.hasDevcontainer
+        })
+        launchedSessions.add(session.id)
+        state.sessions.push(session)
+        state.activeSessionId = session.id
+        state.view = 'cockpit'
+        render()
+      } catch (err) {
+        console.error('session launch failed', err)
+      }
     },
     onCancel: closePicker
   })

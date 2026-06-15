@@ -10,8 +10,10 @@ export interface TerminalSpawn {
 }
 
 /** An xterm terminal bound to a pty session in the main process. Mounts on next
- *  microtask (so it can attach to the live DOM), then spawns + wires I/O. */
-export function SessionTerminal(sessionId: string, spawn: TerminalSpawn): HTMLElement {
+ *  microtask, then wires I/O. If `spawn` is provided, it spawns the pty
+ *  (used for plain bash/mock sessions); if omitted, it only ATTACHES to a pty
+ *  the main process already started (real provider sessions via session:launch). */
+export function SessionTerminal(sessionId: string, spawn?: TerminalSpawn): HTMLElement {
   const host = document.createElement('div')
   host.className = 'terminal-host'
 
@@ -34,7 +36,10 @@ export function SessionTerminal(sessionId: string, spawn: TerminalSpawn): HTMLEl
     term.open(host)
     try { fit.fit() } catch { /* host not laid out yet */ }
 
-    window.agentIDE.ptySpawn({ id: sessionId, shell: spawn.shell, args: spawn.args, cwd: spawn.cwd, env: spawn.env })
+    // Only spawn when given a spec; otherwise attach to an already-running pty.
+    if (spawn) {
+      window.agentIDE.ptySpawn({ id: sessionId, shell: spawn.shell, args: spawn.args, cwd: spawn.cwd, env: spawn.env })
+    }
 
     term.onData((d) => window.agentIDE.ptyWrite(sessionId, d))
     window.agentIDE.onPtyData((p) => { if (p.id === sessionId) term.write(p.data) })
