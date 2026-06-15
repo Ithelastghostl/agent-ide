@@ -41,6 +41,13 @@ export class PtyManager {
     onData: (d: string) => void,
     onExit?: (info: { exitCode: number; signal?: number; reason: ExitReason }) => void
   ): string {
+    // Replacing an existing id (e.g. reconnect): kill the old process first so
+    // it isn't leaked (Codex P2). Mark it killed so its exit is a clean 'closed'.
+    const prev = this.procs.get(o.id)
+    if (prev) {
+      this.killed.add(o.id)
+      try { prev.kill() } catch { /* already dead */ }
+    }
     const proc = pty.spawn(o.shell, o.args, {
       name: 'xterm-color',
       cols: 80,
@@ -52,7 +59,9 @@ export class PtyManager {
     proc.onExit(({ exitCode, signal }) => {
       const reason = classifyExit(this.killed.has(o.id))
       this.killed.delete(o.id)
-      this.procs.delete(o.id)
+      // Only clear the map if THIS proc is still the registered one (a replaced
+      // old proc exiting must not delete the new entry).
+      if (this.procs.get(o.id) === proc) this.procs.delete(o.id)
       onExit?.({ exitCode, signal, reason })
     })
     this.procs.set(o.id, proc)

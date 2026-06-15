@@ -41,17 +41,24 @@ window.agentIDE.onSessionExit(({ id, reason }) => {
 })
 
 // Cache one terminal element per session so re-renders don't respawn the pty.
+// Terminals are ALWAYS attach-only: the pty is spawned in the main process
+// (session:launch / terminal:open / session:resume). The renderer never spawns
+// raw shells (Codex P1 — no arbitrary pty:spawn capability).
 const terminals = new Map<string, HTMLElement>()
 const launchedSessions = new Set<string>()
-function terminalFor(sessionId: string, cwd: string): HTMLElement {
+function terminalFor(sessionId: string): HTMLElement {
   let el = terminals.get(sessionId)
   if (!el) {
-    el = launchedSessions.has(sessionId)
-      ? SessionTerminal(sessionId) // attach-only (pty spawned in main)
-      : SessionTerminal(sessionId, { shell: 'bash', args: [], cwd, env: {} })
+    el = SessionTerminal(sessionId)
     terminals.set(sessionId, el)
   }
   return el
+}
+/** Drop a cached terminal and dispose its listeners/resources (Codex P2). */
+function disposeTerminal(sessionId: string) {
+  const el = terminals.get(sessionId) as (HTMLElement & { __dispose?: () => void }) | undefined
+  el?.__dispose?.()
+  terminals.delete(sessionId)
 }
 
 function activityBar(): HTMLElement {
@@ -316,9 +323,11 @@ function openProviderMenu(provider: Provider, x: number, y: number) {
 async function reconnectSession(session: Session) {
   const proj = state.projects.find((p) => p.id === session.projectId)
   const cwd = proj?.localPath ?? ''
+  // Resume in the SAME context the session ran in (container vs host).
+  const useContainer = runInContainer.get(session.projectId) ?? false
   try {
-    terminals.delete(session.id) // discard dead-pty terminal element
-    const resumed = await window.agentIDE.sessionResume(session, cwd)
+    disposeTerminal(session.id) // discard dead-pty terminal + its listener
+    const resumed = await window.agentIDE.sessionResume(session, cwd, useContainer)
     launchedSessions.add(session.id) // rebuilt terminal attaches to the new pty
     session.status = resumed.status
     reconnect.delete(session.id)
@@ -356,7 +365,7 @@ function openSessionMenu(session: Session, x: number, y: number) {
         window.agentIDE.sessionArchive(session.id) // kills pty + persists archived
         session.status = 'archived'
         reconnect.delete(session.id)
-        terminals.delete(session.id)
+        disposeTerminal(session.id)
         if (state.activeSessionId === session.id) {
           // focus another live session in this project, if any
           const next = state.sessions.find(
@@ -421,7 +430,11 @@ function render() {
   loadTree(proj.id, proj.localPath)
   if (proj.hasDevcontainer) loadContainerStatus(proj.id, proj.localPath)
   body.appendChild(Explorer({ projectName: proj.name, tree: trees.get(proj.id) ?? [] }))
-  const terminalEl = activeSession ? terminalFor(activeSession.id, proj.localPath) : undefined
+  // Only mount a live terminal for sessions launched this run; hydrated/stale
+  // sessions have no pty and are shown as reconnectable instead.
+  const terminalEl = activeSession && launchedSessions.has(activeSession.id)
+    ? terminalFor(activeSession.id)
+    : undefined
   body.appendChild(SupervisionView({ session: activeSession, projectName: proj.name, terminalEl }))
   body.appendChild(
     Cockpit({
@@ -452,6 +465,11 @@ async function boot() {
     ])
     state.projects = projects
     state.sessions = sessions
+    // Hydrated non-archived sessions from a previous run have no live pty —
+    // mark them reconnectable rather than implying they're attached (Codex P2).
+    for (const s of sessions) {
+      if (s.status !== 'archived') reconnect.add(s.id)
+    }
   } catch (err) {
     console.error('boot hydrate failed', err)
   }

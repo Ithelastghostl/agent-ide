@@ -32,17 +32,22 @@ contextBridge.exposeInMainWorld('agentIDE', {
   projectsList: () => ipcRenderer.invoke('projects:list'),
   fsTree: (root: string) => ipcRenderer.invoke('fs:tree', root),
 
-  // terminal / session pty
-  ptySpawn: (o: unknown) => ipcRenderer.invoke('pty:spawn', o),
+  // terminal / session pty. No raw spawn from the renderer (NN0): ptys are
+  // started in main via session:launch / terminal:open / session:resume.
   ptyWrite: (id: string, data: string) => ipcRenderer.send('pty:write', id, data),
   ptyResize: (id: string, cols: number, rows: number) => ipcRenderer.send('pty:resize', id, cols, rows),
   ptyKill: (id: string) => ipcRenderer.send('pty:kill', id),
-  onPtyData: (cb: (p: { id: string; data: string }) => void) =>
-    ipcRenderer.on('pty:data', (_e, p) => cb(p)),
+  // Returns an unsubscribe function so callers can remove the listener on
+  // unmount (avoids leaking one global listener per mounted terminal).
+  onPtyData: (cb: (p: { id: string; data: string }) => void) => {
+    const h = (_e: unknown, p: { id: string; data: string }) => cb(p)
+    ipcRenderer.on('pty:data', h)
+    return () => ipcRenderer.removeListener('pty:data', h)
+  },
   onSessionExit: (cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void) =>
     ipcRenderer.on('session:exit', (_e, p) => cb(p)),
 
   // sessions persistence / global board
   sessionsAll: () => ipcRenderer.invoke('sessions:all'),
-  sessionResume: (s: unknown, cwd: string) => ipcRenderer.invoke('session:resume', s, cwd)
+  sessionResume: (s: unknown, cwd: string, useContainer: boolean) => ipcRenderer.invoke('session:resume', s, cwd, useContainer)
 })

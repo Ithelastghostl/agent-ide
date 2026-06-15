@@ -94,7 +94,7 @@ describe('containerExecArgv', () => {
   })
 
   it('supports a working directory via -w', () => {
-    expect(containerExecArgv('abc123', 'gemini', ['-m', 'gemini-2.5-pro'], '/workspaces/app')).toEqual([
+    expect(containerExecArgv('abc123', 'gemini', ['-m', 'gemini-2.5-pro'], { cwd: '/workspaces/app' })).toEqual([
       'exec',
       '-it',
       '-w',
@@ -103,6 +103,12 @@ describe('containerExecArgv', () => {
       'gemini',
       '-m',
       'gemini-2.5-pro'
+    ])
+  })
+
+  it('omits -it for non-interactive (non-TTY) calls (Codex P2)', () => {
+    expect(containerExecArgv('abc123', 'codex', ['login', 'status'], { interactive: false })).toEqual([
+      'exec', 'abc123', 'codex', 'login', 'status'
     ])
   })
 })

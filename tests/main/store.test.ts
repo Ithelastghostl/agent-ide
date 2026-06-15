@@ -30,6 +30,15 @@ describe('Store', () => {
     expect(store.getSessions('p1')[0].status).toBe('archived')
   })
 
+  it('setSessionStatus updates status (crash -> idle, not archived; Codex P1)', () => {
+    store.saveSession({ id: 's1', projectId: 'p1', provider: 'codex', model: 'm', objective: 'a', status: 'running', createdAt: 1, updatedAt: 1 })
+    store.setSessionStatus('s1', 'idle')
+    expect(store.getSessions('p1')[0].status).toBe('idle')
+    // history preserved regardless
+    store.appendTranscript('s1', 'kept', 1)
+    expect(store.getTranscript('s1')).toBe('kept')
+  })
+
   it('renames a session (updates objective)', () => {
     store.saveSession({ id: 's1', projectId: 'p1', provider: 'codex', model: 'gpt', objective: 'old', status: 'running', createdAt: 1, updatedAt: 1 })
     store.renameSession('s1', 'new name')

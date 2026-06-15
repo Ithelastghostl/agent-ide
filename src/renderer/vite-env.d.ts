@@ -26,14 +26,13 @@ interface AgentIDEBridge {
   projectsAddUrl(url: string, parentDir: string): Promise<import('@shared/types').Project>
   projectsList(): Promise<import('@shared/types').Project[]>
   fsTree(root: string): Promise<{ name: string; dir: boolean; depth: number }[]>
-  ptySpawn(o: { id: string; shell: string; args: string[]; cwd: string; env: Record<string, string> }): Promise<string>
   ptyWrite(id: string, data: string): void
   ptyResize(id: string, cols: number, rows: number): void
   ptyKill(id: string): void
-  onPtyData(cb: (p: { id: string; data: string }) => void): void
+  onPtyData(cb: (p: { id: string; data: string }) => void): () => void
   onSessionExit(cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void): void
   sessionsAll(): Promise<import('@shared/types').Session[]>
-  sessionResume(s: import('@shared/types').Session, cwd: string): Promise<import('@shared/types').Session>
+  sessionResume(s: import('@shared/types').Session, cwd: string, useContainer: boolean): Promise<import('@shared/types').Session>
 }
 
 interface Window {

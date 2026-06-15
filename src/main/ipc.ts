@@ -68,10 +68,8 @@ function newSessionId(): string {
 // The map is a cache; Docker is the source of truth (survives app restarts).
 const containerByProject = new Map<string, string>()
 async function ensureContainer(projectId: string, workspace: string, importConfig = false): Promise<string> {
-  const cached = containerByProject.get(projectId)
-  if (cached) return cached
-  // Recover by Docker state: running -> reuse; stopped -> start it (don't rebuild);
-  // none -> build via `devcontainer up`.
+  // Docker is the source of truth (Codex P2 — no stale cache fast-path):
+  // running -> reuse; stopped -> start it (don't rebuild); none -> build.
   const presence = await findContainerPresence(workspace)
   if (presence.state === 'running') {
     containerByProject.set(projectId, presence.id)
@@ -88,17 +86,13 @@ async function ensureContainer(projectId: string, workspace: string, importConfi
   return containerId
 }
 
-/** Cached container id for a project (sync; may be stale after restart). */
-function containerIdFor(projectId: string): string | undefined {
-  return containerByProject.get(projectId)
-}
-
-/** Authoritative container id: cache first, else ask Docker (and cache it). */
+/** Authoritative running-container id for a project. Docker is the source of
+ *  truth (Codex P2 — never trust a cached id that may be stopped/removed); the
+ *  cache is refreshed from the query result. */
 async function resolveContainerId(projectId: string, workspace: string): Promise<string | undefined> {
-  const cached = containerByProject.get(projectId)
-  if (cached) return cached
   const running = await findRunningContainer(workspace)
   if (running) containerByProject.set(projectId, running)
+  else containerByProject.delete(projectId)
   return running ?? undefined
 }
 
@@ -154,8 +148,10 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     let shell = 'bash'
     let args: string[] = []
     let cwd = req.cwd
-    const containerId = req.useContainer ? await resolveContainerId(req.projectId, req.cwd) : undefined
-    if (containerId) {
+    if (req.useContainer) {
+      // Don't silently downgrade to a host shell (Codex P2): bring the container
+      // up if needed so the terminal really runs inside it.
+      const containerId = await ensureContainer(req.projectId, req.cwd)
       shell = 'docker'
       args = containerExecArgv(containerId, 'bash', [])
       cwd = req.cwd
@@ -279,37 +275,54 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       createdAt: now,
       updatedAt: now
     }
+    // Spawn FIRST; only persist once the pty actually started (Codex P2 — a
+    // failed spawn must not leave a persisted "running" ghost session).
+    try {
+      mgr.spawn(
+        { id, shell, args: spawnArgs, cwd, env: {} },
+        (data) => {
+          win.webContents.send('pty:data', { id, data })
+          store?.appendTranscript(id, data, now)
+        },
+        ({ reason }) => {
+          // History always retained (item 7). Clean close -> archived; crash ->
+          // NOT archived (status idle) so it stays reconnectable (F4 / Codex P1).
+          if (reason === 'closed') store?.archiveSession(id)
+          else store?.setSessionStatus(id, 'idle')
+          win.webContents.send('session:exit', { id, reason })
+        }
+      )
+    } catch (err) {
+      throw new Error(`failed to start ${req.provider} session: ${(err as Error).message}`)
+    }
     store?.saveSession(session)
-
-    mgr.spawn(
-      { id, shell, args: spawnArgs, cwd, env: {} },
-      (data) => {
-        win.webContents.send('pty:data', { id, data })
-        store?.appendTranscript(id, data, now)
-      },
-      ({ reason }) => {
-        // History is always retained (item 7). Clean close -> archived;
-        // crash -> stays reconnectable and the UI flags 'needs reconnect' (F4).
-        store?.archiveSession(id)
-        win.webContents.send('session:exit', { id, reason })
-      }
-    )
 
     return session
   })
 
-  // resume an archived session's conversation (interactive, subscription-safe)
-  ipcMain.handle('session:resume', (_e, s: Session, cwd: string): Session => {
+  // resume a session's conversation (interactive, subscription-safe). Runs in
+  // the SAME context as the original: inside the container if useContainer
+  // (Codex P1 — a crashed container session must not resume on the host).
+  ipcMain.handle('session:resume', async (_e, s: Session, cwd: string, useContainer: boolean): Promise<Session> => {
     if (!isProvider(s.provider)) throw new Error(`bad provider: ${s.provider}`)
     const { cmd, args } = resumeArgv(s.provider)
+    let shell = cmd
+    let spawnArgs = args
+    if (useContainer) {
+      const containerId = await resolveContainerId(s.projectId, cwd)
+      if (!containerId) throw new Error('cannot reconnect: the project container is not running')
+      shell = 'docker'
+      spawnArgs = containerExecArgv(containerId, cmd, args)
+    }
     mgr.spawn(
-      { id: s.id, shell: cmd, args, cwd, env: {} },
+      { id: s.id, shell, args: spawnArgs, cwd, env: {} },
       (data) => {
         win.webContents.send('pty:data', { id: s.id, data })
         store?.appendTranscript(s.id, data, Date.now())
       },
       ({ reason }) => {
-        store?.archiveSession(s.id)
+        if (reason === 'closed') store?.archiveSession(s.id)
+        else store?.setSessionStatus(s.id, 'idle')
         win.webContents.send('session:exit', { id: s.id, reason })
       }
     )

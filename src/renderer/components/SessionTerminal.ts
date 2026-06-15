@@ -3,19 +3,13 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { showMenu } from '../ui'
 
-export interface TerminalSpawn {
-  shell: string
-  args: string[]
-  cwd: string
-  env: Record<string, string>
-}
-
-/** An xterm terminal bound to a pty session in the main process. Mounts on next
- *  microtask, then wires I/O. If `spawn` is provided, it spawns the pty
- *  (used for plain bash/mock sessions); if omitted, it only ATTACHES to a pty
- *  the main process already started (real provider sessions via session:launch). */
-export function SessionTerminal(sessionId: string, spawn?: TerminalSpawn): HTMLElement {
-  const host = document.createElement('div')
+/** An xterm terminal that ATTACHES to a pty the main process already started
+ *  (via session:launch / terminal:open / session:resume). The renderer never
+ *  spawns raw shells. The returned element carries a `dispose()` (on
+ *  `el.__dispose`) that unsubscribes the pty:data listener and disposes the
+ *  terminal — call it when the element is dropped (avoids listener leaks). */
+export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: () => void } {
+  const host = document.createElement('div') as HTMLElement & { __dispose?: () => void }
   host.className = 'terminal-host'
 
   const term = new Terminal({
@@ -64,13 +58,8 @@ export function SessionTerminal(sessionId: string, spawn?: TerminalSpawn): HTMLE
     term.open(host)
     try { fit.fit() } catch { /* host not laid out yet */ }
 
-    // Only spawn when given a spec; otherwise attach to an already-running pty.
-    if (spawn) {
-      window.agentIDE.ptySpawn({ id: sessionId, shell: spawn.shell, args: spawn.args, cwd: spawn.cwd, env: spawn.env })
-    }
-
     term.onData((d) => window.agentIDE.ptyWrite(sessionId, d))
-    window.agentIDE.onPtyData((p) => { if (p.id === sessionId) term.write(p.data) })
+    const unsubscribe = window.agentIDE.onPtyData((p) => { if (p.id === sessionId) term.write(p.data) })
     term.onResize(({ cols, rows }) => window.agentIDE.ptyResize(sessionId, cols, rows))
 
     // F5: right-click context menu with Copy / Paste (reuses shared showMenu)
@@ -85,6 +74,12 @@ export function SessionTerminal(sessionId: string, spawn?: TerminalSpawn): HTMLE
     // refit on container resize
     const ro = new ResizeObserver(() => { try { fit.fit() } catch { /* ignore */ } })
     ro.observe(host)
+
+    host.__dispose = () => {
+      unsubscribe()
+      ro.disconnect()
+      term.dispose()
+    }
   })
 
   return host

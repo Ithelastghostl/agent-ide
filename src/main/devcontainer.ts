@@ -36,15 +36,20 @@ export function parseContainerId(stdout: string): string {
   throw new Error('devcontainer up: no containerId in output')
 }
 
-/** argv for `docker exec -it [-w cwd] <id> <cmd> <args...>`. */
+/** argv for `docker exec [-it] [-w cwd] <id> <cmd> <args...>`.
+ *  `interactive` (default true) adds `-it` for pty/terminal sessions; pass
+ *  false for non-TTY `execFile` calls (health/install) which would otherwise
+ *  hang trying to allocate a TTY (Codex P2). */
 export function containerExecArgv(
   containerId: string,
   cmd: string,
   args: string[],
-  cwd?: string
+  opts: { cwd?: string; interactive?: boolean } = {}
 ): string[] {
-  const base = ['exec', '-it']
-  if (cwd) base.push('-w', cwd)
+  const interactive = opts.interactive ?? true
+  const base = ['exec']
+  if (interactive) base.push('-it')
+  if (opts.cwd) base.push('-w', opts.cwd)
   base.push(containerId, cmd, ...args)
   return base
 }

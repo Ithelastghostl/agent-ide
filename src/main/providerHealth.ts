@@ -15,8 +15,13 @@ export interface RunContext {
 
 interface ArgvCmd { cmd: string; args: string[] }
 
-/** Is the CLI on PATH? (run via a login shell so PATH matches real usage). */
+/** Is the CLI on PATH? (run via a login shell so PATH matches real usage).
+ *  Self-defensive (Codex P3): only the three known provider names are ever
+ *  interpolated into the shell string, regardless of caller. */
 export function presenceArgv(provider: Provider): ArgvCmd {
+  if (provider !== 'codex' && provider !== 'claude' && provider !== 'gemini') {
+    throw new Error(`refusing to probe unknown provider: ${String(provider)}`)
+  }
   return { cmd: 'bash', args: ['-lc', `command -v ${provider}`] }
 }
 
@@ -57,9 +62,13 @@ export function classifyHealth(p: { present: boolean; authOk: boolean | null }):
   return 'unknown'
 }
 
-/** Wrap an argv to run in the given context (host or `docker exec` into container). */
+/** Wrap an argv to run in the given context (host or `docker exec` into
+ *  container). Non-interactive (no `-it`): these run via execFile with no TTY,
+ *  so forcing a TTY would hang (Codex P2). */
 function inContext(ctx: RunContext, cmd: string, args: string[]): ArgvCmd {
-  if (ctx.containerId) return { cmd: 'docker', args: containerExecArgv(ctx.containerId, cmd, args) }
+  if (ctx.containerId) {
+    return { cmd: 'docker', args: containerExecArgv(ctx.containerId, cmd, args, { interactive: false }) }
+  }
   return { cmd, args }
 }
 
@@ -87,8 +96,8 @@ export async function probeHealth(provider: Provider, ctx: RunContext): Promise<
   return classifyHealth({ present, authOk })
 }
 
-/** Install a provider CLI in a container (mutates the container). */
+/** Install a provider CLI in a container (mutates the container). Non-interactive. */
 export async function installInContainer(provider: Provider, containerId: string): Promise<void> {
   const [cmd, ...args] = installArgv(provider)
-  await pexec('docker', containerExecArgv(containerId, cmd, args), { maxBuffer: 1024 * 1024 * 16 })
+  await pexec('docker', containerExecArgv(containerId, cmd, args, { interactive: false }), { maxBuffer: 1024 * 1024 * 16 })
 }

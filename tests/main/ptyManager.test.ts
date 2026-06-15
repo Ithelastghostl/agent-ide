@@ -73,6 +73,20 @@ describe('PtyManager', () => {
     expect(reason).toBe('closed')
   })
 
+  it('replacing an existing id kills the old proc and keeps only the new (Codex P2)', async () => {
+    const mgr = new PtyManager()
+    const out: string[] = []
+    mgr.spawn({ id: 'dup', shell: 'bash', args: [], cwd: process.cwd(), env: {} }, () => {})
+    await new Promise((r) => setTimeout(r, 200))
+    // replace same id with a process that prints a marker
+    mgr.spawn({ id: 'dup', shell: 'bash', args: ['-c', 'echo NEWPROC; sleep 1'], cwd: process.cwd(), env: {} }, (d) => out.push(d))
+    await new Promise((r) => setTimeout(r, 500))
+    // the new proc is the tracked one and is alive
+    expect(mgr.has('dup')).toBe(true)
+    expect(out.join('')).toContain('NEWPROC')
+    mgr.kill('dup')
+  })
+
   it('reports reason=crashed when the process dies on its own', async () => {
     const mgr = new PtyManager()
     let reason = ''
