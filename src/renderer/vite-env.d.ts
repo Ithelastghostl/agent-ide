@@ -18,6 +18,9 @@ interface AgentIDEBridge {
   ptyResize(id: string, cols: number, rows: number): void
   ptyKill(id: string): void
   onPtyData(cb: (p: { id: string; data: string }) => void): void
+  onSessionArchived(cb: (p: { id: string }) => void): void
+  sessionsAll(): Promise<import('@shared/types').Session[]>
+  sessionResume(s: import('@shared/types').Session, cwd: string): Promise<import('@shared/types').Session>
 }
 
 interface Window {

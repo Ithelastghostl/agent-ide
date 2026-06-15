@@ -8,10 +8,17 @@ import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
+import { AllSessions } from './components/AllSessions'
 import { modelsFor } from './models'
 
 const root = document.getElementById('app')!
 const state: AppState = initialState()
+
+// When a session's pty exits, main archives it — reflect that in the UI.
+window.agentIDE.onSessionArchived?.(({ id }) => {
+  const s = state.sessions.find((x) => x.id === id)
+  if (s) { s.status = 'archived'; render() }
+})
 
 // Cache one terminal element per session so re-renders don't respawn the pty.
 const terminals = new Map<string, HTMLElement>()
@@ -132,6 +139,24 @@ function render() {
   })
   body.appendChild(rail)
   body.appendChild(activityBar())
+
+  // ⌘ home: global cross-project session board (NN4)
+  if (state.view === 'home') {
+    body.appendChild(
+      AllSessions({
+        projects: state.projects,
+        sessions: state.sessions,
+        onOpen: (projectId, sessionId) => {
+          state.currentProjectId = projectId
+          state.activeSessionId = sessionId
+          state.view = 'cockpit'
+          render()
+        }
+      })
+    )
+    root.appendChild(body)
+    return
+  }
 
   const proj = currentProject()
   const projectSessions = state.sessions.filter((s) => s.projectId === proj.id)

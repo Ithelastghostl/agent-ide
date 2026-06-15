@@ -20,5 +20,11 @@ contextBridge.exposeInMainWorld('agentIDE', {
   ptyResize: (id: string, cols: number, rows: number) => ipcRenderer.send('pty:resize', id, cols, rows),
   ptyKill: (id: string) => ipcRenderer.send('pty:kill', id),
   onPtyData: (cb: (p: { id: string; data: string }) => void) =>
-    ipcRenderer.on('pty:data', (_e, p) => cb(p))
+    ipcRenderer.on('pty:data', (_e, p) => cb(p)),
+  onSessionArchived: (cb: (p: { id: string }) => void) =>
+    ipcRenderer.on('session:archived', (_e, p) => cb(p)),
+
+  // sessions persistence / global board
+  sessionsAll: () => ipcRenderer.invoke('sessions:all'),
+  sessionResume: (s: unknown, cwd: string) => ipcRenderer.invoke('session:resume', s, cwd)
 })
