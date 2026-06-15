@@ -2,11 +2,12 @@ import { ipcMain, type BrowserWindow } from 'electron'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { PtyManager, type SpawnOpts } from './ptyManager'
-import { launchArgv } from './providers'
+import { launchArgv, resumeArgv } from './providers'
 import { allModels } from './models'
 import { addProject } from './projects'
-import { listRepos } from './github'
+import { listRepos, syncHistory } from './github'
 import { upDevcontainer, containerExecArgv, hasDevcontainerCli } from './devcontainer'
+import { Store } from './store'
 import { isProvider, type Provider, type Session } from '@shared/types'
 
 export interface FileNode {
@@ -69,16 +70,26 @@ async function ensureContainer(projectId: string, workspace: string): Promise<st
 }
 
 /** Registers all main-process IPC handlers. Thin router — logic lives in managers. */
-export function registerIpc(mgr: PtyManager, win: BrowserWindow): void {
+export function registerIpc(mgr: PtyManager, win: BrowserWindow, store: Store = new Store()): void {
   ipcMain.handle('ping', () => 'pong')
 
   // model registry for the picker
   ipcMain.handle('models:all', () => allModels())
 
-  // projects (GitHub-synced)
+  // projects (GitHub-synced) — persisted to the store
   ipcMain.handle('github:repos', () => listRepos())
-  ipcMain.handle('projects:add', (_e, repo: string) => addProject(repo))
+  ipcMain.handle('projects:add', async (_e, repo: string) => {
+    const p = await addProject(repo)
+    store.saveProject(p)
+    return p
+  })
+  ipcMain.handle('projects:list', () => store.listProjects())
   ipcMain.handle('fs:tree', (_e, root: string) => readTree(root))
+
+  // sessions persistence + global board (NN4) + resume + history (D16)
+  ipcMain.handle('sessions:all', () => store.allSessions())
+  ipcMain.handle('sessions:byProject', (_e, projectId: string) => store.getSessions(projectId))
+  ipcMain.handle('history:sync', (_e, repoDir: string, timestamp: string) => syncHistory(repoDir, timestamp))
 
   // terminal pty
   ipcMain.handle('pty:spawn', (_e, o: SpawnOpts) => {
@@ -115,13 +126,8 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow): void {
       cwd = req.cwd // docker process runs on host; -w handled by image default
     }
 
-    mgr.spawn(
-      { id, shell, args: spawnArgs, cwd, env: {} },
-      (data) => win.webContents.send('pty:data', { id, data })
-    )
-
     const now = Date.now()
-    return {
+    const session: Session = {
       id,
       projectId: req.projectId,
       provider: req.provider,
@@ -131,5 +137,41 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow): void {
       createdAt: now,
       updatedAt: now
     }
+    store.saveSession(session)
+
+    mgr.spawn(
+      { id, shell, args: spawnArgs, cwd, env: {} },
+      (data) => {
+        win.webContents.send('pty:data', { id, data })
+        store.appendTranscript(id, data, now)
+      },
+      () => {
+        // pty exited -> archive the session and notify the renderer
+        store.archiveSession(id)
+        win.webContents.send('session:archived', { id })
+      }
+    )
+
+    return session
+  })
+
+  // resume an archived session's conversation (interactive, subscription-safe)
+  ipcMain.handle('session:resume', (_e, s: Session, cwd: string): Session => {
+    if (!isProvider(s.provider)) throw new Error(`bad provider: ${s.provider}`)
+    const { cmd, args } = resumeArgv(s.provider)
+    mgr.spawn(
+      { id: s.id, shell: cmd, args, cwd, env: {} },
+      (data) => {
+        win.webContents.send('pty:data', { id: s.id, data })
+        store.appendTranscript(s.id, data, Date.now())
+      },
+      () => {
+        store.archiveSession(s.id)
+        win.webContents.send('session:archived', { id: s.id })
+      }
+    )
+    const resumed: Session = { ...s, status: 'running', updatedAt: Date.now() }
+    store.saveSession(resumed)
+    return resumed
   })
 }

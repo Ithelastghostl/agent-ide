@@ -25,7 +25,7 @@ export function resolveCwd(cwd: string): string {
 export class PtyManager {
   private procs = new Map<string, pty.IPty>()
 
-  spawn(o: SpawnOpts, onData: (d: string) => void): string {
+  spawn(o: SpawnOpts, onData: (d: string) => void, onExit?: () => void): string {
     const proc = pty.spawn(o.shell, o.args, {
       name: 'xterm-color',
       cols: 80,
@@ -34,7 +34,10 @@ export class PtyManager {
       env: { ...process.env, ...o.env } as Record<string, string>
     })
     proc.onData(onData)
-    proc.onExit(() => this.procs.delete(o.id))
+    proc.onExit(() => {
+      this.procs.delete(o.id)
+      onExit?.()
+    })
     this.procs.set(o.id, proc)
     return o.id
   }

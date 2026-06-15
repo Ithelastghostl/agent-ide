@@ -33,6 +33,19 @@ code defect. On your real desktop session it launches normally.
 - **L5:** a devcontainer project runs sessions inside the container (auto-approve).
 - **L6:** sessions persist/resume; ⌘ home shows all sessions across projects.
 
+## Containerized sessions (NN2) — requirement
+When a project has a devcontainer, sessions run **inside** it via
+`docker exec -it <container> <provider> ...` (verified end-to-end against
+bloomsbury-crm: a Node 22 + Python 3.12 container, project at
+`/workspaces/<name>`). For an agent to actually run in-container, the **provider
+CLI must be installed inside the container**, authenticated to your subscription.
+A well-formed devcontainer does this in `postCreate` — e.g. bloomsbury-crm's
+`setup.sh` installs `@anthropic-ai/claude-code`, `@google/gemini-cli`,
+`@openai/codex` and bind-mounts `~/.claude` for subscription OAuth. The IDE's job
+is to run the session inside the container; provisioning the CLI is the
+devcontainer's job (same as your VS Code workflow). First container bring-up is
+slow (image pull + feature compile); subsequent launches reuse the built image.
+
 ## Commands
 ```bash
 npm run dev      # launch with live reload (use this for visual checks)
