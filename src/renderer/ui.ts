@@ -42,6 +42,62 @@ export function showMenu(x: number, y: number, items: MenuItem[]): void {
   setTimeout(() => document.addEventListener('mousedown', close), 0)
 }
 
+export interface ChoiceOption<T> { label: string; value: T; primary?: boolean; hint?: string }
+
+/** In-app choice modal with buttons + an optional checkbox. Resolves to the
+ *  chosen value (and checkbox state), or null if cancelled. */
+export function chooseOption<T>(
+  title: string,
+  options: ChoiceOption<T>[],
+  checkbox?: { label: string; checked?: boolean }
+): Promise<{ value: T; checked: boolean } | null> {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div')
+    wrap.className = 'modal-wrap show'
+    const modal = document.createElement('div')
+    modal.className = 'modal'
+    modal.style.width = '460px'
+
+    const h3 = document.createElement('h3')
+    h3.textContent = title
+    modal.appendChild(h3)
+
+    let checked = checkbox?.checked ?? false
+    if (checkbox) {
+      const row = document.createElement('label')
+      row.className = 'check-row'
+      const box = document.createElement('input')
+      box.type = 'checkbox'
+      box.checked = checked
+      box.onchange = () => { checked = box.checked }
+      const span = document.createElement('span')
+      span.textContent = checkbox.label
+      row.append(box, span)
+      modal.appendChild(row)
+    }
+
+    const foot = document.createElement('div')
+    foot.className = 'foot'
+    const done = (v: T | null) => { wrap.remove(); resolve(v === null ? null : { value: v, checked }) }
+    const cancel = document.createElement('button')
+    cancel.textContent = 'Cancel'
+    cancel.onclick = () => done(null)
+    foot.appendChild(cancel)
+    for (const o of options) {
+      const b = document.createElement('button')
+      b.textContent = o.label
+      if (o.primary) b.className = 'primary'
+      if (o.hint) b.title = o.hint
+      b.onclick = () => done(o.value)
+      foot.appendChild(b)
+    }
+    modal.appendChild(foot)
+    wrap.appendChild(modal)
+    wrap.onclick = (e) => { if (e.target === wrap) done(null) }
+    document.body.appendChild(wrap)
+  })
+}
+
 /** In-app text prompt modal. Resolves to the entered string, or null if cancelled. */
 export function promptText(title: string, placeholder = ''): Promise<string | null> {
   return new Promise((resolve) => {

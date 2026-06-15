@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld('agentIDE', {
   sessionLaunch: (req: unknown) => ipcRenderer.invoke('session:launch', req),
   sessionRename: (id: string, name: string) => ipcRenderer.invoke('session:rename', id, name),
 
+  // provider connection (F8/F9/F10)
+  providerHealth: (provider: string, projectId: string) => ipcRenderer.invoke('provider:health', provider, projectId),
+  providerLogin: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:login', provider, projectId, cwd),
+  providerInstall: (provider: string, projectId: string) => ipcRenderer.invoke('provider:install', provider, projectId),
+
   // projects
   githubRepos: () => ipcRenderer.invoke('github:repos'),
   openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),

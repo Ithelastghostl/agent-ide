@@ -166,6 +166,9 @@
   padding: 9px 11px; color: var(--text-primary); font-size: 13px; outline: none;
 }
 .prompt-input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-border); }
+.check-row { display: flex; align-items: center; gap: 9px; padding: 6px 18px 14px; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.check-row input { accent-color: var(--accent); }
+.provrow .prov-dots { font-size: 13px; letter-spacing: 1px; }
 
 /* context menu (terminal right-click + session ⋯) */
 .ctx-menu {

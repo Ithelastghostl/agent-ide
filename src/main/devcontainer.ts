@@ -12,9 +12,18 @@ export function devcontainerBin(): string {
   return existsSync(local) ? local : 'devcontainer'
 }
 
-/** argv for `devcontainer up --workspace-folder <ws>`. */
-export function devcontainerUpArgv(workspace: string): string[] {
-  return ['up', '--workspace-folder', workspace]
+/** argv for `devcontainer up --workspace-folder <ws>`, with optional extra
+ *  bind mounts (e.g. ~/.claude read-only so in-container agents have your
+ *  skills + config — F12). Each mount is a docker --mount string. */
+export function devcontainerUpArgv(workspace: string, mounts: string[] = []): string[] {
+  const args = ['up', '--workspace-folder', workspace]
+  for (const m of mounts) args.push('--mount', m)
+  return args
+}
+
+/** Build a read-only bind-mount string for ~/.claude into the container. */
+export function claudeConfigMount(homeDir: string): string {
+  return `type=bind,source=${homeDir}/.claude,target=/root/.claude,readonly`
 }
 
 /** Extract the containerId from `devcontainer up` JSON output (last JSON line). */
@@ -41,8 +50,8 @@ export function containerExecArgv(
 }
 
 /** Bring up the project's devcontainer (same tool VS Code uses) and return its id. */
-export async function upDevcontainer(workspace: string): Promise<{ containerId: string }> {
-  const { stdout } = await pexec(devcontainerBin(), devcontainerUpArgv(workspace), {
+export async function upDevcontainer(workspace: string, mounts: string[] = []): Promise<{ containerId: string }> {
+  const { stdout } = await pexec(devcontainerBin(), devcontainerUpArgv(workspace, mounts), {
     maxBuffer: 1024 * 1024 * 32
   })
   return { containerId: parseContainerId(stdout) }

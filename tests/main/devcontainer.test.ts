@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest'
-import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin } from '../../src/main/devcontainer'
+import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount } from '../../src/main/devcontainer'
+
+describe('devcontainerUpArgv with mounts (F12)', () => {
+  it('appends --mount for each extra mount', () => {
+    expect(devcontainerUpArgv('/ws', ['type=bind,source=/a,target=/b,readonly'])).toEqual([
+      'up', '--workspace-folder', '/ws',
+      '--mount', 'type=bind,source=/a,target=/b,readonly'
+    ])
+  })
+  it('no --mount when none given', () => {
+    expect(devcontainerUpArgv('/ws')).toEqual(['up', '--workspace-folder', '/ws'])
+  })
+})
+
+describe('claudeConfigMount', () => {
+  it('builds a read-only bind mount of ~/.claude', () => {
+    expect(claudeConfigMount('/home/me')).toBe('type=bind,source=/home/me/.claude,target=/root/.claude,readonly')
+  })
+})
 
 describe('devcontainerBin', () => {
   it('resolves the local node_modules binary when present', () => {

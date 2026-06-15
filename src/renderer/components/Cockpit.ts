@@ -1,13 +1,18 @@
 import { PROVIDERS, type Provider, type Session } from '@shared/types'
 
+export type ProviderHealth = 'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'
+
 export interface CockpitProps {
   sessions: Session[]
   activeSessionId: string | null
   /** session ids whose process died and need reconnect (F4). */
   reconnect?: Set<string>
+  /** last-known connection health per provider (F8/F9). */
+  health?: Partial<Record<Provider, ProviderHealth>>
   onLaunch: (provider: Provider) => void
   onSelectSession: (id: string) => void
   onSessionMenu?: (session: Session, x: number, y: number) => void
+  onProviderMenu?: (provider: Provider, x: number, y: number) => void
 }
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -123,21 +128,35 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     const pdot = document.createElement('span')
     pdot.className = 'pdot'
     const label = document.createTextNode(PROVIDER_LABEL[provider])
-    // F4: live/down indicator — down if any of this provider's sessions need reconnect
+    // F8/F4: connection indicator — prefer known health, else session reconnect state.
+    const h = p.health?.[provider]
     const live = document.createElement('span')
     const anyDown = provSessions.some((s) => reconnect.has(s.id))
     const anyLive = provSessions.some((s) => s.status === 'running' && !reconnect.has(s.id))
-    if (provSessions.length) {
-      live.className = 'live' + (anyDown && !anyLive ? ' down' : '')
-      live.textContent = anyDown && !anyLive ? '● reconnect' : '● live'
-    }
+    let txt = '', down = false
+    if (h === 'healthy') { txt = '● live'; down = false }
+    else if (h === 'not-logged-in') { txt = '● login needed'; down = true }
+    else if (h === 'not-installed') { txt = '● not installed'; down = true }
+    else if (h === 'unknown') { txt = '● ?'; down = false }
+    else if (provSessions.length) { txt = anyDown && !anyLive ? '● reconnect' : '● live'; down = anyDown && !anyLive }
+    if (txt) { live.className = 'live' + (down ? ' down' : ''); live.textContent = txt }
     const grow = document.createElement('span')
     grow.className = 'grow'
     const add = document.createElement('span')
     add.className = 'add'
     add.textContent = '＋'
     add.onclick = () => p.onLaunch(provider)
-    row.append(pdot, label, live, grow, add)
+    // F9: provider-tag ⋯ menu (login / health / install)
+    const dots = document.createElement('span')
+    dots.className = 'add prov-dots'
+    dots.textContent = '⋯'
+    dots.title = `${PROVIDER_LABEL[provider]} connection`
+    dots.onclick = (e) => {
+      e.stopPropagation()
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      p.onProviderMenu?.(provider, r.right, r.bottom)
+    }
+    row.append(pdot, label, live, grow, add, dots)
     group.appendChild(row)
 
     for (const s of provSessions) {

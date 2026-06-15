@@ -2,7 +2,7 @@ import './cockpit.css'
 import type { Provider, Project, Session } from '@shared/types'
 import { initialState, liveCounts, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
-import { Cockpit } from './components/Cockpit'
+import { Cockpit, type ProviderHealth } from './components/Cockpit'
 import { SupervisionView } from './components/SupervisionView'
 import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
@@ -10,13 +10,17 @@ import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
 import { AllSessions } from './components/AllSessions'
 import { modelsFor } from './models'
-import { showMenu, promptText } from './ui'
+import { showMenu, promptText, chooseOption } from './ui'
 
 const root = document.getElementById('app')!
 const state: AppState = initialState()
 
 // Sessions whose process died (F4). Cleared when reconnected/relaunched.
 const reconnect = new Set<string>()
+// Last-known provider connection health, per provider (F8/F9).
+const health: Partial<Record<Provider, ProviderHealth>> = {}
+// Remembered run-context choice per project (F11): true=container, false=host.
+const runInContainer = new Map<string, boolean>()
 
 // F4: a session's pty exited. History is always kept; a crash flags reconnect.
 window.agentIDE.onSessionExit(({ id, reason }) => {
@@ -122,10 +126,33 @@ function openGithubClone() {
 }
 function closeOverlay() { document.getElementById('picker-overlay')?.remove() }
 
-// F3: launch a session — prompt for a name first, then pick a model.
+// F11/F12: decide run context for a devcontainer project. Returns
+// { useContainer, importConfig } or null if cancelled. Remembers per project.
+async function resolveRunContext(proj: Project): Promise<{ useContainer: boolean; importConfig: boolean } | null> {
+  if (!proj.hasDevcontainer) return { useContainer: false, importConfig: false }
+  if (runInContainer.has(proj.id)) {
+    return { useContainer: runInContainer.get(proj.id)!, importConfig: false }
+  }
+  const choice = await chooseOption<'container' | 'host'>(
+    `Run “${proj.name}” in its devcontainer?`,
+    [
+      { label: 'Run on host', value: 'host', hint: 'Full filesystem access, no container' },
+      { label: 'Run in container', value: 'container', primary: true, hint: 'Isolated to the devcontainer workspace' }
+    ],
+    { label: 'Also import my ~/.claude skills + config into the container (read-only)', checked: true }
+  )
+  if (!choice) return null
+  const useContainer = choice.value === 'container'
+  runInContainer.set(proj.id, useContainer)
+  return { useContainer, importConfig: useContainer && choice.checked }
+}
+
+// F3: launch a session — choose run context, prompt for a name, then pick a model.
 async function launchFlow(provider: Provider) {
   const proj = currentProject()
   if (!proj) return
+  const ctx = await resolveRunContext(proj) // F11/F12
+  if (ctx === null) return // cancelled
   const name = await promptText(`Name this ${provider} session`, 'e.g. fix auth bug')
   if (name === null) return // cancelled
   const picker = ModelPicker({
@@ -140,7 +167,8 @@ async function launchFlow(provider: Provider) {
           model: modelId,
           objective: name || `${prov} session`,
           cwd: proj.localPath,
-          useContainer: proj.hasDevcontainer // NN2/D26
+          useContainer: ctx.useContainer,
+          importConfig: ctx.importConfig
         })
         launchedSessions.add(session.id)
         state.sessions.push(session)
@@ -153,6 +181,62 @@ async function launchFlow(provider: Provider) {
   })
   picker.id = 'picker-overlay'
   document.body.appendChild(picker)
+}
+
+// F8/F9: provider-tag menu — check health, run login, install CLI (with confirm).
+async function refreshHealth(provider: Provider) {
+  const proj = currentProject()
+  if (!proj) return
+  try {
+    health[provider] = await window.agentIDE.providerHealth(provider, proj.id)
+    render()
+  } catch (err) { console.error('health check failed', err) }
+}
+
+function openProviderMenu(provider: Provider, x: number, y: number) {
+  const proj = currentProject()
+  if (!proj) return
+  const h = health[provider]
+  const items: { label: string; danger?: boolean; onClick: () => void }[] = [
+    { label: '🔍 Check connection health', onClick: () => void refreshHealth(provider) }
+  ]
+  // Login only makes sense when the CLI exists (or state unknown) — not when missing.
+  if (h !== 'not-installed') {
+    items.push({
+      label: '🔑 Run CLI login',
+      onClick: () => {
+        window.agentIDE.providerLogin(provider, proj.id, proj.localPath).then((id) => {
+          // surface the login as the active terminal session
+          launchedSessions.add(id)
+          state.sessions.push({
+            id, projectId: proj.id, provider, model: 'login',
+            objective: `${provider} login`, status: 'running', createdAt: 0, updatedAt: 0
+          })
+          state.activeSessionId = id
+          state.view = 'cockpit'
+          render()
+        })
+      }
+    })
+  }
+  // Install only when the CLI is missing inside a running container — with confirm.
+  if (h === 'not-installed' && runInContainer.get(proj.id)) {
+    items.push({
+      label: `⬇ Install ${provider} CLI in container…`,
+      onClick: async () => {
+        const ok = await chooseOption<'yes'>(
+          `Install the ${provider} CLI inside “${proj.name}”'s container?`,
+          [{ label: 'Install', value: 'yes', primary: true }]
+        )
+        if (!ok) return
+        try {
+          health[provider] = await window.agentIDE.providerInstall(provider, proj.id)
+          render()
+        } catch (err) { console.error('install failed', err) }
+      }
+    })
+  }
+  showMenu(x, y, items)
 }
 
 // F7: reconnect a crashed session via the existing resume path. Drops the stale
@@ -263,9 +347,11 @@ function render() {
       sessions: projectSessions,
       activeSessionId: state.activeSessionId,
       reconnect,
+      health,
       onLaunch: launchFlow,
       onSelectSession: (id) => { state.activeSessionId = id; render() },
-      onSessionMenu: openSessionMenu
+      onSessionMenu: openSessionMenu,
+      onProviderMenu: openProviderMenu
     })
   )
 

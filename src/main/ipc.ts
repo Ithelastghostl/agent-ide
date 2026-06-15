@@ -1,12 +1,14 @@
 import { ipcMain, dialog, type BrowserWindow } from 'electron'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { PtyManager, type SpawnOpts } from './ptyManager'
 import { launchArgv, resumeArgv } from './providers'
 import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory } from './github'
-import { upDevcontainer, containerExecArgv, hasDevcontainerCli } from './devcontainer'
+import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount } from './devcontainer'
+import { probeHealth, loginArgv, installInContainer } from './providerHealth'
 import { Store } from './store'
 import { isProvider, type Provider, type Session } from '@shared/types'
 
@@ -49,8 +51,11 @@ export interface LaunchRequest {
   model: string
   objective: string
   cwd: string
-  /** When true, run the session inside the project's devcontainer (NN2). */
+  /** When true, run the session inside the project's devcontainer (NN2). The
+   *  renderer decides this now (F11 — asks the user host vs container). */
   useContainer: boolean
+  /** F12: bind-mount ~/.claude (read-only) into the container on first build. */
+  importConfig?: boolean
 }
 
 let seq = 0
@@ -61,12 +66,19 @@ function newSessionId(): string {
 
 // One container per project, brought up lazily and reused across its sessions.
 const containerByProject = new Map<string, string>()
-async function ensureContainer(projectId: string, workspace: string): Promise<string> {
+async function ensureContainer(projectId: string, workspace: string, importConfig = false): Promise<string> {
   const existing = containerByProject.get(projectId)
   if (existing) return existing
-  const { containerId } = await upDevcontainer(workspace)
+  const mounts = importConfig ? [claudeConfigMount(homedir())] : []
+  const { containerId } = await upDevcontainer(workspace, mounts)
   containerByProject.set(projectId, containerId)
   return containerId
+}
+
+/** Resolve the container id for a project if one is already up (for health/login
+ *  in container context), else undefined. */
+function containerIdFor(projectId: string): string | undefined {
+  return containerByProject.get(projectId)
 }
 
 /** Registers all main-process IPC handlers. Thin router — logic lives in managers.
@@ -109,6 +121,38 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     store?.renameSession(id, name)
   })
 
+  // F8: provider connection health, in the project's context (host or container).
+  ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string) => {
+    if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+    const containerId = containerIdFor(projectId)
+    return probeHealth(provider, { containerId })
+  })
+
+  // F10: run an interactive CLI login as a terminal session, in project context.
+  ipcMain.handle('provider:login', (_e, provider: Provider, projectId: string, cwd: string): string => {
+    if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+    const id = `login-${provider}-${newSessionId()}`
+    const { cmd, args } = loginArgv(provider)
+    const containerId = containerIdFor(projectId)
+    const shell = containerId ? 'docker' : cmd
+    const spawnArgs = containerId ? containerExecArgv(containerId, cmd, args) : args
+    mgr.spawn(
+      { id, shell, args: spawnArgs, cwd, env: {} },
+      (data) => win.webContents.send('pty:data', { id, data }),
+      ({ reason }) => win.webContents.send('session:exit', { id, reason })
+    )
+    return id
+  })
+
+  // F9: install a provider CLI inside the project's container (with renderer confirm).
+  ipcMain.handle('provider:install', async (_e, provider: Provider, projectId: string) => {
+    if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+    const containerId = containerIdFor(projectId)
+    if (!containerId) throw new Error('no running container for this project')
+    await installInContainer(provider, containerId)
+    return probeHealth(provider, { containerId })
+  })
+
   // sessions persistence + global board (NN4) + resume + history (D16)
   ipcMain.handle('sessions:all', () => store?.allSessions() ?? [])
   ipcMain.handle('sessions:byProject', (_e, projectId: string) => store?.getSessions(projectId) ?? [])
@@ -142,7 +186,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
         throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
       }
       win.webContents.send('session:status', { id, message: 'starting container…' })
-      const containerId = await ensureContainer(req.projectId, req.cwd)
+      const containerId = await ensureContainer(req.projectId, req.cwd, req.importConfig)
       // run inside the container; docker exec carries the provider argv
       shell = 'docker'
       spawnArgs = containerExecArgv(containerId, cmd, args)
