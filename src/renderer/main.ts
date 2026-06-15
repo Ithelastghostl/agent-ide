@@ -1,7 +1,84 @@
-const app = document.getElementById('app')!
-app.innerHTML = `<div style="padding:20px">Agent IDE — booting…</div>`
+import './cockpit.css'
+import type { Provider } from '@shared/types'
+import { initialState, liveCounts, mockTree, type AppState } from './state'
+import { ProjectRail } from './components/ProjectRail'
+import { Cockpit } from './components/Cockpit'
+import { SupervisionView } from './components/SupervisionView'
+import { Explorer } from './components/Explorer'
+import { ModelPicker } from './components/ModelPicker'
+import { modelsFor } from './models'
 
-// Smoke-test the preload bridge.
-;(window as any).agentIDE.ping().then((r: string) => {
-  app.innerHTML += `<div style="padding:0 20px;color:var(--success)">bridge: ${r}</div>`
-})
+const root = document.getElementById('app')!
+const state: AppState = initialState()
+
+function activityBar(): HTMLElement {
+  const el = document.createElement('div')
+  el.className = 'activity'
+  for (const [icon, on] of [['🗂', true], ['🔍', false], ['⑂', false], ['▷', false]] as const) {
+    const d = document.createElement('div')
+    d.className = 'ic' + (on ? ' on' : '')
+    d.textContent = icon
+    el.appendChild(d)
+  }
+  const sp = document.createElement('div'); sp.className = 'sp'; el.appendChild(sp)
+  const cog = document.createElement('div'); cog.className = 'ic'; cog.textContent = '⚙'; el.appendChild(cog)
+  return el
+}
+
+function currentProject() {
+  return state.projects.find((p) => p.id === state.currentProjectId)!
+}
+
+function openPicker(provider: Provider) {
+  const picker = ModelPicker({
+    provider,
+    models: modelsFor(provider),
+    onPick: (prov, modelId) => {
+      // L3 wires this to a real session launch. For L1, just log + close.
+      console.log('launch', prov, modelId)
+      closePicker()
+    },
+    onCancel: closePicker
+  })
+  picker.id = 'picker-overlay'
+  document.body.appendChild(picker)
+}
+function closePicker() {
+  document.getElementById('picker-overlay')?.remove()
+}
+
+function render() {
+  root.innerHTML = ''
+  const body = document.createElement('div')
+  body.className = 'ide-body'
+
+  const rail = ProjectRail({
+    projects: state.projects,
+    activeId: state.currentProjectId,
+    counts: liveCounts(state.sessions),
+    onSelect: (id) => { state.currentProjectId = id; state.view = 'cockpit'; render() },
+    onHome: () => { state.view = 'home'; render() },
+    onAdd: () => openPicker('codex') // placeholder; L4 opens the GitHub add flow
+  })
+  body.appendChild(rail)
+  body.appendChild(activityBar())
+
+  const proj = currentProject()
+  const projectSessions = state.sessions.filter((s) => s.projectId === proj.id)
+  const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
+
+  body.appendChild(Explorer({ projectName: proj.name, tree: mockTree }))
+  body.appendChild(SupervisionView({ session: activeSession, projectName: proj.name }))
+  body.appendChild(
+    Cockpit({
+      sessions: projectSessions,
+      activeSessionId: state.activeSessionId,
+      onLaunch: openPicker,
+      onSelectSession: (id) => { state.activeSessionId = id; render() }
+    })
+  )
+
+  root.appendChild(body)
+}
+
+render()
