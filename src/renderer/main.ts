@@ -95,8 +95,9 @@ function openPicker(provider: Provider) {
           model: modelId,
           objective: `New ${prov} session`,
           cwd: proj.localPath,
-          // D26: auto-approve only inside a devcontainer; host projects prompt.
-          autoApprove: proj.hasDevcontainer
+          // NN2/D26: containerized projects run inside the devcontainer with
+          // auto-approve; host projects run on host and prompt.
+          useContainer: proj.hasDevcontainer
         })
         launchedSessions.add(session.id)
         state.sessions.push(session)

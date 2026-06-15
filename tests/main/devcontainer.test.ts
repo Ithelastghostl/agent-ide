@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { containerExecArgv, devcontainerUpArgv, parseContainerId } from '../../src/main/devcontainer'
+import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin } from '../../src/main/devcontainer'
+
+describe('devcontainerBin', () => {
+  it('resolves the local node_modules binary when present', () => {
+    // tests run from agent-ide/, where the local CLI is installed
+    expect(devcontainerBin()).toContain('node_modules/.bin/devcontainer')
+  })
+})
 
 describe('devcontainerUpArgv', () => {
   it('builds `devcontainer up --workspace-folder <ws>`', () => {

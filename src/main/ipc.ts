@@ -6,6 +6,7 @@ import { launchArgv } from './providers'
 import { allModels } from './models'
 import { addProject } from './projects'
 import { listRepos } from './github'
+import { upDevcontainer, containerExecArgv, hasDevcontainerCli } from './devcontainer'
 import { isProvider, type Provider, type Session } from '@shared/types'
 
 export interface FileNode {
@@ -47,13 +48,24 @@ export interface LaunchRequest {
   model: string
   objective: string
   cwd: string
-  autoApprove: boolean
+  /** When true, run the session inside the project's devcontainer (NN2). */
+  useContainer: boolean
 }
 
 let seq = 0
 function newSessionId(): string {
   seq += 1
   return `sess-${seq}-${process.pid}`
+}
+
+// One container per project, brought up lazily and reused across its sessions.
+const containerByProject = new Map<string, string>()
+async function ensureContainer(projectId: string, workspace: string): Promise<string> {
+  const existing = containerByProject.get(projectId)
+  if (existing) return existing
+  const { containerId } = await upDevcontainer(workspace)
+  containerByProject.set(projectId, containerId)
+  return containerId
 }
 
 /** Registers all main-process IPC handlers. Thin router — logic lives in managers. */
@@ -77,15 +89,37 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow): void {
   ipcMain.on('pty:resize', (_e, id: string, cols: number, rows: number) => mgr.resize(id, cols, rows))
   ipcMain.on('pty:kill', (_e, id: string) => mgr.kill(id))
 
-  // launch a real provider session (interactive CLI, subscription-safe per NN0)
-  ipcMain.handle('session:launch', (_e, req: LaunchRequest): Session => {
+  // launch a real provider session (interactive CLI, subscription-safe per NN0).
+  // Containerized projects run the CLI INSIDE the devcontainer with auto-approve
+  // (NN2 + D26); host projects run on the host and prompt for approval.
+  ipcMain.handle('session:launch', async (_e, req: LaunchRequest): Promise<Session> => {
     if (!isProvider(req.provider)) throw new Error(`bad provider: ${req.provider}`)
     const id = newSessionId()
-    const { cmd, args } = launchArgv({ provider: req.provider, model: req.model, autoApprove: req.autoApprove })
+
+    // Build the provider invocation. autoApprove == running in a container.
+    const { cmd, args } = launchArgv({ provider: req.provider, model: req.model, autoApprove: req.useContainer })
+
+    let shell = cmd
+    let spawnArgs = args
+    let cwd = req.cwd
+
+    if (req.useContainer) {
+      if (!(await hasDevcontainerCli())) {
+        throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
+      }
+      win.webContents.send('session:status', { id, message: 'starting container…' })
+      const containerId = await ensureContainer(req.projectId, req.cwd)
+      // run inside the container; docker exec carries the provider argv
+      shell = 'docker'
+      spawnArgs = containerExecArgv(containerId, cmd, args)
+      cwd = req.cwd // docker process runs on host; -w handled by image default
+    }
+
     mgr.spawn(
-      { id, shell: cmd, args, cwd: req.cwd, env: {} },
+      { id, shell, args: spawnArgs, cwd, env: {} },
       (data) => win.webContents.send('pty:data', { id, data })
     )
+
     const now = Date.now()
     return {
       id,

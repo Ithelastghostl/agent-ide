@@ -8,7 +8,7 @@ interface AgentIDEBridge {
   ping(): Promise<string>
   modelsAll(): Promise<Record<string, { id: string; label: string; tier: string }[]>>
   sessionLaunch(req: {
-    projectId: string; provider: string; model: string; objective: string; cwd: string; autoApprove: boolean
+    projectId: string; provider: string; model: string; objective: string; cwd: string; useContainer: boolean
   }): Promise<import('@shared/types').Session>
   githubRepos(): Promise<{ repo: string; name: string }[]>
   projectsAdd(repo: string): Promise<import('@shared/types').Project>

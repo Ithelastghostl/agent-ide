@@ -1,7 +1,16 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 
 const pexec = promisify(execFile)
+
+/** Resolve the devcontainer CLI: prefer the locally-installed binary (bundled
+ *  with the app), fall back to a `devcontainer` on PATH. */
+export function devcontainerBin(): string {
+  const local = join(process.cwd(), 'node_modules', '.bin', 'devcontainer')
+  return existsSync(local) ? local : 'devcontainer'
+}
 
 /** argv for `devcontainer up --workspace-folder <ws>`. */
 export function devcontainerUpArgv(workspace: string): string[] {
@@ -33,16 +42,16 @@ export function containerExecArgv(
 
 /** Bring up the project's devcontainer (same tool VS Code uses) and return its id. */
 export async function upDevcontainer(workspace: string): Promise<{ containerId: string }> {
-  const { stdout } = await pexec('devcontainer', devcontainerUpArgv(workspace), {
+  const { stdout } = await pexec(devcontainerBin(), devcontainerUpArgv(workspace), {
     maxBuffer: 1024 * 1024 * 32
   })
   return { containerId: parseContainerId(stdout) }
 }
 
-/** True if the devcontainer CLI is on PATH. */
+/** True if the devcontainer CLI is available (local or on PATH). */
 export async function hasDevcontainerCli(): Promise<boolean> {
   try {
-    await pexec('devcontainer', ['--version'])
+    await pexec(devcontainerBin(), ['--version'])
     return true
   } catch {
     return false

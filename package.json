@@ -24,6 +24,7 @@
     "node-pty": "1.1.0"
   },
   "devDependencies": {
+    "@devcontainers/cli": "0.87.0",
     "@electron/rebuild": "4.0.4",
     "@playwright/test": "1.61.0",
     "@types/node": "25.9.3",
