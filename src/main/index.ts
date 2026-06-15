@@ -1,5 +1,9 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
+import { PtyManager } from './ptyManager'
+import { registerIpc } from './ipc'
+
+const ptyManager = new PtyManager()
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -14,14 +18,14 @@ function createWindow(): void {
     }
   })
 
+  registerIpc(ptyManager, win)
+
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
-
-ipcMain.handle('ping', () => 'pong')
 
 app.whenReady().then(createWindow)
 

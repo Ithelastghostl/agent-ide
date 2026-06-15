@@ -2,3 +2,17 @@
 
 // Allow side-effect CSS imports in the renderer (Vite bundles them; tsc needs this).
 declare module '*.css'
+
+// The preload bridge surface available on window.
+interface AgentIDEBridge {
+  ping(): Promise<string>
+  ptySpawn(o: { id: string; shell: string; args: string[]; cwd: string; env: Record<string, string> }): Promise<string>
+  ptyWrite(id: string, data: string): void
+  ptyResize(id: string, cols: number, rows: number): void
+  ptyKill(id: string): void
+  onPtyData(cb: (p: { id: string; data: string }) => void): void
+}
+
+interface Window {
+  agentIDE: AgentIDEBridge
+}
