@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, findContainerArgv } from '../../src/main/devcontainer'
+import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
 
 describe('findContainerArgv', () => {
   it('filters running containers by the devcontainer local_folder label', () => {
@@ -7,6 +7,28 @@ describe('findContainerArgv', () => {
       'ps', '--filter', 'label=devcontainer.local_folder=/home/me/AgentIDE/app',
       '--format', '{{.ID}}', '--no-trunc'
     ])
+  })
+})
+
+describe('findAnyContainerArgv', () => {
+  it('uses -a and includes state', () => {
+    expect(findAnyContainerArgv('/ws')).toEqual([
+      'ps', '-a', '--filter', 'label=devcontainer.local_folder=/ws',
+      '--format', '{{.ID}} {{.State}}', '--no-trunc'
+    ])
+  })
+})
+
+describe('parseContainerPresence', () => {
+  it('prefers a running container', () => {
+    expect(parseContainerPresence('abc exited\ndef running\n')).toEqual({ state: 'running', id: 'def' })
+  })
+  it('reports stopped when only a non-running one exists', () => {
+    expect(parseContainerPresence('abc exited\n')).toEqual({ state: 'stopped', id: 'abc' })
+    expect(parseContainerPresence('xyz created\n')).toEqual({ state: 'stopped', id: 'xyz' })
+  })
+  it('reports none for empty output', () => {
+    expect(parseContainerPresence('')).toEqual({ state: 'none' })
   })
 })
 

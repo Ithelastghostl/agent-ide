@@ -73,6 +73,12 @@ export function findContainerArgv(workspace: string): string[] {
   return ['ps', '--filter', `label=devcontainer.local_folder=${workspace}`, '--format', '{{.ID}}', '--no-trunc']
 }
 
+/** argv to find ANY devcontainer (running OR stopped) for a workspace, with its
+ *  state, so we can distinguish "stopped, restart it" from "never built". */
+export function findAnyContainerArgv(workspace: string): string[] {
+  return ['ps', '-a', '--filter', `label=devcontainer.local_folder=${workspace}`, '--format', '{{.ID}} {{.State}}', '--no-trunc']
+}
+
 /** Return the running container id for a project workspace, or null. */
 export async function findRunningContainer(workspace: string): Promise<string | null> {
   try {
@@ -82,4 +88,37 @@ export async function findRunningContainer(workspace: string): Promise<string | 
   } catch {
     return null
   }
+}
+
+export type ContainerPresence =
+  | { state: 'running'; id: string }
+  | { state: 'stopped'; id: string }
+  | { state: 'none' }
+
+/** Parse `docker ps -a ... {{.ID}} {{.State}}` output, preferring a running one. */
+export function parseContainerPresence(stdout: string): ContainerPresence {
+  const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean)
+  let stopped: string | null = null
+  for (const line of lines) {
+    const [id, state] = line.split(/\s+/)
+    if (!id) continue
+    if (state === 'running') return { state: 'running', id }
+    if (!stopped) stopped = id // exited / created / paused → treat as stopped
+  }
+  return stopped ? { state: 'stopped', id: stopped } : { state: 'none' }
+}
+
+/** Find a devcontainer for a workspace (running, stopped, or none). */
+export async function findContainerPresence(workspace: string): Promise<ContainerPresence> {
+  try {
+    const { stdout } = await pexec('docker', findAnyContainerArgv(workspace))
+    return parseContainerPresence(stdout)
+  } catch {
+    return { state: 'none' }
+  }
+}
+
+/** Start an already-built but stopped container by id. */
+export async function startContainerById(id: string): Promise<void> {
+  await pexec('docker', ['start', id])
 }

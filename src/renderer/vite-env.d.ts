@@ -14,7 +14,7 @@ interface AgentIDEBridge {
   sessionArchive(id: string): Promise<void>
   terminalOpen(req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<import('@shared/types').Session>
   containerStart(projectId: string, workspace: string, importConfig: boolean): Promise<string>
-  containerStatus(projectId: string, workspace: string): Promise<'running' | 'stopped'>
+  containerStatus(projectId: string, workspace: string): Promise<'running' | 'stopped' | 'none'>
   onContainerStatus(cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void): void
   providerHealth(provider: string, projectId: string, cwd: string): Promise<'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'>
   providerLogin(provider: string, projectId: string, cwd: string): Promise<string>

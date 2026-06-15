@@ -22,7 +22,7 @@ const health: Partial<Record<Provider, ProviderHealth>> = {}
 // Remembered run-context choice per project (F11): true=container, false=host.
 const runInContainer = new Map<string, boolean>()
 // Container state per project (F14).
-const containerState = new Map<string, 'stopped' | 'starting' | 'running' | 'error'>()
+const containerState = new Map<string, 'none' | 'stopped' | 'starting' | 'running' | 'error'>()
 window.agentIDE.onContainerStatus?.(({ projectId, state: s }) => {
   containerState.set(projectId, s)
   render()
@@ -87,9 +87,10 @@ function loadContainerStatus(projectId: string, localPath: string) {
   if (containerStatusLoaded.has(projectId)) return
   containerStatusLoaded.add(projectId)
   window.agentIDE.containerStatus(projectId, localPath).then((s) => {
-    if (s === 'running' && containerState.get(projectId) !== 'running') {
-      containerState.set(projectId, 'running')
-      runInContainer.set(projectId, true) // a running container implies container mode
+    // s is 'running' | 'stopped' | 'none'. Reflect it on the button.
+    if (containerState.get(projectId) !== s) {
+      containerState.set(projectId, s)
+      if (s === 'running') runInContainer.set(projectId, true) // running implies container mode
       render()
     }
   })
@@ -217,7 +218,7 @@ async function startContainer() {
       [{ label: 'Start', value: 'go', primary: true }],
       { label: 'Import my ~/.claude skills + config (read-only)', checked: true }
     )
-    if (!choice) { containerState.set(proj.id, 'stopped'); render(); return }
+    if (!choice) { containerStatusLoaded.delete(proj.id); loadContainerStatus(proj.id, proj.localPath); return }
     importConfig = choice.checked
     runInContainer.set(proj.id, true) // starting the container implies container mode
   }
@@ -434,7 +435,7 @@ function render() {
       onProviderMenu: openProviderMenu,
       onOpenTerminal: openTerminal,
       showContainerButton: proj.hasDevcontainer,
-      containerState: containerState.get(proj.id) ?? 'stopped',
+      containerState: containerState.get(proj.id) ?? 'none',
       onStartContainer: startContainer
     })
   )

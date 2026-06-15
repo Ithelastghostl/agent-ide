@@ -17,7 +17,7 @@ export interface CockpitProps {
   onOpenTerminal?: () => void
   /** F14: show a "Start container" button (devcontainer projects only). */
   showContainerButton?: boolean
-  containerState?: 'stopped' | 'starting' | 'running' | 'error'
+  containerState?: 'none' | 'stopped' | 'starting' | 'running' | 'error'
   onStartContainer?: () => void
 }
 
@@ -120,11 +120,15 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   if (p.showContainerButton) {
     const cbar = document.createElement('div')
     cbar.className = 'container-bar'
-    const st = p.containerState ?? 'stopped'
+    const st = p.containerState ?? 'none'
     const btn = document.createElement('button')
     btn.className = 'container-btn ' + st
     const labels: Record<string, string> = {
-      stopped: '▶ Start container', starting: '◐ Starting…', running: '● Container running', error: '⚠ Start failed — retry'
+      none: '▶ Build & start container',
+      stopped: '▶ Restart container',
+      starting: '◐ Starting…',
+      running: '● Container running',
+      error: '⚠ Start failed — retry'
     }
     btn.textContent = labels[st]
     btn.disabled = st === 'starting' || st === 'running'

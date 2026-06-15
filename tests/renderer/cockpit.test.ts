@@ -101,17 +101,27 @@ describe('Cockpit', () => {
     void codexCards
   })
 
-  it('shows Start-container button only for devcontainer projects and fires it (F14)', () => {
+  it('shows the container button for devcontainer projects and fires it (F14)', () => {
     let started = false
     const el = Cockpit({
       sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {},
-      showContainerButton: true, containerState: 'stopped', onStartContainer: () => { started = true }
+      showContainerButton: true, containerState: 'none', onStartContainer: () => { started = true }
     })
     const btn = el.querySelector('.container-btn') as HTMLButtonElement
     expect(btn).toBeTruthy()
-    expect(btn.textContent).toContain('Start container')
+    expect(btn.textContent).toContain('Build') // 'none' -> Build & start
     btn.click()
     expect(started).toBe(true)
+  })
+
+  it('labels the container button by state: none=Build, stopped=Restart, running (F14)', () => {
+    const mk = (s: 'none' | 'stopped' | 'running') =>
+      (Cockpit({ sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {}, showContainerButton: true, containerState: s })
+        .querySelector('.container-btn') as HTMLButtonElement)
+    expect(mk('none').textContent).toContain('Build')
+    expect(mk('stopped').textContent).toContain('Restart')
+    expect(mk('running').textContent).toContain('running')
+    expect(mk('stopped').disabled).toBe(false) // a stopped container can be restarted
   })
 
   it('hides the container button when not a devcontainer project (F14)', () => {

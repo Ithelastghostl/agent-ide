@@ -7,7 +7,7 @@ import { launchArgv, resumeArgv } from './providers'
 import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory } from './github'
-import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, findRunningContainer } from './devcontainer'
+import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, findRunningContainer, findContainerPresence, startContainerById } from './devcontainer'
 import { probeHealth, loginArgv, installInContainer } from './providerHealth'
 import { Store } from './store'
 import { isProvider, type Provider, type Session } from '@shared/types'
@@ -70,11 +70,17 @@ const containerByProject = new Map<string, string>()
 async function ensureContainer(projectId: string, workspace: string, importConfig = false): Promise<string> {
   const cached = containerByProject.get(projectId)
   if (cached) return cached
-  // Recover an already-running container (e.g. started before this app launch).
-  const running = await findRunningContainer(workspace)
-  if (running) {
-    containerByProject.set(projectId, running)
-    return running
+  // Recover by Docker state: running -> reuse; stopped -> start it (don't rebuild);
+  // none -> build via `devcontainer up`.
+  const presence = await findContainerPresence(workspace)
+  if (presence.state === 'running') {
+    containerByProject.set(projectId, presence.id)
+    return presence.id
+  }
+  if (presence.state === 'stopped') {
+    await startContainerById(presence.id)
+    containerByProject.set(projectId, presence.id)
+    return presence.id
   }
   const mounts = importConfig ? [claudeConfigMount(homedir())] : []
   const { containerId } = await upDevcontainer(workspace, mounts)
@@ -184,10 +190,10 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       throw err
     }
   })
-  // Is a container already up for this project? Queries Docker (accurate across
-  // app restarts), not just this session's cache.
-  ipcMain.handle('container:status', async (_e, projectId: string, workspace: string) => {
-    return (await resolveContainerId(projectId, workspace)) ? 'running' : 'stopped'
+  // Container status for this project, by Docker state (accurate across app
+  // restarts): 'running' | 'stopped' (built but exited) | 'none' (never built).
+  ipcMain.handle('container:status', async (_e, _projectId: string, workspace: string) => {
+    return (await findContainerPresence(workspace)).state
   })
 
   // F8: provider connection health, in the project's context (host or container).
