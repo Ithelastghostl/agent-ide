@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { homedir } from 'node:os'
-import { PtyManager, resolveCwd } from '../../src/main/ptyManager'
+import { PtyManager, resolveCwd, classifyExit } from '../../src/main/ptyManager'
+
+describe('classifyExit', () => {
+  it('user kill -> closed, otherwise crashed', () => {
+    expect(classifyExit(true)).toBe('closed')
+    expect(classifyExit(false)).toBe('crashed')
+  })
+})
 
 describe('resolveCwd', () => {
   it('keeps an existing directory', () => {
@@ -50,5 +57,31 @@ describe('PtyManager', () => {
     )
     await new Promise((r) => setTimeout(r, 600))
     expect(mgr.has('s3')).toBe(false)
+  })
+
+  it('reports reason=closed when kill() ends the process', async () => {
+    const mgr = new PtyManager()
+    let reason = ''
+    mgr.spawn(
+      { id: 's4', shell: 'bash', args: [], cwd: process.cwd(), env: {} },
+      () => {},
+      (info) => { reason = info.reason }
+    )
+    await new Promise((r) => setTimeout(r, 250))
+    mgr.kill('s4')
+    await new Promise((r) => setTimeout(r, 400))
+    expect(reason).toBe('closed')
+  })
+
+  it('reports reason=crashed when the process dies on its own', async () => {
+    const mgr = new PtyManager()
+    let reason = ''
+    mgr.spawn(
+      { id: 's5', shell: 'bash', args: ['-c', 'exit 1'], cwd: process.cwd(), env: {} },
+      () => {},
+      (info) => { reason = info.reason }
+    )
+    await new Promise((r) => setTimeout(r, 500))
+    expect(reason).toBe('crashed')
   })
 })

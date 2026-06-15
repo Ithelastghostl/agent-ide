@@ -72,6 +72,10 @@ export class Store {
     this.db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`).run(status, id)
   }
 
+  renameSession(id: string, name: string): void {
+    this.db.prepare(`UPDATE sessions SET objective = ? WHERE id = ?`).run(name, id)
+  }
+
   appendTranscript(sessionId: string, chunk: string, ts: number): void {
     this.db.prepare(`INSERT INTO transcripts (session_id,chunk,ts) VALUES (?,?,?)`).run(sessionId, chunk, ts)
   }

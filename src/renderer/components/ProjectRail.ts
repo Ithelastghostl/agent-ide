@@ -2,7 +2,7 @@ import type { Project } from '@shared/types'
 
 export interface RailProps {
   projects: Project[]
-  activeId: string
+  activeId: string | null
   counts: Record<string, number>
   onSelect: (id: string) => void
   onHome: () => void

@@ -32,6 +32,33 @@ export function SessionTerminal(sessionId: string, spawn?: TerminalSpawn): HTMLE
   const fit = new FitAddon()
   term.loadAddon(fit)
 
+  async function copySelection(): Promise<boolean> {
+    const sel = term.getSelection()
+    if (!sel) return false
+    try { await navigator.clipboard.writeText(sel) } catch { /* clipboard blocked */ }
+    return true
+  }
+  async function paste(): Promise<void> {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) window.agentIDE.ptyWrite(sessionId, text)
+    } catch { /* clipboard blocked */ }
+  }
+
+  // F5: Ctrl+Shift+C copies the selection (only if there is one — otherwise let
+  // the terminal receive Ctrl+C), Ctrl+Shift+V pastes.
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown') return true
+    if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+      if (term.hasSelection()) { void copySelection(); return false }
+      return true
+    }
+    if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+      void paste(); return false
+    }
+    return true
+  })
+
   queueMicrotask(() => {
     term.open(host)
     try { fit.fit() } catch { /* host not laid out yet */ }
@@ -45,10 +72,46 @@ export function SessionTerminal(sessionId: string, spawn?: TerminalSpawn): HTMLE
     window.agentIDE.onPtyData((p) => { if (p.id === sessionId) term.write(p.data) })
     term.onResize(({ cols, rows }) => window.agentIDE.ptyResize(sessionId, cols, rows))
 
+    // F5: right-click context menu with Copy / Paste
+    host.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      showTerminalMenu(e.clientX, e.clientY, {
+        canCopy: term.hasSelection(),
+        onCopy: () => void copySelection(),
+        onPaste: () => void paste()
+      })
+    })
+
     // refit on container resize
     const ro = new ResizeObserver(() => { try { fit.fit() } catch { /* ignore */ } })
     ro.observe(host)
   })
 
   return host
+}
+
+interface MenuOpts { canCopy: boolean; onCopy: () => void; onPaste: () => void }
+
+/** Small right-click menu for the terminal (Copy / Paste). */
+function showTerminalMenu(x: number, y: number, opts: MenuOpts): void {
+  document.getElementById('term-ctx-menu')?.remove()
+  const menu = document.createElement('div')
+  menu.id = 'term-ctx-menu'
+  menu.className = 'ctx-menu'
+  menu.style.left = `${x}px`
+  menu.style.top = `${y}px`
+
+  const mk = (label: string, enabled: boolean, fn: () => void) => {
+    const item = document.createElement('div')
+    item.className = 'ctx-item' + (enabled ? '' : ' disabled')
+    item.textContent = label
+    if (enabled) item.onclick = () => { menu.remove(); fn() }
+    return item
+  }
+  menu.appendChild(mk('Copy', opts.canCopy, opts.onCopy))
+  menu.appendChild(mk('Paste', true, opts.onPaste))
+  document.body.appendChild(menu)
+
+  const close = () => { menu.remove(); document.removeEventListener('mousedown', close) }
+  setTimeout(() => document.addEventListener('mousedown', close), 0)
 }

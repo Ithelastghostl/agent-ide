@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Agent IDE
+Comment=Supervise AI coding-agent sessions across projects
+Exec=__LAUNCH__
+Icon=__ICON__
+Terminal=false
+Categories=Development;IDE;
+StartupNotify=true

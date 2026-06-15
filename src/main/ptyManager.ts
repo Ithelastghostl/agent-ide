@@ -21,11 +21,26 @@ export function resolveCwd(cwd: string): string {
   return homedir()
 }
 
+/** How a pty session ended: 'closed' = user/IDE killed it; 'crashed' = the
+ *  process exited on its own (unexpected). Both retain history (F4 + item 7). */
+export type ExitReason = 'closed' | 'crashed'
+
+/** Classify a pty exit. A user-initiated kill is 'closed'; anything else
+ *  (non-zero code, a signal, or an unexpected clean exit) is 'crashed'. */
+export function classifyExit(userKilled: boolean): ExitReason {
+  return userKilled ? 'closed' : 'crashed'
+}
+
 /** Owns all node-pty child processes (one per session). Main-process only. */
 export class PtyManager {
   private procs = new Map<string, pty.IPty>()
+  private killed = new Set<string>()
 
-  spawn(o: SpawnOpts, onData: (d: string) => void, onExit?: () => void): string {
+  spawn(
+    o: SpawnOpts,
+    onData: (d: string) => void,
+    onExit?: (info: { exitCode: number; signal?: number; reason: ExitReason }) => void
+  ): string {
     const proc = pty.spawn(o.shell, o.args, {
       name: 'xterm-color',
       cols: 80,
@@ -34,9 +49,11 @@ export class PtyManager {
       env: { ...process.env, ...o.env } as Record<string, string>
     })
     proc.onData(onData)
-    proc.onExit(() => {
+    proc.onExit(({ exitCode, signal }) => {
+      const reason = classifyExit(this.killed.has(o.id))
+      this.killed.delete(o.id)
       this.procs.delete(o.id)
-      onExit?.()
+      onExit?.({ exitCode, signal, reason })
     })
     this.procs.set(o.id, proc)
     return o.id
@@ -50,9 +67,12 @@ export class PtyManager {
     this.procs.get(id)?.resize(cols, rows)
   }
 
+  /** Explicit close: marks the id so its exit is classified 'closed'. */
   kill(id: string): void {
-    this.procs.get(id)?.kill()
-    this.procs.delete(id)
+    const proc = this.procs.get(id)
+    if (!proc) return
+    this.killed.add(id)
+    proc.kill()
   }
 
   has(id: string): boolean {

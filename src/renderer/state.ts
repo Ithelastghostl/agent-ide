@@ -1,11 +1,11 @@
 import type { Project, Session } from '@shared/types'
 import type { FileNode } from './components/Explorer'
 
-/** L1 mock state. Replaced by real project/session data from the main process in L4/L6. */
+/** App state. Projects/sessions are loaded from the main-process store at boot. */
 export interface AppState {
   projects: Project[]
   sessions: Session[]
-  currentProjectId: string
+  currentProjectId: string | null
   activeSessionId: string | null
   view: 'cockpit' | 'home'
 }
@@ -36,13 +36,15 @@ export const mockTree: FileNode[] = [
   { name: 'README.md', dir: false, depth: 0 }
 ]
 
+/** Boot empty: open on the home board with no project loaded (item 1).
+ *  Real projects/sessions are hydrated from the store at startup. */
 export function initialState(): AppState {
   return {
-    projects: mockProjects,
-    sessions: mockSessions,
-    currentProjectId: '1',
-    activeSessionId: 's1',
-    view: 'cockpit'
+    projects: [],
+    sessions: [],
+    currentProjectId: null,
+    activeSessionId: null,
+    view: 'home'
   }
 }
 

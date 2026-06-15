@@ -10,15 +10,20 @@ interface AgentIDEBridge {
   sessionLaunch(req: {
     projectId: string; provider: string; model: string; objective: string; cwd: string; useContainer: boolean
   }): Promise<import('@shared/types').Session>
+  sessionRename(id: string, name: string): Promise<void>
   githubRepos(): Promise<{ repo: string; name: string }[]>
-  projectsAdd(repo: string): Promise<import('@shared/types').Project>
+  openDirectory(): Promise<string | null>
+  projectsAddGithub(repo: string, parentDir?: string): Promise<import('@shared/types').Project>
+  projectsAddLocal(localPath: string): Promise<import('@shared/types').Project>
+  projectsAddUrl(url: string, parentDir: string): Promise<import('@shared/types').Project>
+  projectsList(): Promise<import('@shared/types').Project[]>
   fsTree(root: string): Promise<{ name: string; dir: boolean; depth: number }[]>
   ptySpawn(o: { id: string; shell: string; args: string[]; cwd: string; env: Record<string, string> }): Promise<string>
   ptyWrite(id: string, data: string): void
   ptyResize(id: string, cols: number, rows: number): void
   ptyKill(id: string): void
   onPtyData(cb: (p: { id: string; data: string }) => void): void
-  onSessionArchived(cb: (p: { id: string }) => void): void
+  onSessionExit(cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void): void
   sessionsAll(): Promise<import('@shared/types').Session[]>
   sessionResume(s: import('@shared/types').Session, cwd: string): Promise<import('@shared/types').Session>
 }

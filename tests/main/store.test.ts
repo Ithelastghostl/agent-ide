@@ -30,6 +30,12 @@ describe('Store', () => {
     expect(store.getSessions('p1')[0].status).toBe('archived')
   })
 
+  it('renames a session (updates objective)', () => {
+    store.saveSession({ id: 's1', projectId: 'p1', provider: 'codex', model: 'gpt', objective: 'old', status: 'running', createdAt: 1, updatedAt: 1 })
+    store.renameSession('s1', 'new name')
+    expect(store.getSessions('p1')[0].objective).toBe('new name')
+  })
+
   it('appends and reads transcript chunks in order', () => {
     store.saveSession({ id: 's1', projectId: 'p1', provider: 'codex', model: 'gpt', objective: 'a', status: 'running', createdAt: 1, updatedAt: 1 })
     store.appendTranscript('s1', 'hello ', 1)

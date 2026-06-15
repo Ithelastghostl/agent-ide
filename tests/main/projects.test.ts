@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { detectDevcontainer, localPathFor, projectFromRepo } from '../../src/main/projects'
+import { join, basename } from 'node:path'
+import { detectDevcontainer, localPathFor, projectFromRepo, projectFromPath, projectId } from '../../src/main/projects'
+import { repoNameFromUrl } from '../../src/main/github'
 
 describe('detectDevcontainer', () => {
   it('true when .devcontainer/devcontainer.json exists', () => {
@@ -43,5 +44,31 @@ describe('projectFromRepo', () => {
     expect(p.hasDevcontainer).toBe(false)
     expect(p.id).toBeTruthy()
     rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('projectFromPath', () => {
+  it('derives name from the folder basename, empty repo', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'my-proj-'))
+    const p = projectFromPath(dir)
+    expect(p.repo).toBe('')
+    expect(p.name).toBe(basename(dir))
+    expect(p.localPath).toBe(dir)
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('projectId', () => {
+  it('kebab-cases and prefixes', () => {
+    expect(projectId('My Cool App')).toBe('proj-my-cool-app')
+    expect(projectId('sample-api')).toBe('proj-sample-api')
+  })
+})
+
+describe('repoNameFromUrl', () => {
+  it('extracts the repo name from various git URL forms', () => {
+    expect(repoNameFromUrl('https://github.com/me/cool-repo.git')).toBe('cool-repo')
+    expect(repoNameFromUrl('git@github.com:me/cool-repo.git')).toBe('cool-repo')
+    expect(repoNameFromUrl('https://gitlab.com/group/sub/thing')).toBe('thing')
   })
 })

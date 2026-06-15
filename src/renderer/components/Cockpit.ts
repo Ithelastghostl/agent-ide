@@ -3,8 +3,11 @@ import { PROVIDERS, type Provider, type Session } from '@shared/types'
 export interface CockpitProps {
   sessions: Session[]
   activeSessionId: string | null
+  /** session ids whose process died and need reconnect (F4). */
+  reconnect?: Set<string>
   onLaunch: (provider: Provider) => void
   onSelectSession: (id: string) => void
+  onSessionMenu?: (session: Session, x: number, y: number) => void
 }
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -13,13 +16,20 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   gemini: 'Gemini'
 }
 
-function sessionCard(s: Session, active: boolean, onSelect: (id: string) => void): HTMLElement {
+function sessionCard(
+  s: Session,
+  active: boolean,
+  needsReconnect: boolean,
+  onSelect: (id: string) => void,
+  onMenu?: (session: Session, x: number, y: number) => void
+): HTMLElement {
   const card = document.createElement('div')
   const cls = ['scard']
   if (active) cls.push('active')
   if (s.status === 'running') cls.push('run')
   if (s.status === 'idle') cls.push('idle')
   if (s.status === 'archived') cls.push('archived')
+  if (needsReconnect) cls.push('reconnect')
   card.className = cls.join(' ')
   card.onclick = () => onSelect(s.id)
 
@@ -34,14 +44,33 @@ function sessionCard(s: Session, active: boolean, onSelect: (id: string) => void
   mdl.className = 'mdl'
   mdl.textContent = s.model
   top.append(st, nm, mdl)
+  if (onMenu) {
+    const dots = document.createElement('span')
+    dots.className = 'dots'
+    dots.textContent = '⋯'
+    dots.title = 'Session menu'
+    dots.onclick = (e) => {
+      e.stopPropagation()
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      onMenu(s, r.right, r.bottom)
+    }
+    top.appendChild(dots)
+  }
   card.appendChild(top)
 
-  const meta = document.createElement('div')
-  meta.className = 'meta'
-  const status = document.createElement('span')
-  status.textContent = s.status === 'archived' ? 'archived' : s.status
-  meta.appendChild(status)
-  card.appendChild(meta)
+  if (needsReconnect) {
+    const tag = document.createElement('div')
+    tag.className = 'reconnect-tag'
+    tag.textContent = '⚠ needs reconnect'
+    card.appendChild(tag)
+  } else {
+    const meta = document.createElement('div')
+    meta.className = 'meta'
+    const status = document.createElement('span')
+    status.textContent = s.status === 'archived' ? 'archived' : s.status
+    meta.appendChild(status)
+    card.appendChild(meta)
+  }
 
   return card
 }
@@ -82,9 +111,11 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   sesSec.textContent = 'Sessions · this project'
   el.appendChild(sesSec)
 
+  const reconnect = p.reconnect ?? new Set<string>()
   const list = document.createElement('div')
   list.className = 'sessions'
   for (const provider of PROVIDERS) {
+    const provSessions = p.sessions.filter((x) => x.provider === provider)
     const group = document.createElement('div')
     group.className = 'provgrp'
     const row = document.createElement('div')
@@ -92,17 +123,25 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     const pdot = document.createElement('span')
     pdot.className = 'pdot'
     const label = document.createTextNode(PROVIDER_LABEL[provider])
+    // F4: live/down indicator — down if any of this provider's sessions need reconnect
+    const live = document.createElement('span')
+    const anyDown = provSessions.some((s) => reconnect.has(s.id))
+    const anyLive = provSessions.some((s) => s.status === 'running' && !reconnect.has(s.id))
+    if (provSessions.length) {
+      live.className = 'live' + (anyDown && !anyLive ? ' down' : '')
+      live.textContent = anyDown && !anyLive ? '● reconnect' : '● live'
+    }
     const grow = document.createElement('span')
     grow.className = 'grow'
     const add = document.createElement('span')
     add.className = 'add'
     add.textContent = '＋'
     add.onclick = () => p.onLaunch(provider)
-    row.append(pdot, label, grow, add)
+    row.append(pdot, label, live, grow, add)
     group.appendChild(row)
 
-    for (const s of p.sessions.filter((x) => x.provider === provider)) {
-      group.appendChild(sessionCard(s, s.id === p.activeSessionId, p.onSelectSession))
+    for (const s of provSessions) {
+      group.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu))
     }
     list.appendChild(group)
   }

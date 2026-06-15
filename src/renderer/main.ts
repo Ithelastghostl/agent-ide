@@ -1,5 +1,5 @@
 import './cockpit.css'
-import type { Provider } from '@shared/types'
+import type { Provider, Project, Session } from '@shared/types'
 import { initialState, liveCounts, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit } from './components/Cockpit'
@@ -10,26 +10,34 @@ import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
 import { AllSessions } from './components/AllSessions'
 import { modelsFor } from './models'
+import { showMenu, promptText } from './ui'
 
 const root = document.getElementById('app')!
 const state: AppState = initialState()
 
-// When a session's pty exits, main archives it — reflect that in the UI.
-window.agentIDE.onSessionArchived?.(({ id }) => {
+// Sessions whose process died (F4). Cleared when reconnected/relaunched.
+const reconnect = new Set<string>()
+
+// F4: a session's pty exited. History is always kept; a crash flags reconnect.
+window.agentIDE.onSessionExit(({ id, reason }) => {
   const s = state.sessions.find((x) => x.id === id)
-  if (s) { s.status = 'archived'; render() }
+  if (!s) return
+  if (reason === 'crashed') {
+    reconnect.add(id)
+  } else {
+    s.status = 'archived'
+  }
+  render()
 })
 
 // Cache one terminal element per session so re-renders don't respawn the pty.
 const terminals = new Map<string, HTMLElement>()
-// Sessions launched via session:launch already have a pty spawned in main, so
-// their terminals attach-only. Seed/mock sessions spawn a plain bash.
 const launchedSessions = new Set<string>()
 function terminalFor(sessionId: string, cwd: string): HTMLElement {
   let el = terminals.get(sessionId)
   if (!el) {
     el = launchedSessions.has(sessionId)
-      ? SessionTerminal(sessionId) // attach-only
+      ? SessionTerminal(sessionId) // attach-only (pty spawned in main)
       : SessionTerminal(sessionId, { shell: 'bash', args: [], cwd, env: {} })
     terminals.set(sessionId, el)
   }
@@ -50,78 +58,127 @@ function activityBar(): HTMLElement {
   return el
 }
 
-function currentProject() {
-  return state.projects.find((p) => p.id === state.currentProjectId)!
+function currentProject(): Project | null {
+  return state.projects.find((p) => p.id === state.currentProjectId) ?? null
 }
 
 // File tree per project, loaded lazily from the real filesystem.
 const trees = new Map<string, FileNode[]>()
 function loadTree(projectId: string, localPath: string) {
   if (trees.has(projectId)) return
-  trees.set(projectId, []) // mark in-flight so we don't double-fetch
-  window.agentIDE.fsTree(localPath).then((t) => {
-    trees.set(projectId, t as FileNode[])
-    render()
-  })
+  trees.set(projectId, [])
+  window.agentIDE.fsTree(localPath).then((t) => { trees.set(projectId, t as FileNode[]); render() })
 }
 
-function openRepoPicker() {
+function addProjectToState(proj: Project) {
+  if (!state.projects.find((p) => p.id === proj.id)) state.projects.push(proj)
+  state.currentProjectId = proj.id
+  state.view = 'cockpit'
+  render()
+}
+
+// F2: add-project menu — three ways, each picking a directory where needed.
+function openAddProjectMenu(x: number, y: number) {
+  showMenu(x, y, [
+    {
+      label: '📂 Open existing folder…',
+      onClick: async () => {
+        const dir = await window.agentIDE.openDirectory()
+        if (dir) addProjectToState(await window.agentIDE.projectsAddLocal(dir))
+      }
+    },
+    {
+      label: '🐙 Clone from GitHub…',
+      onClick: () => openGithubClone()
+    },
+    {
+      label: '🔗 Clone from git URL…',
+      onClick: async () => {
+        const url = await promptText('Clone from git URL', 'https://github.com/owner/repo.git')
+        if (!url) return
+        const dir = await window.agentIDE.openDirectory()
+        if (dir) addProjectToState(await window.agentIDE.projectsAddUrl(url, dir))
+      }
+    }
+  ])
+}
+
+function openGithubClone() {
   window.agentIDE.githubRepos().then((repos) => {
     const picker = RepoPicker({
       repos,
       onPick: async (repo) => {
-        closePicker()
-        try {
-          const proj = await window.agentIDE.projectsAdd(repo)
-          if (!state.projects.find((p) => p.id === proj.id)) state.projects.push(proj)
-          state.currentProjectId = proj.id
-          state.view = 'cockpit'
-          render()
-        } catch (err) {
-          console.error('add project failed', err)
-        }
+        closeOverlay()
+        const dir = await window.agentIDE.openDirectory() // choose where to clone (item 2)
+        if (!dir) return
+        try { addProjectToState(await window.agentIDE.projectsAddGithub(repo, dir)) }
+        catch (err) { console.error('clone failed', err) }
       },
-      onCancel: closePicker
+      onCancel: closeOverlay
     })
     picker.id = 'picker-overlay'
     document.body.appendChild(picker)
   })
 }
+function closeOverlay() { document.getElementById('picker-overlay')?.remove() }
 
-function openPicker(provider: Provider) {
+// F3: launch a session — prompt for a name first, then pick a model.
+async function launchFlow(provider: Provider) {
+  const proj = currentProject()
+  if (!proj) return
+  const name = await promptText(`Name this ${provider} session`, 'e.g. fix auth bug')
+  if (name === null) return // cancelled
   const picker = ModelPicker({
     provider,
     models: modelsFor(provider),
     onPick: async (prov, modelId) => {
-      closePicker()
-      const proj = currentProject()
+      closeOverlay()
       try {
         const session = await window.agentIDE.sessionLaunch({
           projectId: proj.id,
           provider: prov,
           model: modelId,
-          objective: `New ${prov} session`,
+          objective: name || `${prov} session`,
           cwd: proj.localPath,
-          // NN2/D26: containerized projects run inside the devcontainer with
-          // auto-approve; host projects run on host and prompt.
-          useContainer: proj.hasDevcontainer
+          useContainer: proj.hasDevcontainer // NN2/D26
         })
         launchedSessions.add(session.id)
         state.sessions.push(session)
         state.activeSessionId = session.id
         state.view = 'cockpit'
         render()
-      } catch (err) {
-        console.error('session launch failed', err)
-      }
+      } catch (err) { console.error('session launch failed', err) }
     },
-    onCancel: closePicker
+    onCancel: closeOverlay
   })
   picker.id = 'picker-overlay'
   document.body.appendChild(picker)
 }
-function closePicker() {
-  document.getElementById('picker-overlay')?.remove()
+
+// F6: three-dot session menu — rename, close+archive.
+function openSessionMenu(session: Session, x: number, y: number) {
+  showMenu(x, y, [
+    {
+      label: 'Rename…',
+      onClick: async () => {
+        const name = await promptText('Rename session', session.objective)
+        if (name === null || name === '') return
+        await window.agentIDE.sessionRename(session.id, name)
+        session.objective = name
+        render()
+      }
+    },
+    {
+      label: 'Close + Archive',
+      danger: true,
+      onClick: () => {
+        window.agentIDE.ptyKill(session.id)
+        session.status = 'archived'
+        reconnect.delete(session.id)
+        render()
+      }
+    }
+  ])
 }
 
 function render() {
@@ -135,30 +192,38 @@ function render() {
     counts: liveCounts(state.sessions),
     onSelect: (id) => { state.currentProjectId = id; state.view = 'cockpit'; render() },
     onHome: () => { state.view = 'home'; render() },
-    onAdd: openRepoPicker
+    onAdd: () => {
+      const r = document.querySelector('.projrail .add')?.getBoundingClientRect()
+      openAddProjectMenu(r ? r.right : 70, r ? r.top : 80)
+    }
   })
   body.appendChild(rail)
   body.appendChild(activityBar())
 
-  // ⌘ home: global cross-project session board (NN4)
-  if (state.view === 'home') {
-    body.appendChild(
-      AllSessions({
-        projects: state.projects,
-        sessions: state.sessions,
-        onOpen: (projectId, sessionId) => {
-          state.currentProjectId = projectId
-          state.activeSessionId = sessionId
-          state.view = 'cockpit'
-          render()
-        }
-      })
-    )
+  // Home board (NN4) — also the launch state when no project is open (F1).
+  if (state.view === 'home' || !currentProject()) {
+    const board = AllSessions({
+      projects: state.projects,
+      sessions: state.sessions,
+      onOpen: (projectId, sessionId) => {
+        state.currentProjectId = projectId
+        state.activeSessionId = sessionId
+        state.view = 'cockpit'
+        render()
+      }
+    })
+    // F1: prominent "Open project" CTA at the top of the board
+    const cta = document.createElement('button')
+    cta.className = 'open-cta'
+    cta.textContent = '+ Open project'
+    cta.onclick = (e) => openAddProjectMenu((e.target as HTMLElement).getBoundingClientRect().left, (e.target as HTMLElement).getBoundingClientRect().bottom)
+    board.insertBefore(cta, board.querySelector('.sub')!.nextSibling)
+    body.appendChild(board)
     root.appendChild(body)
     return
   }
 
-  const proj = currentProject()
+  const proj = currentProject()!
   const projectSessions = state.sessions.filter((s) => s.projectId === proj.id)
   const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
 
@@ -170,12 +235,29 @@ function render() {
     Cockpit({
       sessions: projectSessions,
       activeSessionId: state.activeSessionId,
-      onLaunch: openPicker,
-      onSelectSession: (id) => { state.activeSessionId = id; render() }
+      reconnect,
+      onLaunch: launchFlow,
+      onSelectSession: (id) => { state.activeSessionId = id; render() },
+      onSessionMenu: openSessionMenu
     })
   )
 
   root.appendChild(body)
 }
 
-render()
+// F1: hydrate persisted projects/sessions from the store at boot.
+async function boot() {
+  try {
+    const [projects, sessions] = await Promise.all([
+      window.agentIDE.projectsList(),
+      window.agentIDE.sessionsAll()
+    ])
+    state.projects = projects
+    state.sessions = sessions
+  } catch (err) {
+    console.error('boot hydrate failed', err)
+  }
+  render()
+}
+
+boot()

@@ -1,10 +1,10 @@
-import { ipcMain, type BrowserWindow } from 'electron'
+import { ipcMain, dialog, type BrowserWindow } from 'electron'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { PtyManager, type SpawnOpts } from './ptyManager'
 import { launchArgv, resumeArgv } from './providers'
 import { allModels } from './models'
-import { addProject } from './projects'
+import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory } from './github'
 import { upDevcontainer, containerExecArgv, hasDevcontainerCli } from './devcontainer'
 import { Store } from './store'
@@ -76,15 +76,36 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store: Store = 
   // model registry for the picker
   ipcMain.handle('models:all', () => allModels())
 
-  // projects (GitHub-synced) — persisted to the store
+  // native directory picker (F2)
+  ipcMain.handle('dialog:openDirectory', async () => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] })
+    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
+  })
+
+  // projects — persisted to the store. Three add paths (F2):
   ipcMain.handle('github:repos', () => listRepos())
-  ipcMain.handle('projects:add', async (_e, repo: string) => {
-    const p = await addProject(repo)
+  ipcMain.handle('projects:addGithub', async (_e, repo: string, parentDir?: string) => {
+    const p = parentDir ? await addProject(repo, parentDir) : await addProject(repo)
+    store.saveProject(p)
+    return p
+  })
+  ipcMain.handle('projects:addLocal', (_e, localPath: string) => {
+    const p = openLocalProject(localPath)
+    store.saveProject(p)
+    return p
+  })
+  ipcMain.handle('projects:addUrl', async (_e, url: string, parentDir: string) => {
+    const p = await addProjectFromUrl(url, parentDir)
     store.saveProject(p)
     return p
   })
   ipcMain.handle('projects:list', () => store.listProjects())
   ipcMain.handle('fs:tree', (_e, root: string) => readTree(root))
+
+  // rename a session (F3/F6)
+  ipcMain.handle('session:rename', (_e, id: string, name: string) => {
+    store.renameSession(id, name)
+  })
 
   // sessions persistence + global board (NN4) + resume + history (D16)
   ipcMain.handle('sessions:all', () => store.allSessions())
@@ -145,10 +166,11 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store: Store = 
         win.webContents.send('pty:data', { id, data })
         store.appendTranscript(id, data, now)
       },
-      () => {
-        // pty exited -> archive the session and notify the renderer
+      ({ reason }) => {
+        // History is always retained (item 7). Clean close -> archived;
+        // crash -> stays reconnectable and the UI flags 'needs reconnect' (F4).
         store.archiveSession(id)
-        win.webContents.send('session:archived', { id })
+        win.webContents.send('session:exit', { id, reason })
       }
     )
 
@@ -165,9 +187,9 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store: Store = 
         win.webContents.send('pty:data', { id: s.id, data })
         store.appendTranscript(s.id, data, Date.now())
       },
-      () => {
+      ({ reason }) => {
         store.archiveSession(s.id)
-        win.webContents.send('session:archived', { id: s.id })
+        win.webContents.send('session:exit', { id: s.id, reason })
       }
     )
     const resumed: Session = { ...s, status: 'running', updatedAt: Date.now() }

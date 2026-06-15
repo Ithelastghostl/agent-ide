@@ -34,6 +34,18 @@ export async function cloneRepo(repo: string, dest: string): Promise<void> {
   await pexec('gh', ['repo', 'clone', repo, dest])
 }
 
+/** Clone any git URL into dest via plain git. */
+export async function cloneUrl(url: string, dest: string): Promise<void> {
+  await pexec('git', ['clone', url, dest])
+}
+
+/** Derive a project folder name from a git URL or owner/name spec. */
+export function repoNameFromUrl(url: string): string {
+  const cleaned = url.replace(/\.git$/, '').replace(/\/+$/, '')
+  const last = cleaned.split(/[/:]/).pop() ?? cleaned
+  return last || 'project'
+}
+
 /** Run the history-sync commands in a given repo directory. */
 export async function syncHistory(repoDir: string, timestamp: string): Promise<void> {
   for (const [cmd, args] of buildHistorySyncCommands(timestamp)) {

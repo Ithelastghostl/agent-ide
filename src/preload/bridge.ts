@@ -8,10 +8,15 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // model registry + session launch
   modelsAll: () => ipcRenderer.invoke('models:all'),
   sessionLaunch: (req: unknown) => ipcRenderer.invoke('session:launch', req),
+  sessionRename: (id: string, name: string) => ipcRenderer.invoke('session:rename', id, name),
 
-  // projects (GitHub-synced)
+  // projects
   githubRepos: () => ipcRenderer.invoke('github:repos'),
-  projectsAdd: (repo: string) => ipcRenderer.invoke('projects:add', repo),
+  openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
+  projectsAddGithub: (repo: string, parentDir?: string) => ipcRenderer.invoke('projects:addGithub', repo, parentDir),
+  projectsAddLocal: (localPath: string) => ipcRenderer.invoke('projects:addLocal', localPath),
+  projectsAddUrl: (url: string, parentDir: string) => ipcRenderer.invoke('projects:addUrl', url, parentDir),
+  projectsList: () => ipcRenderer.invoke('projects:list'),
   fsTree: (root: string) => ipcRenderer.invoke('fs:tree', root),
 
   // terminal / session pty
@@ -21,8 +26,8 @@ contextBridge.exposeInMainWorld('agentIDE', {
   ptyKill: (id: string) => ipcRenderer.send('pty:kill', id),
   onPtyData: (cb: (p: { id: string; data: string }) => void) =>
     ipcRenderer.on('pty:data', (_e, p) => cb(p)),
-  onSessionArchived: (cb: (p: { id: string }) => void) =>
-    ipcRenderer.on('session:archived', (_e, p) => cb(p)),
+  onSessionExit: (cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void) =>
+    ipcRenderer.on('session:exit', (_e, p) => cb(p)),
 
   // sessions persistence / global board
   sessionsAll: () => ipcRenderer.invoke('sessions:all'),
