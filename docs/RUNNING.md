@@ -11,6 +11,15 @@ cd agent-ide
 npm run dev
 ```
 
+## Blank window? (native-module ABI)
+If the app opens to a blank window, it's almost always the dual-ABI trap: the app
+runs on Electron's ABI, but `npm test` rebuilds better-sqlite3 for Node's ABI. The
+launcher (`scripts/launch.sh`) and `npm run dev`/`start`/`e2e` all run
+`rebuild:electron` first, so they self-heal. As a backstop, the main process now
+constructs the store defensively — if better-sqlite3 fails to load, the app still
+opens (persistence degraded, projects/sessions empty) rather than going blank.
+Manual fix if needed: `npm run rebuild:electron`.
+
 ## Why visual checks are on you
 When launched from the build agent's shell (even with `DISPLAY=:0`), Electron's
 GUI process segfaults (SIGSEGV) at the GTK/windowing layer — a known limitation

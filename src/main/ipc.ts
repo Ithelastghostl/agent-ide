@@ -69,8 +69,10 @@ async function ensureContainer(projectId: string, workspace: string): Promise<st
   return containerId
 }
 
-/** Registers all main-process IPC handlers. Thin router — logic lives in managers. */
-export function registerIpc(mgr: PtyManager, win: BrowserWindow, store: Store = new Store()): void {
+/** Registers all main-process IPC handlers. Thin router — logic lives in managers.
+ *  `store` may be undefined if persistence failed to initialize; handlers then
+ *  no-op writes and return empty reads so the UI still works. */
+export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store): void {
   ipcMain.handle('ping', () => 'pong')
 
   // model registry for the picker
@@ -86,30 +88,30 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store: Store = 
   ipcMain.handle('github:repos', () => listRepos())
   ipcMain.handle('projects:addGithub', async (_e, repo: string, parentDir?: string) => {
     const p = parentDir ? await addProject(repo, parentDir) : await addProject(repo)
-    store.saveProject(p)
+    store?.saveProject(p)
     return p
   })
   ipcMain.handle('projects:addLocal', (_e, localPath: string) => {
     const p = openLocalProject(localPath)
-    store.saveProject(p)
+    store?.saveProject(p)
     return p
   })
   ipcMain.handle('projects:addUrl', async (_e, url: string, parentDir: string) => {
     const p = await addProjectFromUrl(url, parentDir)
-    store.saveProject(p)
+    store?.saveProject(p)
     return p
   })
-  ipcMain.handle('projects:list', () => store.listProjects())
+  ipcMain.handle('projects:list', () => store?.listProjects() ?? [])
   ipcMain.handle('fs:tree', (_e, root: string) => readTree(root))
 
   // rename a session (F3/F6)
   ipcMain.handle('session:rename', (_e, id: string, name: string) => {
-    store.renameSession(id, name)
+    store?.renameSession(id, name)
   })
 
   // sessions persistence + global board (NN4) + resume + history (D16)
-  ipcMain.handle('sessions:all', () => store.allSessions())
-  ipcMain.handle('sessions:byProject', (_e, projectId: string) => store.getSessions(projectId))
+  ipcMain.handle('sessions:all', () => store?.allSessions() ?? [])
+  ipcMain.handle('sessions:byProject', (_e, projectId: string) => store?.getSessions(projectId) ?? [])
   ipcMain.handle('history:sync', (_e, repoDir: string, timestamp: string) => syncHistory(repoDir, timestamp))
 
   // terminal pty
@@ -158,18 +160,18 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store: Store = 
       createdAt: now,
       updatedAt: now
     }
-    store.saveSession(session)
+    store?.saveSession(session)
 
     mgr.spawn(
       { id, shell, args: spawnArgs, cwd, env: {} },
       (data) => {
         win.webContents.send('pty:data', { id, data })
-        store.appendTranscript(id, data, now)
+        store?.appendTranscript(id, data, now)
       },
       ({ reason }) => {
         // History is always retained (item 7). Clean close -> archived;
         // crash -> stays reconnectable and the UI flags 'needs reconnect' (F4).
-        store.archiveSession(id)
+        store?.archiveSession(id)
         win.webContents.send('session:exit', { id, reason })
       }
     )
@@ -185,15 +187,15 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store: Store = 
       { id: s.id, shell: cmd, args, cwd, env: {} },
       (data) => {
         win.webContents.send('pty:data', { id: s.id, data })
-        store.appendTranscript(s.id, data, Date.now())
+        store?.appendTranscript(s.id, data, Date.now())
       },
       ({ reason }) => {
-        store.archiveSession(s.id)
+        store?.archiveSession(s.id)
         win.webContents.send('session:exit', { id: s.id, reason })
       }
     )
     const resumed: Session = { ...s, status: 'running', updatedAt: Date.now() }
-    store.saveSession(resumed)
+    store?.saveSession(resumed)
     return resumed
   })
 }
