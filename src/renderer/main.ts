@@ -1,11 +1,12 @@
 import './cockpit.css'
 import type { Provider } from '@shared/types'
-import { initialState, liveCounts, mockTree, type AppState } from './state'
+import { initialState, liveCounts, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit } from './components/Cockpit'
 import { SupervisionView } from './components/SupervisionView'
-import { Explorer } from './components/Explorer'
+import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
+import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
 import { modelsFor } from './models'
 
@@ -44,6 +45,40 @@ function activityBar(): HTMLElement {
 
 function currentProject() {
   return state.projects.find((p) => p.id === state.currentProjectId)!
+}
+
+// File tree per project, loaded lazily from the real filesystem.
+const trees = new Map<string, FileNode[]>()
+function loadTree(projectId: string, localPath: string) {
+  if (trees.has(projectId)) return
+  trees.set(projectId, []) // mark in-flight so we don't double-fetch
+  window.agentIDE.fsTree(localPath).then((t) => {
+    trees.set(projectId, t as FileNode[])
+    render()
+  })
+}
+
+function openRepoPicker() {
+  window.agentIDE.githubRepos().then((repos) => {
+    const picker = RepoPicker({
+      repos,
+      onPick: async (repo) => {
+        closePicker()
+        try {
+          const proj = await window.agentIDE.projectsAdd(repo)
+          if (!state.projects.find((p) => p.id === proj.id)) state.projects.push(proj)
+          state.currentProjectId = proj.id
+          state.view = 'cockpit'
+          render()
+        } catch (err) {
+          console.error('add project failed', err)
+        }
+      },
+      onCancel: closePicker
+    })
+    picker.id = 'picker-overlay'
+    document.body.appendChild(picker)
+  })
 }
 
 function openPicker(provider: Provider) {
@@ -92,7 +127,7 @@ function render() {
     counts: liveCounts(state.sessions),
     onSelect: (id) => { state.currentProjectId = id; state.view = 'cockpit'; render() },
     onHome: () => { state.view = 'home'; render() },
-    onAdd: () => openPicker('codex') // placeholder; L4 opens the GitHub add flow
+    onAdd: openRepoPicker
   })
   body.appendChild(rail)
   body.appendChild(activityBar())
@@ -101,7 +136,8 @@ function render() {
   const projectSessions = state.sessions.filter((s) => s.projectId === proj.id)
   const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
 
-  body.appendChild(Explorer({ projectName: proj.name, tree: mockTree }))
+  loadTree(proj.id, proj.localPath)
+  body.appendChild(Explorer({ projectName: proj.name, tree: trees.get(proj.id) ?? [] }))
   const terminalEl = activeSession ? terminalFor(activeSession.id, proj.localPath) : undefined
   body.appendChild(SupervisionView({ session: activeSession, projectName: proj.name, terminalEl }))
   body.appendChild(

@@ -9,6 +9,11 @@ contextBridge.exposeInMainWorld('agentIDE', {
   modelsAll: () => ipcRenderer.invoke('models:all'),
   sessionLaunch: (req: unknown) => ipcRenderer.invoke('session:launch', req),
 
+  // projects (GitHub-synced)
+  githubRepos: () => ipcRenderer.invoke('github:repos'),
+  projectsAdd: (repo: string) => ipcRenderer.invoke('projects:add', repo),
+  fsTree: (root: string) => ipcRenderer.invoke('fs:tree', root),
+
   // terminal / session pty
   ptySpawn: (o: unknown) => ipcRenderer.invoke('pty:spawn', o),
   ptyWrite: (id: string, data: string) => ipcRenderer.send('pty:write', id, data),

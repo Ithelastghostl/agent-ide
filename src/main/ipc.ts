@@ -1,8 +1,45 @@
 import { ipcMain, type BrowserWindow } from 'electron'
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { PtyManager, type SpawnOpts } from './ptyManager'
 import { launchArgv } from './providers'
 import { allModels } from './models'
+import { addProject } from './projects'
+import { listRepos } from './github'
 import { isProvider, type Provider, type Session } from '@shared/types'
+
+export interface FileNode {
+  name: string
+  dir: boolean
+  depth: number
+}
+
+/** Shallow, one-level-deep file tree for the explorer (dirs first, alpha). */
+export function readTree(root: string): FileNode[] {
+  try {
+    const entries = readdirSync(root, { withFileTypes: true })
+      .filter((e) => e.name !== '.git')
+      .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
+    const out: FileNode[] = []
+    for (const e of entries) {
+      out.push({ name: e.name, dir: e.isDirectory(), depth: 0 })
+      if (e.isDirectory()) {
+        try {
+          for (const c of readdirSync(join(root, e.name), { withFileTypes: true })
+            .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
+            .slice(0, 12)) {
+            out.push({ name: c.name, dir: c.isDirectory(), depth: 1 })
+          }
+        } catch {
+          /* unreadable subdir */
+        }
+      }
+    }
+    return out
+  } catch {
+    return []
+  }
+}
 
 export interface LaunchRequest {
   projectId: string
@@ -25,6 +62,11 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow): void {
 
   // model registry for the picker
   ipcMain.handle('models:all', () => allModels())
+
+  // projects (GitHub-synced)
+  ipcMain.handle('github:repos', () => listRepos())
+  ipcMain.handle('projects:add', (_e, repo: string) => addProject(repo))
+  ipcMain.handle('fs:tree', (_e, root: string) => readTree(root))
 
   // terminal pty
   ipcMain.handle('pty:spawn', (_e, o: SpawnOpts) => {

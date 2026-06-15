@@ -10,6 +10,9 @@ interface AgentIDEBridge {
   sessionLaunch(req: {
     projectId: string; provider: string; model: string; objective: string; cwd: string; autoApprove: boolean
   }): Promise<import('@shared/types').Session>
+  githubRepos(): Promise<{ repo: string; name: string }[]>
+  projectsAdd(repo: string): Promise<import('@shared/types').Project>
+  fsTree(root: string): Promise<{ name: string; dir: boolean; depth: number }[]>
   ptySpawn(o: { id: string; shell: string; args: string[]; cwd: string; env: Record<string, string> }): Promise<string>
   ptyWrite(id: string, data: string): void
   ptyResize(id: string, cols: number, rows: number): void
