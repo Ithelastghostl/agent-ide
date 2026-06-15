@@ -4,12 +4,12 @@ import { parseRepoList, buildHistorySyncCommands } from '../../src/main/github'
 describe('parseRepoList', () => {
   it('parses gh repo list JSON into {repo,name}', () => {
     const json = JSON.stringify([
-      { nameWithOwner: 'me/talentchain-api', name: 'talentchain-api' },
-      { nameWithOwner: 'me/resume-parser', name: 'resume-parser' }
+      { nameWithOwner: 'example/sample-api', name: 'sample-api' },
+      { nameWithOwner: 'example/sample-cli', name: 'sample-cli' }
     ])
     expect(parseRepoList(json)).toEqual([
-      { repo: 'me/talentchain-api', name: 'talentchain-api' },
-      { repo: 'me/resume-parser', name: 'resume-parser' }
+      { repo: 'example/sample-api', name: 'sample-api' },
+      { repo: 'example/sample-cli', name: 'sample-cli' }
     ])
   })
 

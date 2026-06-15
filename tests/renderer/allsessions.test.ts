@@ -4,8 +4,8 @@ import { AllSessions } from '../../src/renderer/components/AllSessions'
 import type { Project, Session } from '@shared/types'
 
 const projects: Project[] = [
-  { id: 'p1', name: 'talentchain-api', repo: 'me/ta', localPath: '/a', hasDevcontainer: true },
-  { id: 'p2', name: 'resume-parser', repo: 'me/rp', localPath: '/b', hasDevcontainer: false }
+  { id: 'p1', name: 'sample-api', repo: 'example/sample-api', localPath: '/a', hasDevcontainer: true },
+  { id: 'p2', name: 'sample-cli', repo: 'example/sample-cli', localPath: '/b', hasDevcontainer: false }
 ]
 const sessions: Session[] = [
   { id: 's1', projectId: 'p1', provider: 'codex', model: 'gpt-5-codex', objective: 'Fix auth', status: 'running', createdAt: 1, updatedAt: 1 },

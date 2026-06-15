@@ -29,16 +29,16 @@ describe('detectDevcontainer', () => {
 
 describe('localPathFor', () => {
   it('joins the root with the repo short name', () => {
-    expect(localPathFor('/home/me/AgentIDE', 'me/talentchain-api')).toBe('/home/me/AgentIDE/talentchain-api')
+    expect(localPathFor('/home/me/AgentIDE', 'example/sample-api')).toBe('/home/me/AgentIDE/sample-api')
   })
 })
 
 describe('projectFromRepo', () => {
   it('builds a Project with a stable id from the repo', () => {
     const dir = mkdtempSync(join(tmpdir(), 'agide-'))
-    const p = projectFromRepo('me/resume-parser', dir)
-    expect(p.repo).toBe('me/resume-parser')
-    expect(p.name).toBe('resume-parser')
+    const p = projectFromRepo('example/sample-cli', dir)
+    expect(p.repo).toBe('example/sample-cli')
+    expect(p.name).toBe('sample-cli')
     expect(p.localPath).toBe(dir)
     expect(p.hasDevcontainer).toBe(false)
     expect(p.id).toBeTruthy()

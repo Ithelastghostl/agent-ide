@@ -10,7 +10,7 @@ export interface RailProps {
 }
 
 /** Two-letter avatar from a repo name: initials of the first two word-segments
- *  ("resume-parser" -> "RP", "talentchain-api" -> "TA"), else first two chars. */
+ *  ("sample-cli" -> "SC", "sample-api" -> "SA"), else first two chars. */
 export function avatarFor(name: string): string {
   const parts = name.split(/[-_ ]+/).filter(Boolean)
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()

@@ -5,8 +5,8 @@ import { Cockpit } from '../../src/renderer/components/Cockpit'
 import type { Project, Session } from '@shared/types'
 
 const projects: Project[] = [
-  { id: '1', name: 'talentchain-api', repo: 'me/ta', localPath: '/x', hasDevcontainer: true },
-  { id: '2', name: 'resume-parser', repo: 'me/rp', localPath: '/y', hasDevcontainer: false }
+  { id: '1', name: 'sample-api', repo: 'example/sample-api', localPath: '/x', hasDevcontainer: true },
+  { id: '2', name: 'sample-cli', repo: 'example/sample-cli', localPath: '/y', hasDevcontainer: false }
 ]
 
 describe('ProjectRail', () => {
@@ -35,7 +35,7 @@ describe('ProjectRail', () => {
     })
     const active = el.querySelector('.pj.on')!
     expect(active).toBeTruthy()
-    expect(active.querySelector('.av')!.textContent).toBe('RP')
+    expect(active.querySelector('.av')!.textContent).toBe('SC')
   })
 })
 
