@@ -4,11 +4,13 @@
   "description": "Agent IDE — standalone cockpit for supervising AI coding-agent sessions",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run rebuild:electron && electron-vite dev",
     "build": "electron-vite build",
-    "start": "electron-vite preview",
+    "start": "npm run rebuild:electron && electron-vite preview",
+    "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
-    "e2e": "playwright test",
+    "e2e": "npm run rebuild:electron && playwright test",
+    "rebuild:electron": "electron-rebuild -f -w node-pty,better-sqlite3",
     "rebuild": "electron-rebuild -f -w node-pty,better-sqlite3",
     "postinstall": "electron-rebuild -f -w node-pty,better-sqlite3"
   },
