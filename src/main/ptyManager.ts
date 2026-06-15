@@ -1,4 +1,6 @@
 import * as pty from 'node-pty'
+import { existsSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 
 export interface SpawnOpts {
   id: string
@@ -6,6 +8,17 @@ export interface SpawnOpts {
   args: string[]
   cwd: string
   env: Record<string, string>
+}
+
+/** Resolve a usable working directory, falling back to home if the path is
+ *  missing (e.g. a stale project path or an unprovisioned mock). */
+export function resolveCwd(cwd: string): string {
+  try {
+    if (cwd && existsSync(cwd) && statSync(cwd).isDirectory()) return cwd
+  } catch {
+    /* fall through */
+  }
+  return homedir()
 }
 
 /** Owns all node-pty child processes (one per session). Main-process only. */
@@ -17,7 +30,7 @@ export class PtyManager {
       name: 'xterm-color',
       cols: 80,
       rows: 24,
-      cwd: o.cwd,
+      cwd: resolveCwd(o.cwd),
       env: { ...process.env, ...o.env } as Record<string, string>
     })
     proc.onData(onData)

@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { PtyManager } from '../../src/main/ptyManager'
+import { homedir } from 'node:os'
+import { PtyManager, resolveCwd } from '../../src/main/ptyManager'
+
+describe('resolveCwd', () => {
+  it('keeps an existing directory', () => {
+    expect(resolveCwd(process.cwd())).toBe(process.cwd())
+  })
+  it('falls back to home for a missing path', () => {
+    expect(resolveCwd('/no/such/path/here/xyz')).toBe(homedir())
+  })
+  it('falls back to home for empty cwd', () => {
+    expect(resolveCwd('')).toBe(homedir())
+  })
+})
 
 describe('PtyManager', () => {
   it('spawns a process, emits data, and kills it', async () => {
