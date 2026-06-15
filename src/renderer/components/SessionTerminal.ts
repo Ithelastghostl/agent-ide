@@ -1,6 +1,7 @@
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { showMenu } from '../ui'
 
 export interface TerminalSpawn {
   shell: string
@@ -72,14 +73,13 @@ export function SessionTerminal(sessionId: string, spawn?: TerminalSpawn): HTMLE
     window.agentIDE.onPtyData((p) => { if (p.id === sessionId) term.write(p.data) })
     term.onResize(({ cols, rows }) => window.agentIDE.ptyResize(sessionId, cols, rows))
 
-    // F5: right-click context menu with Copy / Paste
+    // F5: right-click context menu with Copy / Paste (reuses shared showMenu)
     host.addEventListener('contextmenu', (e) => {
       e.preventDefault()
-      showTerminalMenu(e.clientX, e.clientY, {
-        canCopy: term.hasSelection(),
-        onCopy: () => void copySelection(),
-        onPaste: () => void paste()
-      })
+      showMenu(e.clientX, e.clientY, [
+        { label: 'Copy', disabled: !term.hasSelection(), onClick: () => void copySelection() },
+        { label: 'Paste', onClick: () => void paste() }
+      ])
     })
 
     // refit on container resize
@@ -88,30 +88,4 @@ export function SessionTerminal(sessionId: string, spawn?: TerminalSpawn): HTMLE
   })
 
   return host
-}
-
-interface MenuOpts { canCopy: boolean; onCopy: () => void; onPaste: () => void }
-
-/** Small right-click menu for the terminal (Copy / Paste). */
-function showTerminalMenu(x: number, y: number, opts: MenuOpts): void {
-  document.getElementById('term-ctx-menu')?.remove()
-  const menu = document.createElement('div')
-  menu.id = 'term-ctx-menu'
-  menu.className = 'ctx-menu'
-  menu.style.left = `${x}px`
-  menu.style.top = `${y}px`
-
-  const mk = (label: string, enabled: boolean, fn: () => void) => {
-    const item = document.createElement('div')
-    item.className = 'ctx-item' + (enabled ? '' : ' disabled')
-    item.textContent = label
-    if (enabled) item.onclick = () => { menu.remove(); fn() }
-    return item
-  }
-  menu.appendChild(mk('Copy', opts.canCopy, opts.onCopy))
-  menu.appendChild(mk('Paste', true, opts.onPaste))
-  document.body.appendChild(menu)
-
-  const close = () => { menu.remove(); document.removeEventListener('mousedown', close) }
-  setTimeout(() => document.addEventListener('mousedown', close), 0)
 }

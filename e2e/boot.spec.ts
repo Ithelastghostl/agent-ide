@@ -38,3 +38,23 @@ test('Open project opens the add-project menu with three ways', async () => {
 
   await app.close()
 })
+
+// Regression: clicking a menu item must actually fire its handler in the real
+// browser (the previous bug: a mousedown closed the menu before click landed).
+// 'Clone from git URL…' opens the in-app prompt modal first — no native dialog.
+test('clicking a menu item fires its handler (opens the URL prompt)', async () => {
+  const app = await electron.launch({ args: [join(__dirname, '..'), '--no-sandbox'] })
+  const win = await app.firstWindow()
+
+  await win.waitForSelector('.open-cta', { timeout: 15_000 })
+  await win.locator('.open-cta').click()
+  await win.waitForSelector('#app-menu', { timeout: 5_000 })
+
+  await win.locator('#app-menu .ctx-item', { hasText: 'Clone from git URL' }).click()
+
+  // the prompt modal must appear (proves the click handler ran)
+  await win.waitForSelector('.modal .prompt-input', { timeout: 5_000 })
+  await expect(win.locator('.modal h3')).toContainText('Clone from git URL')
+
+  await app.close()
+})

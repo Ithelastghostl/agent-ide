@@ -31,7 +31,14 @@ export function showMenu(x: number, y: number, items: MenuItem[]): void {
   if (r.right > window.innerWidth) menu.style.left = `${window.innerWidth - r.width - 8}px`
   if (r.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - r.height - 8}px`
 
-  const close = () => { menu.remove(); document.removeEventListener('mousedown', close) }
+  // Close on an outside click only — clicks *inside* the menu must reach the
+  // item's own handler (a mousedown on the document would otherwise remove the
+  // menu before the item's click fires).
+  const close = (e: MouseEvent) => {
+    if (menu.contains(e.target as Node)) return
+    menu.remove()
+    document.removeEventListener('mousedown', close)
+  }
   setTimeout(() => document.addEventListener('mousedown', close), 0)
 }
 

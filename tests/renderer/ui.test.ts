@@ -19,6 +19,27 @@ describe('showMenu', () => {
     // menu closes after click
     expect(document.getElementById('app-menu')).toBeNull()
   })
+
+  it('a mousedown INSIDE the menu does not close it before the click lands (regression)', async () => {
+    let clicked = false
+    showMenu(10, 10, [{ label: 'Open', onClick: () => { clicked = true } }])
+    // let the outside-close listener attach (setTimeout 0)
+    await new Promise((r) => setTimeout(r, 5))
+    const item = document.querySelector('#app-menu .ctx-item') as HTMLElement
+    // simulate the real browser order: mousedown (bubbles to document) then click
+    item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    // menu must still exist after the mousedown
+    expect(document.getElementById('app-menu')).toBeTruthy()
+    item.click()
+    expect(clicked).toBe(true)
+  })
+
+  it('a mousedown OUTSIDE the menu closes it', async () => {
+    showMenu(10, 10, [{ label: 'Open', onClick: () => {} }])
+    await new Promise((r) => setTimeout(r, 5))
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    expect(document.getElementById('app-menu')).toBeNull()
+  })
 })
 
 describe('promptText', () => {
