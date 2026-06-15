@@ -1,4 +1,4 @@
-import { PROVIDERS, type Provider, type Session } from '@shared/types'
+import { PROVIDERS, isTerminalSession, type Provider, type Session } from '@shared/types'
 
 export type ProviderHealth = 'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'
 
@@ -13,6 +13,12 @@ export interface CockpitProps {
   onSelectSession: (id: string) => void
   onSessionMenu?: (session: Session, x: number, y: number) => void
   onProviderMenu?: (provider: Provider, x: number, y: number) => void
+  /** F13: open a plain shell session (the Terminal tab). */
+  onOpenTerminal?: () => void
+  /** F14: show a "Start container" button (devcontainer projects only). */
+  showContainerButton?: boolean
+  containerState?: 'stopped' | 'starting' | 'running' | 'error'
+  onStartContainer?: () => void
 }
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -110,6 +116,23 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   div.className = 'cp-div'
   el.appendChild(div)
 
+  // F14: Start-container button (devcontainer projects only)
+  if (p.showContainerButton) {
+    const cbar = document.createElement('div')
+    cbar.className = 'container-bar'
+    const st = p.containerState ?? 'stopped'
+    const btn = document.createElement('button')
+    btn.className = 'container-btn ' + st
+    const labels: Record<string, string> = {
+      stopped: '▶ Start container', starting: '◐ Starting…', running: '● Container running', error: '⚠ Start failed — retry'
+    }
+    btn.textContent = labels[st]
+    btn.disabled = st === 'starting' || st === 'running'
+    btn.onclick = () => p.onStartContainer?.()
+    cbar.appendChild(btn)
+    el.appendChild(cbar)
+  }
+
   // sessions
   const sesSec = document.createElement('div')
   sesSec.className = 'cp-sec'
@@ -120,7 +143,7 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   const list = document.createElement('div')
   list.className = 'sessions'
   for (const provider of PROVIDERS) {
-    const provSessions = p.sessions.filter((x) => x.provider === provider)
+    const provSessions = p.sessions.filter((x) => x.provider === provider && !isTerminalSession(x.id))
     const group = document.createElement('div')
     group.className = 'provgrp'
     const row = document.createElement('div')
@@ -164,6 +187,29 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     }
     list.appendChild(group)
   }
+
+  // F13: Terminal group — plain shells (no agent), opened instantly via its +.
+  const termSessions = p.sessions.filter((x) => isTerminalSession(x.id))
+  const tgroup = document.createElement('div')
+  tgroup.className = 'provgrp'
+  const trow = document.createElement('div')
+  trow.className = 'provrow terminal'
+  const tdot = document.createElement('span')
+  tdot.className = 'pdot'
+  const tgrow = document.createElement('span')
+  tgrow.className = 'grow'
+  const tadd = document.createElement('span')
+  tadd.className = 'add'
+  tadd.textContent = '＋'
+  tadd.title = 'Open a terminal'
+  tadd.onclick = () => p.onOpenTerminal?.()
+  trow.append(tdot, document.createTextNode('Terminal'), tgrow, tadd)
+  tgroup.appendChild(trow)
+  for (const s of termSessions) {
+    tgroup.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu))
+  }
+  list.appendChild(tgroup)
+
   el.appendChild(list)
 
   // launchers

@@ -101,6 +101,18 @@
 .pill .badge { color: var(--warning); font-size: 8px; margin-left: 4px; letter-spacing: .5px; }
 .cp-div { height: 1px; background: var(--border); margin: 2px 0; }
 
+/* F14: start-container button */
+.container-bar { padding: 8px 14px 0; }
+.container-btn {
+  width: 100%; padding: 8px 10px; border-radius: 9px; font-size: 12px; font-weight: 600;
+  cursor: pointer; border: 1px solid var(--border); background: var(--bg-surface); color: var(--text-secondary);
+}
+.container-btn:hover:not(:disabled) { border-color: var(--accent-dim); color: #fff; background: var(--accent-bg10); }
+.container-btn.running { color: var(--success); border-color: rgba(0,199,88,.3); cursor: default; }
+.container-btn.starting { color: var(--accent-muted); cursor: default; }
+.container-btn.error { color: var(--warning); border-color: rgba(252,187,0,.3); }
+.container-btn:disabled { opacity: .9; }
+
 .sessions { flex: 1; overflow: auto; padding: 4px 14px 10px; }
 .provgrp { margin-bottom: 6px; }
 .provrow { display: flex; align-items: center; gap: 7px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--text-muted); padding: 8px 2px 6px; }
@@ -108,6 +120,7 @@
 .provrow.codex .pdot { background: var(--codex); }
 .provrow.claude .pdot { background: var(--claude); }
 .provrow.gemini .pdot { background: var(--gemini); }
+.provrow.terminal .pdot { background: var(--text-muted); }
 .provrow .grow { flex: 1; }
 .provrow .add { color: var(--text-muted); cursor: pointer; font-size: 14px; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; border-radius: 5px; }
 .provrow .add:hover { color: #fff; background: var(--accent-bg10); }

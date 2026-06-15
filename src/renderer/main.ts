@@ -21,6 +21,12 @@ const reconnect = new Set<string>()
 const health: Partial<Record<Provider, ProviderHealth>> = {}
 // Remembered run-context choice per project (F11): true=container, false=host.
 const runInContainer = new Map<string, boolean>()
+// Container state per project (F14).
+const containerState = new Map<string, 'stopped' | 'starting' | 'running' | 'error'>()
+window.agentIDE.onContainerStatus?.(({ projectId, state: s }) => {
+  containerState.set(projectId, s)
+  render()
+})
 
 // F4: a session's pty exited. History is always kept; a crash flags reconnect.
 window.agentIDE.onSessionExit(({ id, reason }) => {
@@ -181,6 +187,55 @@ async function launchFlow(provider: Provider) {
   })
   picker.id = 'picker-overlay'
   document.body.appendChild(picker)
+}
+
+// F14: explicitly start the project's devcontainer (warm it before sessions).
+async function startContainer() {
+  const proj = currentProject()
+  if (!proj || !proj.hasDevcontainer) return
+  containerState.set(proj.id, 'starting')
+  // First time? offer the config-import choice; else just start.
+  let importConfig = false
+  if (!runInContainer.has(proj.id)) {
+    const choice = await chooseOption<'go'>(
+      `Start “${proj.name}”'s container?`,
+      [{ label: 'Start', value: 'go', primary: true }],
+      { label: 'Import my ~/.claude skills + config (read-only)', checked: true }
+    )
+    if (!choice) { containerState.set(proj.id, 'stopped'); render(); return }
+    importConfig = choice.checked
+    runInContainer.set(proj.id, true) // starting the container implies container mode
+  }
+  render()
+  try {
+    await window.agentIDE.containerStart(proj.id, proj.localPath, importConfig)
+  } catch (err) {
+    console.error('start container failed', err)
+    containerState.set(proj.id, 'error')
+    render()
+  }
+}
+
+// F13: open a plain shell session instantly (Terminal tab). Uses the project's
+// remembered run-context (host/container); defaults to host if not yet chosen.
+let termCount = 0
+async function openTerminal() {
+  const proj = currentProject()
+  if (!proj) return
+  termCount += 1
+  try {
+    const session = await window.agentIDE.terminalOpen({
+      projectId: proj.id,
+      cwd: proj.localPath,
+      name: termCount === 1 ? 'terminal' : `terminal-${termCount}`,
+      useContainer: runInContainer.get(proj.id) ?? false
+    })
+    launchedSessions.add(session.id)
+    state.sessions.push(session)
+    state.activeSessionId = session.id
+    state.view = 'cockpit'
+    render()
+  } catch (err) { console.error('open terminal failed', err) }
 }
 
 // F8/F9: provider-tag menu — check health, run login, install CLI (with confirm).
@@ -360,7 +415,11 @@ function render() {
       onLaunch: launchFlow,
       onSelectSession: (id) => { state.activeSessionId = id; render() },
       onSessionMenu: openSessionMenu,
-      onProviderMenu: openProviderMenu
+      onProviderMenu: openProviderMenu,
+      onOpenTerminal: openTerminal,
+      showContainerButton: proj.hasDevcontainer,
+      containerState: containerState.get(proj.id) ?? 'stopped',
+      onStartContainer: startContainer
     })
   )
 

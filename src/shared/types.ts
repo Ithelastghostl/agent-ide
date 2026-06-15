@@ -5,6 +5,11 @@ export function isProvider(x: string): x is Provider {
   return (PROVIDERS as readonly string[]).includes(x)
 }
 
+/** A plain-shell session (no agent) is identified by its id prefix. */
+export function isTerminalSession(id: string): boolean {
+  return id.startsWith('term-')
+}
+
 export type SessionStatus = 'running' | 'idle' | 'archived'
 
 export interface Model {

@@ -10,6 +10,13 @@ contextBridge.exposeInMainWorld('agentIDE', {
   sessionLaunch: (req: unknown) => ipcRenderer.invoke('session:launch', req),
   sessionRename: (id: string, name: string) => ipcRenderer.invoke('session:rename', id, name),
   sessionArchive: (id: string) => ipcRenderer.invoke('session:archive', id),
+  terminalOpen: (req: unknown) => ipcRenderer.invoke('terminal:open', req),
+
+  // container lifecycle (F14)
+  containerStart: (projectId: string, workspace: string, importConfig: boolean) => ipcRenderer.invoke('container:start', projectId, workspace, importConfig),
+  containerStatus: (projectId: string) => ipcRenderer.invoke('container:status', projectId),
+  onContainerStatus: (cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void) =>
+    ipcRenderer.on('container:status', (_e, p) => cb(p)),
 
   // provider connection (F8/F9/F10)
   providerHealth: (provider: string, projectId: string) => ipcRenderer.invoke('provider:health', provider, projectId),

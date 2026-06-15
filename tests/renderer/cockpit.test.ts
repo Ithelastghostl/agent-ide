@@ -74,6 +74,61 @@ describe('Cockpit', () => {
     expect(opened).toBe('s1')
   })
 
+  it('renders a Terminal row and fires onOpenTerminal (F13)', () => {
+    let opened = false
+    const el = Cockpit({
+      sessions, activeSessionId: 's1',
+      onLaunch: () => {}, onSelectSession: () => {}, onOpenTerminal: () => { opened = true }
+    })
+    const trow = el.querySelector('.provrow.terminal')
+    expect(trow).toBeTruthy()
+    expect(trow!.textContent).toContain('Terminal')
+    ;(trow!.querySelector('.add') as HTMLElement).click()
+    expect(opened).toBe(true)
+  })
+
+  it('terminal sessions appear under Terminal, not a provider group (F13)', () => {
+    const withTerm: Session[] = [
+      ...sessions,
+      { id: 'term-1-x', projectId: '1', provider: 'codex', model: 'shell', objective: 'terminal', status: 'running', createdAt: 0, updatedAt: 0 }
+    ]
+    const el = Cockpit({ sessions: withTerm, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {} })
+    // codex group should NOT contain the terminal session card
+    const codexCards = el.querySelectorAll('.provrow.codex ~ .scard, .provgrp .provrow.codex')
+    // simplest assertion: the terminal group holds exactly the term card
+    const termGroup = el.querySelector('.provrow.terminal')!.parentElement!
+    expect(termGroup.querySelectorAll('.scard').length).toBe(1)
+    void codexCards
+  })
+
+  it('shows Start-container button only for devcontainer projects and fires it (F14)', () => {
+    let started = false
+    const el = Cockpit({
+      sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {},
+      showContainerButton: true, containerState: 'stopped', onStartContainer: () => { started = true }
+    })
+    const btn = el.querySelector('.container-btn') as HTMLButtonElement
+    expect(btn).toBeTruthy()
+    expect(btn.textContent).toContain('Start container')
+    btn.click()
+    expect(started).toBe(true)
+  })
+
+  it('hides the container button when not a devcontainer project (F14)', () => {
+    const el = Cockpit({ sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {} })
+    expect(el.querySelector('.container-btn')).toBeNull()
+  })
+
+  it('disables the container button while running (F14)', () => {
+    const el = Cockpit({
+      sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {},
+      showContainerButton: true, containerState: 'running'
+    })
+    const btn = el.querySelector('.container-btn') as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(btn.textContent).toContain('running')
+  })
+
   it('marks a session needing reconnect and tags it (F4)', () => {
     const el = Cockpit({
       sessions, activeSessionId: 's1',

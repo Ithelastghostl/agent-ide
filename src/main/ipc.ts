@@ -127,6 +127,53 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     store?.archiveSession(id)
   })
 
+  // F13: open a plain shell session (no agent) in the project's context.
+  ipcMain.handle('terminal:open', (_e, req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Session => {
+    const id = `term-${newSessionId()}`
+    let shell = 'bash'
+    let args: string[] = []
+    let cwd = req.cwd
+    const containerId = req.useContainer ? containerIdFor(req.projectId) : undefined
+    if (containerId) {
+      shell = 'docker'
+      args = containerExecArgv(containerId, 'bash', [])
+      cwd = req.cwd
+    }
+    const now = Date.now()
+    const session: Session = {
+      id, projectId: req.projectId, provider: 'codex', // provider unused for terminals; see isTerminal()
+      model: 'shell', objective: req.name || 'terminal', status: 'running', createdAt: now, updatedAt: now
+    }
+    store?.saveSession(session)
+    mgr.spawn(
+      { id, shell, args, cwd, env: {} },
+      (data) => { win.webContents.send('pty:data', { id, data }); store?.appendTranscript(id, data, now) },
+      ({ reason }) => { store?.archiveSession(id); win.webContents.send('session:exit', { id, reason }) }
+    )
+    return session
+  })
+
+  // F14: explicitly bring up the project's devcontainer once (warm it before
+  // launching sessions). Returns the container id. Reused by all its sessions.
+  ipcMain.handle('container:start', async (_e, projectId: string, workspace: string, importConfig: boolean) => {
+    if (!(await hasDevcontainerCli())) {
+      throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
+    }
+    win.webContents.send('container:status', { projectId, state: 'starting' })
+    try {
+      const containerId = await ensureContainer(projectId, workspace, importConfig)
+      win.webContents.send('container:status', { projectId, state: 'running' })
+      return containerId
+    } catch (err) {
+      win.webContents.send('container:status', { projectId, state: 'error' })
+      throw err
+    }
+  })
+  // Is a container already up for this project (in this app session)?
+  ipcMain.handle('container:status', (_e, projectId: string) => {
+    return containerIdFor(projectId) ? 'running' : 'stopped'
+  })
+
   // F8: provider connection health, in the project's context (host or container).
   ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string) => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
