@@ -14,14 +14,14 @@ contextBridge.exposeInMainWorld('agentIDE', {
 
   // container lifecycle (F14)
   containerStart: (projectId: string, workspace: string, importConfig: boolean) => ipcRenderer.invoke('container:start', projectId, workspace, importConfig),
-  containerStatus: (projectId: string) => ipcRenderer.invoke('container:status', projectId),
+  containerStatus: (projectId: string, workspace: string) => ipcRenderer.invoke('container:status', projectId, workspace),
   onContainerStatus: (cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void) =>
     ipcRenderer.on('container:status', (_e, p) => cb(p)),
 
   // provider connection (F8/F9/F10)
-  providerHealth: (provider: string, projectId: string) => ipcRenderer.invoke('provider:health', provider, projectId),
+  providerHealth: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:health', provider, projectId, cwd),
   providerLogin: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:login', provider, projectId, cwd),
-  providerInstall: (provider: string, projectId: string) => ipcRenderer.invoke('provider:install', provider, projectId),
+  providerInstall: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:install', provider, projectId, cwd),
 
   // projects
   githubRepos: () => ipcRenderer.invoke('github:repos'),

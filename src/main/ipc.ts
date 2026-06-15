@@ -7,7 +7,7 @@ import { launchArgv, resumeArgv } from './providers'
 import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory } from './github'
-import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount } from './devcontainer'
+import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, findRunningContainer } from './devcontainer'
 import { probeHealth, loginArgv, installInContainer } from './providerHealth'
 import { Store } from './store'
 import { isProvider, type Provider, type Session } from '@shared/types'
@@ -65,20 +65,35 @@ function newSessionId(): string {
 }
 
 // One container per project, brought up lazily and reused across its sessions.
+// The map is a cache; Docker is the source of truth (survives app restarts).
 const containerByProject = new Map<string, string>()
 async function ensureContainer(projectId: string, workspace: string, importConfig = false): Promise<string> {
-  const existing = containerByProject.get(projectId)
-  if (existing) return existing
+  const cached = containerByProject.get(projectId)
+  if (cached) return cached
+  // Recover an already-running container (e.g. started before this app launch).
+  const running = await findRunningContainer(workspace)
+  if (running) {
+    containerByProject.set(projectId, running)
+    return running
+  }
   const mounts = importConfig ? [claudeConfigMount(homedir())] : []
   const { containerId } = await upDevcontainer(workspace, mounts)
   containerByProject.set(projectId, containerId)
   return containerId
 }
 
-/** Resolve the container id for a project if one is already up (for health/login
- *  in container context), else undefined. */
+/** Cached container id for a project (sync; may be stale after restart). */
 function containerIdFor(projectId: string): string | undefined {
   return containerByProject.get(projectId)
+}
+
+/** Authoritative container id: cache first, else ask Docker (and cache it). */
+async function resolveContainerId(projectId: string, workspace: string): Promise<string | undefined> {
+  const cached = containerByProject.get(projectId)
+  if (cached) return cached
+  const running = await findRunningContainer(workspace)
+  if (running) containerByProject.set(projectId, running)
+  return running ?? undefined
 }
 
 /** Registers all main-process IPC handlers. Thin router — logic lives in managers.
@@ -128,12 +143,12 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   })
 
   // F13: open a plain shell session (no agent) in the project's context.
-  ipcMain.handle('terminal:open', (_e, req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Session => {
+  ipcMain.handle('terminal:open', async (_e, req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<Session> => {
     const id = `term-${newSessionId()}`
     let shell = 'bash'
     let args: string[] = []
     let cwd = req.cwd
-    const containerId = req.useContainer ? containerIdFor(req.projectId) : undefined
+    const containerId = req.useContainer ? await resolveContainerId(req.projectId, req.cwd) : undefined
     if (containerId) {
       shell = 'docker'
       args = containerExecArgv(containerId, 'bash', [])
@@ -169,24 +184,25 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       throw err
     }
   })
-  // Is a container already up for this project (in this app session)?
-  ipcMain.handle('container:status', (_e, projectId: string) => {
-    return containerIdFor(projectId) ? 'running' : 'stopped'
+  // Is a container already up for this project? Queries Docker (accurate across
+  // app restarts), not just this session's cache.
+  ipcMain.handle('container:status', async (_e, projectId: string, workspace: string) => {
+    return (await resolveContainerId(projectId, workspace)) ? 'running' : 'stopped'
   })
 
   // F8: provider connection health, in the project's context (host or container).
-  ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string) => {
+  ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string, cwd: string) => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
-    const containerId = containerIdFor(projectId)
+    const containerId = await resolveContainerId(projectId, cwd)
     return probeHealth(provider, { containerId })
   })
 
   // F10: run an interactive CLI login as a terminal session, in project context.
-  ipcMain.handle('provider:login', (_e, provider: Provider, projectId: string, cwd: string): string => {
+  ipcMain.handle('provider:login', async (_e, provider: Provider, projectId: string, cwd: string): Promise<string> => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
     const id = `login-${provider}-${newSessionId()}`
     const { cmd, args } = loginArgv(provider)
-    const containerId = containerIdFor(projectId)
+    const containerId = await resolveContainerId(projectId, cwd)
     const shell = containerId ? 'docker' : cmd
     const spawnArgs = containerId ? containerExecArgv(containerId, cmd, args) : args
     mgr.spawn(
@@ -198,9 +214,9 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   })
 
   // F9: install a provider CLI inside the project's container (with renderer confirm).
-  ipcMain.handle('provider:install', async (_e, provider: Provider, projectId: string) => {
+  ipcMain.handle('provider:install', async (_e, provider: Provider, projectId: string, cwd: string) => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
-    const containerId = containerIdFor(projectId)
+    const containerId = await resolveContainerId(projectId, cwd)
     if (!containerId) throw new Error('no running container for this project')
     await installInContainer(provider, containerId)
     return probeHealth(provider, { containerId })

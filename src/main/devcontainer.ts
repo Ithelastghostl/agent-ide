@@ -66,3 +66,20 @@ export async function hasDevcontainerCli(): Promise<boolean> {
     return false
   }
 }
+
+/** argv to find a RUNNING devcontainer for a workspace, by the label the
+ *  devcontainer CLI sets. Survives app restarts (queries Docker, not memory). */
+export function findContainerArgv(workspace: string): string[] {
+  return ['ps', '--filter', `label=devcontainer.local_folder=${workspace}`, '--format', '{{.ID}}', '--no-trunc']
+}
+
+/** Return the running container id for a project workspace, or null. */
+export async function findRunningContainer(workspace: string): Promise<string | null> {
+  try {
+    const { stdout } = await pexec('docker', findContainerArgv(workspace))
+    const id = stdout.trim().split('\n')[0]?.trim()
+    return id || null
+  } catch {
+    return null
+  }
+}

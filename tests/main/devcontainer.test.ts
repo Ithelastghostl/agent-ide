@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount } from '../../src/main/devcontainer'
+import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, findContainerArgv } from '../../src/main/devcontainer'
+
+describe('findContainerArgv', () => {
+  it('filters running containers by the devcontainer local_folder label', () => {
+    expect(findContainerArgv('/home/me/AgentIDE/app')).toEqual([
+      'ps', '--filter', 'label=devcontainer.local_folder=/home/me/AgentIDE/app',
+      '--format', '{{.ID}}', '--no-trunc'
+    ])
+  })
+})
 
 describe('devcontainerUpArgv with mounts (F12)', () => {
   it('appends --mount for each extra mount', () => {

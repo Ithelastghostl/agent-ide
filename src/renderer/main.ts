@@ -80,6 +80,21 @@ function loadTree(projectId: string, localPath: string) {
   window.agentIDE.fsTree(localPath).then((t) => { trees.set(projectId, t as FileNode[]); render() })
 }
 
+// F14: reflect the REAL container status (queries Docker) once per project, so
+// the button shows "running" if a container is already up from a previous run.
+const containerStatusLoaded = new Set<string>()
+function loadContainerStatus(projectId: string, localPath: string) {
+  if (containerStatusLoaded.has(projectId)) return
+  containerStatusLoaded.add(projectId)
+  window.agentIDE.containerStatus(projectId, localPath).then((s) => {
+    if (s === 'running' && containerState.get(projectId) !== 'running') {
+      containerState.set(projectId, 'running')
+      runInContainer.set(projectId, true) // a running container implies container mode
+      render()
+    }
+  })
+}
+
 function addProjectToState(proj: Project) {
   if (!state.projects.find((p) => p.id === proj.id)) state.projects.push(proj)
   state.currentProjectId = proj.id
@@ -243,7 +258,7 @@ async function refreshHealth(provider: Provider) {
   const proj = currentProject()
   if (!proj) return
   try {
-    health[provider] = await window.agentIDE.providerHealth(provider, proj.id)
+    health[provider] = await window.agentIDE.providerHealth(provider, proj.id, proj.localPath)
     render()
   } catch (err) { console.error('health check failed', err) }
 }
@@ -285,7 +300,7 @@ function openProviderMenu(provider: Provider, x: number, y: number) {
         )
         if (!ok) return
         try {
-          health[provider] = await window.agentIDE.providerInstall(provider, proj.id)
+          health[provider] = await window.agentIDE.providerInstall(provider, proj.id, proj.localPath)
           render()
         } catch (err) { console.error('install failed', err) }
       }
@@ -403,6 +418,7 @@ function render() {
   const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
 
   loadTree(proj.id, proj.localPath)
+  if (proj.hasDevcontainer) loadContainerStatus(proj.id, proj.localPath)
   body.appendChild(Explorer({ projectName: proj.name, tree: trees.get(proj.id) ?? [] }))
   const terminalEl = activeSession ? terminalFor(activeSession.id, proj.localPath) : undefined
   body.appendChild(SupervisionView({ session: activeSession, projectName: proj.name, terminalEl }))
