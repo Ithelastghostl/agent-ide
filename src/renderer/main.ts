@@ -6,10 +6,22 @@ import { Cockpit } from './components/Cockpit'
 import { SupervisionView } from './components/SupervisionView'
 import { Explorer } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
+import { SessionTerminal } from './components/SessionTerminal'
 import { modelsFor } from './models'
 
 const root = document.getElementById('app')!
 const state: AppState = initialState()
+
+// Cache one terminal element per session so re-renders don't respawn the pty.
+const terminals = new Map<string, HTMLElement>()
+function terminalFor(sessionId: string, cwd: string): HTMLElement {
+  let el = terminals.get(sessionId)
+  if (!el) {
+    el = SessionTerminal(sessionId, { shell: 'bash', args: [], cwd, env: {} })
+    terminals.set(sessionId, el)
+  }
+  return el
+}
 
 function activityBar(): HTMLElement {
   const el = document.createElement('div')
@@ -68,7 +80,8 @@ function render() {
   const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
 
   body.appendChild(Explorer({ projectName: proj.name, tree: mockTree }))
-  body.appendChild(SupervisionView({ session: activeSession, projectName: proj.name }))
+  const terminalEl = activeSession ? terminalFor(activeSession.id, proj.localPath) : undefined
+  body.appendChild(SupervisionView({ session: activeSession, projectName: proj.name, terminalEl }))
   body.appendChild(
     Cockpit({
       sessions: projectSessions,
