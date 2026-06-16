@@ -3,9 +3,11 @@ import type { Provider, Model } from '@shared/types'
 /** Canonical full per-provider model lists (D3 — full list in the picker). */
 const M: Record<Provider, Model[]> = {
   codex: [
+    // ChatGPT-subscription Codex supports the gpt-5-codex* family only; plain
+    // 'gpt-5' is API-key-only and Codex rejects it under a ChatGPT account, so
+    // it's excluded (sessions are subscription-only — see subscription-billing).
     { id: 'gpt-5-codex-mini', label: 'gpt-5-codex-mini', tier: 'fast' },
     { id: 'gpt-5-codex', label: 'gpt-5-codex', tier: 'balanced' },
-    { id: 'gpt-5', label: 'gpt-5', tier: 'balanced' },
     { id: 'gpt-5-codex-max', label: 'gpt-5-codex-max', tier: 'max' }
   ],
   claude: [

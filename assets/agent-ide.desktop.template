@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Agent IDE
+Name=Nacho's IDE
 Comment=Supervise AI coding-agent sessions across projects
 Exec=__LAUNCH__
 Icon=__ICON__

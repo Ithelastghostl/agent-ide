@@ -6,22 +6,28 @@ export interface AllSessionsProps {
   onOpen: (projectId: string, sessionId: string) => void
 }
 
-/** ⌘ home: every session across every project, grouped by project (NN4). */
+/** ⌘ home: LIVE sessions across every project, grouped by project, newest first
+ *  (NN4). Archived sessions are intentionally hidden here — they live in history,
+ *  not on the live board. */
 export function AllSessions(p: AllSessionsProps): HTMLElement {
   const el = document.createElement('div')
   el.className = 'allsessions'
+
+  // Only live (non-archived) sessions, most-recent first.
+  const liveSessions = p.sessions
+    .filter((s) => s.status !== 'archived')
+    .sort((a, b) => b.createdAt - a.createdAt)
 
   const h2 = document.createElement('h2')
   h2.textContent = 'All sessions'
   el.appendChild(h2)
   const sub = document.createElement('div')
   sub.className = 'sub'
-  const live = p.sessions.filter((s) => s.status !== 'archived').length
-  sub.textContent = `${live} live · ${p.sessions.length} total across ${p.projects.length} projects`
+  sub.textContent = `${liveSessions.length} live across ${p.projects.length} projects`
   el.appendChild(sub)
 
   for (const proj of p.projects) {
-    const projSessions = p.sessions.filter((s) => s.projectId === proj.id)
+    const projSessions = liveSessions.filter((s) => s.projectId === proj.id)
     if (projSessions.length === 0) continue
 
     const group = document.createElement('div')

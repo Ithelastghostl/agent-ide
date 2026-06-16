@@ -10,24 +10,27 @@ const projects: Project[] = [
 const sessions: Session[] = [
   { id: 's1', projectId: 'p1', provider: 'codex', model: 'gpt-5-codex', objective: 'Fix auth', status: 'running', createdAt: 1, updatedAt: 1 },
   { id: 's2', projectId: 'p1', provider: 'claude', model: 'sonnet', objective: 'Tests', status: 'running', createdAt: 2, updatedAt: 2 },
-  { id: 's3', projectId: 'p2', provider: 'gemini', model: 'pro', objective: 'Parse', status: 'idle', createdAt: 3, updatedAt: 3 }
+  { id: 's3', projectId: 'p2', provider: 'gemini', model: 'pro', objective: 'Parse', status: 'idle', createdAt: 3, updatedAt: 3 },
+  { id: 's4', projectId: 'p1', provider: 'claude', model: 'haiku', objective: 'Old archived', status: 'archived', createdAt: 0, updatedAt: 0 }
 ]
 
 describe('AllSessions (NN4 global board)', () => {
-  it('renders every session across all projects, grouped by project', () => {
+  it('renders only LIVE sessions across projects, grouped by project (archived hidden)', () => {
     const el = AllSessions({ projects, sessions, onOpen: () => {} })
-    // one group per project that has sessions
     expect(el.querySelectorAll('.as-proj').length).toBe(2)
-    // one row per session (3 total)
+    // 3 live sessions; the archived s4 is excluded.
     expect(el.querySelectorAll('.as-row').length).toBe(3)
+    expect(el.textContent).not.toContain('Old archived')
+    expect(el.querySelector('.sub')?.textContent).toContain('3 live')
   })
 
-  it('clicking a session row opens it (project + session id)', () => {
+  it('orders sessions most-recent first within a project', () => {
     let opened: { projectId: string; sessionId: string } | null = null
     const el = AllSessions({ projects, sessions, onOpen: (projectId, sessionId) => { opened = { projectId, sessionId } } })
-    ;(el.querySelector('.as-row') as HTMLElement).click()
-    expect(opened).not.toBeNull()
-    expect(opened!.sessionId).toBe('s1')
+    // Within p1, s2 (createdAt 2) is newer than s1 (createdAt 1) → s2 renders first.
+    const firstRow = el.querySelector('.as-row') as HTMLElement
+    firstRow.click()
+    expect(opened!.sessionId).toBe('s2')
     expect(opened!.projectId).toBe('p1')
   })
 })

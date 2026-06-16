@@ -4,6 +4,10 @@ import { PtyManager } from './ptyManager'
 import { registerIpc } from './ipc'
 import { Store } from './store'
 
+// Display name shown in the taskbar / window manager (distinct from the npm
+// package id "agent-ide", which stays as the data-dir/package identifier).
+app.setName("Nacho's IDE")
+
 const ptyManager = new PtyManager()
 
 function createWindow(): void {
@@ -11,6 +15,7 @@ function createWindow(): void {
     width: 1400,
     height: 880,
     backgroundColor: '#000101',
+    title: "Nacho's IDE",
     titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: join(__dirname, '../preload/bridge.js'),
