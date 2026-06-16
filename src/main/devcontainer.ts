@@ -21,18 +21,23 @@ export function devcontainerUpArgv(workspace: string, mounts: string[] = []): st
   return args
 }
 
-/** Build a read-only bind-mount string for ~/.claude into the container. */
-export function claudeConfigMount(homeDir: string): string {
-  return `type=bind,source=${homeDir}/.claude,target=/root/.claude,readonly`
+/** Standard devcontainer non-root home. Sessions exec as the remoteUser (commonly
+ *  `node`, home /home/node), so provider creds must be mounted INTO THAT home —
+ *  not /root — or the CLI (running as the remoteUser) won't find them. */
+export const CONTAINER_HOME = '/home/node'
+
+/** Build a read-only bind-mount of a host cred dir (e.g. ~/.claude, ~/.codex,
+ *  ~/.gemini) into the container user's home, so a containerized session inherits
+ *  the host's existing login instead of re-running an OAuth loopback that's
+ *  trapped in the container's network namespace. `containerHome` defaults to the
+ *  conventional remoteUser home. */
+export function configMount(hostHome: string, dir: string, containerHome: string = CONTAINER_HOME): string {
+  return `type=bind,source=${hostHome}/${dir},target=${containerHome}/${dir},readonly`
 }
 
-/** Build a read-only bind-mount string for ~/.codex into the container, so a
- *  containerized Codex session inherits the host's existing login (OAuth token
- *  in ~/.codex/auth.json) instead of re-running login through the trapped
- *  in-container loopback (localhost:1455). */
-export function codexConfigMount(homeDir: string): string {
-  return `type=bind,source=${homeDir}/.codex,target=/root/.codex,readonly`
-}
+export const claudeConfigMount = (hostHome: string, containerHome?: string) => configMount(hostHome, '.claude', containerHome)
+export const codexConfigMount = (hostHome: string, containerHome?: string) => configMount(hostHome, '.codex', containerHome)
+export const geminiConfigMount = (hostHome: string, containerHome?: string) => configMount(hostHome, '.gemini', containerHome)
 
 /** Extract the containerId from `devcontainer up` JSON output (last JSON line). */
 export function parseContainerId(stdout: string): string {
@@ -44,22 +49,66 @@ export function parseContainerId(stdout: string): string {
   throw new Error('devcontainer up: no containerId in output')
 }
 
-/** argv for `docker exec [-it] [-w cwd] <id> <cmd> <args...>`.
+/** argv for `docker exec [-it] [-u user] [-w cwd] <id> <cmd> <args...>`.
  *  `interactive` (default true) adds `-it` for pty/terminal sessions; pass
  *  false for non-TTY `execFile` calls (health/install) which would otherwise
- *  hang trying to allocate a TTY (Codex P2). */
+ *  hang trying to allocate a TTY (Codex P2).
+ *  `user` runs the command as that container user (e.g. the devcontainer's
+ *  remoteUser, 'node'). Needed because agent CLIs refuse to run as root with
+ *  auto-approve (claude --dangerously-skip-permissions errors under euid 0). */
 export function containerExecArgv(
   containerId: string,
   cmd: string,
   args: string[],
-  opts: { cwd?: string; interactive?: boolean } = {}
+  opts: { cwd?: string; interactive?: boolean; user?: string } = {}
 ): string[] {
   const interactive = opts.interactive ?? true
   const base = ['exec']
   if (interactive) base.push('-it')
+  if (opts.user) base.push('-u', opts.user)
   if (opts.cwd) base.push('-w', opts.cwd)
   base.push(containerId, cmd, ...args)
   return base
+}
+
+/** Parse the devcontainer `remoteUser` out of a container's devcontainer.metadata
+ *  label (the same value VS Code execs as). The label is a JSON array of feature/
+ *  config fragments; the LAST `remoteUser` wins. Returns null if absent/unparseable. */
+export function parseRemoteUser(metadataLabel: string | undefined): string | null {
+  if (!metadataLabel) return null
+  try {
+    const meta = JSON.parse(metadataLabel) as Array<{ remoteUser?: string }>
+    let user: string | null = null
+    for (const frag of meta) if (frag && typeof frag.remoteUser === 'string') user = frag.remoteUser
+    return user
+  } catch {
+    return null
+  }
+}
+
+/** Resolve the non-root user to exec as inside a container: the devcontainer's
+ *  declared remoteUser if any, else a real login user with uid >= 1000 (e.g.
+ *  'node'/'vscode'), else null (stay default/root). Queried from Docker so it
+ *  works without the project's .devcontainer on disk. */
+export async function resolveContainerUser(containerId: string): Promise<string | null> {
+  try {
+    const { stdout: label } = await pexec('docker', [
+      'inspect', '-f', '{{index .Config.Labels "devcontainer.metadata"}}', containerId
+    ])
+    const declared = parseRemoteUser(label.trim())
+    if (declared && declared !== 'root') return declared
+  } catch {
+    /* fall through to passwd scan */
+  }
+  try {
+    // First passwd entry with a uid in [1000, 65534): the conventional human user.
+    const { stdout } = await pexec('docker', ['exec', containerId, 'sh', '-c',
+      'getent passwd | awk -F: \'$3>=1000 && $3<65534 {print $1; exit}\''])
+    const user = stdout.trim()
+    return user || null
+  } catch {
+    return null
+  }
 }
 
 /** Bring up the project's devcontainer (same tool VS Code uses) and return its id. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, codexConfigMount, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
+import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, codexConfigMount, geminiConfigMount, parseRemoteUser, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
 
 describe('findContainerArgv', () => {
   it('filters running containers by the devcontainer local_folder label', () => {
@@ -44,15 +44,34 @@ describe('devcontainerUpArgv with mounts (F12)', () => {
   })
 })
 
-describe('claudeConfigMount', () => {
-  it('builds a read-only bind mount of ~/.claude', () => {
-    expect(claudeConfigMount('/home/me')).toBe('type=bind,source=/home/me/.claude,target=/root/.claude,readonly')
+describe('config mounts', () => {
+  // Mounted into the remoteUser's home (/home/node), NOT /root — sessions exec
+  // as the non-root remoteUser, so creds under /root would be invisible.
+  it('claudeConfigMount targets the container user home', () => {
+    expect(claudeConfigMount('/home/me')).toBe('type=bind,source=/home/me/.claude,target=/home/node/.claude,readonly')
+  })
+  it('codexConfigMount targets the container user home', () => {
+    expect(codexConfigMount('/home/me')).toBe('type=bind,source=/home/me/.codex,target=/home/node/.codex,readonly')
+  })
+  it('geminiConfigMount targets the container user home', () => {
+    expect(geminiConfigMount('/home/me')).toBe('type=bind,source=/home/me/.gemini,target=/home/node/.gemini,readonly')
+  })
+  it('honors an explicit container home', () => {
+    expect(codexConfigMount('/home/me', '/home/vscode')).toBe('type=bind,source=/home/me/.codex,target=/home/vscode/.codex,readonly')
   })
 })
 
-describe('codexConfigMount', () => {
-  it('builds a read-only bind mount of ~/.codex (host login -> containerized session)', () => {
-    expect(codexConfigMount('/home/me')).toBe('type=bind,source=/home/me/.codex,target=/root/.codex,readonly')
+describe('parseRemoteUser', () => {
+  it('returns the last remoteUser from devcontainer.metadata', () => {
+    const meta = JSON.stringify([{ id: 'a' }, { remoteUser: 'node' }, { id: 'b', remoteUser: 'vscode' }])
+    expect(parseRemoteUser(meta)).toBe('vscode')
+  })
+  it('returns null when no remoteUser is present', () => {
+    expect(parseRemoteUser(JSON.stringify([{ id: 'a' }]))).toBeNull()
+  })
+  it('returns null for missing or unparseable metadata', () => {
+    expect(parseRemoteUser(undefined)).toBeNull()
+    expect(parseRemoteUser('not json')).toBeNull()
   })
 })
 
@@ -115,6 +134,12 @@ describe('containerExecArgv', () => {
   it('omits -it for non-interactive (non-TTY) calls (Codex P2)', () => {
     expect(containerExecArgv('abc123', 'codex', ['login', 'status'], { interactive: false })).toEqual([
       'exec', 'abc123', 'codex', 'login', 'status'
+    ])
+  })
+
+  it('runs as a specific user via -u (non-root, so auto-approve flags work)', () => {
+    expect(containerExecArgv('abc123', 'claude', ['--dangerously-skip-permissions'], { user: 'node' })).toEqual([
+      'exec', '-it', '-u', 'node', 'abc123', 'claude', '--dangerously-skip-permissions'
     ])
   })
 })

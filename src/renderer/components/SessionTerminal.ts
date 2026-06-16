@@ -1,12 +1,14 @@
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ILink } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { showMenu, type MenuItem } from '../ui'
 
-// Matches http(s) URLs in terminal output for the right-click "Copy link" menu.
-// The WebLinksAddon does its own (stricter) detection for clicks; this is only
-// used to find a URL under the pointer when building the context menu.
+// Matches http(s) URLs in terminal output. Used BOTH to linkify clickable URLs
+// and to find a URL under the pointer for the right-click menu.
+// NOTE: we register our own link provider instead of @xterm/addon-web-links —
+// that addon (0.12, xterm-5 era) silently fails against @xterm/xterm@6 and
+// creates no links at all, so clicks never fired. registerLinkProvider is the
+// stable xterm-6 API the addon merely wraps.
 const URL_RE = /https?:\/\/[^\s"'`<>()]+/g
 
 /** An xterm terminal that ATTACHES to a pty the main process already started
@@ -18,10 +20,25 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
   const host = document.createElement('div') as HTMLElement & { __dispose?: () => void }
   host.className = 'terminal-host'
 
+  // Open a URL in the host browser via main. Pass sessionId so main can forward
+  // a container localhost port out to the host first (OAuth callbacks, dev servers).
+  const open = (uri: string) => { void window.agentIDE.openExternal(uri, sessionId) }
+
   const term = new Terminal({
     fontSize: 12,
     fontFamily: 'Menlo, Consolas, monospace',
     cursorBlink: true,
+    allowProposedApi: true,
+    // OSC-8 hyperlinks (the clickable links agent CLIs actually emit) are handled
+    // by xterm's BUILT-IN OscLinkProvider, which registers before any provider we
+    // add and therefore wins the click. Its default action is confirm()+window.open()
+    // — that's the "are you sure?" dialog, and window.open is then denied by the
+    // main window's setWindowOpenHandler, so nothing opened. Setting linkHandler
+    // overrides that default so OSC-8 links route through our host-browser IPC too.
+    linkHandler: {
+      activate: (e, uri) => { e.preventDefault(); open(uri) },
+      allowNonHttpProtocols: false
+    },
     theme: {
       background: '#07080a',
       foreground: '#f0f5f4',
@@ -33,16 +50,28 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
   const fit = new FitAddon()
   term.loadAddon(fit)
 
-  // Clickable URLs in terminal output. Plain left-click opens in the host's
-  // default browser via main (works from inside containers). We deliberately
-  // route through openExternal rather than letting the addon window.open, which
-  // would spawn a new Electron window.
-  term.loadAddon(
-    new WebLinksAddon((event, uri) => {
-      event.preventDefault()
-      void window.agentIDE.openExternal(uri)
-    })
-  )
+  // Clickable PLAIN-TEXT URLs (no OSC-8 escape): scan each row for http(s) URLs
+  // and hand xterm a link range per match. Left-click → host browser. (OSC-8
+  // hyperlinks are handled by linkHandler above.)
+  term.registerLinkProvider({
+    provideLinks(lineNumber, callback) {
+      const line = term.buffer.active.getLine(lineNumber - 1)
+      if (!line) { callback(undefined); return }
+      const text = line.translateToString(true)
+      const links: ILink[] = []
+      for (const m of text.matchAll(URL_RE)) {
+        const start = m.index ?? 0
+        const uri = m[0]
+        links.push({
+          // xterm columns are 1-based; range end is inclusive.
+          range: { start: { x: start + 1, y: lineNumber }, end: { x: start + uri.length, y: lineNumber } },
+          text: uri,
+          activate: (e) => { e.preventDefault(); open(uri) }
+        })
+      }
+      callback(links.length ? links : undefined)
+    }
+  })
 
   async function copyText(text: string): Promise<boolean> {
     if (!text) return false
@@ -53,16 +82,20 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
     return copyText(term.getSelection())
   }
 
-  // Find an http(s) URL at a pixel position within the terminal, so the
-  // right-click menu can offer Copy/Open for the link directly under the cursor
-  // (xterm selects nothing on right-click, so plain "Copy" misses links).
+  // Find an http(s) URL at a pixel position within the terminal, for click-to-open
+  // and the right-click Copy/Open menu. Uses PUBLIC geometry (the .xterm-rows
+  // element + term.cols/rows) rather than xterm private internals, which proved
+  // unavailable on xterm 6.
   function linkAtEvent(e: MouseEvent): string | undefined {
-    const rect = host.getBoundingClientRect()
-    const dims = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } } })._core
-    const cell = dims?._renderService?.dimensions?.css?.cell
-    if (!cell || !cell.width || !cell.height) return undefined
-    const col = Math.floor((e.clientX - rect.left) / cell.width)
-    const row = Math.floor((e.clientY - rect.top) / cell.height)
+    const rowsEl = host.querySelector('.xterm-rows') as HTMLElement | null
+    if (!rowsEl) return undefined
+    const rect = rowsEl.getBoundingClientRect()
+    if (!rect.width || !rect.height) return undefined
+    const cellW = rect.width / term.cols
+    const cellH = rect.height / term.rows
+    const col = Math.floor((e.clientX - rect.left) / cellW)
+    const row = Math.floor((e.clientY - rect.top) / cellH)
+    if (col < 0 || row < 0) return undefined
     const buffer = term.buffer.active
     const line = buffer.getLine(buffer.viewportY + row)
     if (!line) return undefined
@@ -130,7 +163,7 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
       const link = linkAtEvent(e)
       const items: MenuItem[] = link
         ? [
-            { label: 'Open Link', onClick: () => void window.agentIDE.openExternal(link) },
+            { label: 'Open Link', onClick: () => open(link) },
             { label: 'Copy Link Address', onClick: () => void copyText(link) }
           ]
         : []
