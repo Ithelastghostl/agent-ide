@@ -3,7 +3,7 @@ import type { Provider, Project, Session } from '@shared/types'
 import { initialState, liveCounts, liveSessionsFor, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit, type ProviderHealth } from './components/Cockpit'
-import { SupervisionView, type OpenFile, type ActiveTab } from './components/SupervisionView'
+import { SupervisionView, type OpenFile, type OpenReport, type ActiveTab } from './components/SupervisionView'
 import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
 import { RepoPicker } from './components/RepoPicker'
@@ -115,8 +115,14 @@ function toggleDir(localPath: string, relPath: string) {
 
 // Open editor tabs and which tab is showing. activeTab defaults to the session.
 const openFiles: OpenFile[] = []
+const openReports: OpenReport[] = []            // F15: HTML reports rendered in-app
 const fileContent = new Map<string, string>()   // path -> on-disk/edited text
 let activeTab: ActiveTab = { kind: 'session' }
+
+/** F15: does this path look like an HTML report we should render in-app? */
+function isHtml(relPath: string): boolean {
+  return /\.html?$/i.test(relPath)
+}
 
 /** Open a project file in a tab (or focus it if already open). */
 function openFile(localPath: string, relPath: string, name: string) {
@@ -137,9 +143,39 @@ function openFile(localPath: string, relPath: string, name: string) {
 function closeFile(relPath: string) {
   const i = openFiles.findIndex((f) => f.path === relPath)
   if (i >= 0) openFiles.splice(i, 1)
-  fileContent.delete(relPath)
+  // Keep the cached text if the same path is also open as a rendered report.
+  if (!openReports.some((r) => r.path === relPath)) fileContent.delete(relPath)
   if (activeTab.kind === 'file' && activeTab.path === relPath) {
     activeTab = openFiles.length ? { kind: 'file', path: openFiles[openFiles.length - 1].path } : { kind: 'session' }
+  }
+  render()
+}
+
+/** F15: open a project HTML file as a rendered report tab (or focus it if open).
+ *  Reuses the same on-disk text cache as the editor — a report is just that text
+ *  rendered in a sandboxed iframe rather than shown in a textarea. */
+function openReport(localPath: string, relPath: string, name: string) {
+  if (!openReports.some((r) => r.path === relPath)) {
+    openReports.push({ path: relPath, name })
+  }
+  activeTab = { kind: 'report', path: relPath }
+  render()
+  if (!fileContent.has(relPath)) {
+    window.agentIDE.fileRead(localPath, relPath).then((r) => {
+      fileContent.set(relPath, r.error ? `‹ cannot open: ${r.error} ›` : (r.content ?? ''))
+      render()
+    })
+  }
+}
+
+/** Close a report tab; fall back to the session tab if it was active. */
+function closeReport(relPath: string) {
+  const i = openReports.findIndex((r) => r.path === relPath)
+  if (i >= 0) openReports.splice(i, 1)
+  // Don't drop fileContent — the same path may still be open as an editor tab.
+  if (!openFiles.some((f) => f.path === relPath)) fileContent.delete(relPath)
+  if (activeTab.kind === 'report' && activeTab.path === relPath) {
+    activeTab = openReports.length ? { kind: 'report', path: openReports[openReports.length - 1].path } : { kind: 'session' }
   }
   render()
 }
@@ -152,6 +188,7 @@ function setCurrentProject(id: string) {
   state.currentProjectId = id
   state.view = 'cockpit'
   openFiles.length = 0
+  openReports.length = 0
   fileContent.clear()
   expandedDirs.clear()
   dirChildren.clear()
@@ -219,6 +256,36 @@ function fileEditorFor(localPath: string, relPath: string): HTMLElement {
 
   // Keep focus + caret usable after a re-render by focusing on mount.
   queueMicrotask(() => ta.focus())
+  return wrap
+}
+
+/** F15: render an HTML report file in a sandboxed iframe. The report runs with
+ *  `sandbox` (no same-origin, no scripts-to-parent) so it cannot reach the app's
+ *  DOM or state; `srcdoc` carries the file text. Self-contained reports
+ *  (Playwright/coverage/Vitest) render fully; reports relying on sibling asset
+ *  files won't resolve those under srcdoc — acceptable for v1 (see spec F15). */
+function reportViewerFor(relPath: string): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'report-viewer'
+
+  const bar = document.createElement('div')
+  bar.className = 'rv-bar'
+  const path = document.createElement('span')
+  path.className = 'rv-path'
+  path.textContent = relPath
+  bar.appendChild(path)
+  wrap.appendChild(bar)
+
+  const frame = document.createElement('iframe')
+  frame.className = 'rv-frame'
+  // allow-scripts so charts/interactive reports work; NO allow-same-origin, so
+  // the iframe stays in a null origin and can't touch the parent (the two
+  // together would defeat the sandbox).
+  frame.setAttribute('sandbox', 'allow-scripts')
+  const html = fileContent.get(relPath)
+  frame.srcdoc = html ?? '<!doctype html><body style="font:13px sans-serif;color:#888;padding:16px">Loading report…</body>'
+  wrap.appendChild(frame)
+
   return wrap
 }
 
@@ -472,7 +539,41 @@ async function reconnectSession(session: Session) {
   }
 }
 
-// F6/F7: three-dot session menu — reconnect (if crashed), rename, close+archive.
+// Move a session's conversation to a different engine. Picks provider → model,
+// then relaunches the same session id under that engine; main seeds it with the
+// session's stored history so the conversation continues. The terminal rebuilds
+// attach-only against the freshly-spawned pty.
+async function changeModelFlow(session: Session) {
+  const proj = state.projects.find((p) => p.id === session.projectId)
+  if (!proj) return
+  const provChoice = await chooseOption<Provider>(
+    'Change model — pick an engine',
+    (['claude', 'codex', 'gemini'] as Provider[]).map((p) => ({ label: p, value: p }))
+  )
+  if (!provChoice) return
+  const provider = provChoice.value
+  const modelChoice = await chooseOption<string>(
+    `Pick a ${provider} model`,
+    modelsFor(provider).map((m) => ({ label: m.label, value: m.id }))
+  )
+  if (!modelChoice) return
+  const useContainer = runInContainer.get(session.projectId) ?? false
+  try {
+    disposeTerminal(session.id) // old engine's terminal is stale; rebuild on the new pty
+    const updated = await window.agentIDE.sessionChangeModel(session, proj.localPath, useContainer, provider, modelChoice.value)
+    launchedSessions.add(session.id)
+    session.provider = updated.provider
+    session.model = updated.model
+    session.status = updated.status
+    reconnect.delete(session.id)
+    state.activeSessionId = session.id
+    render()
+  } catch (err) {
+    console.error('change model failed', err)
+  }
+}
+
+// F6/F7: three-dot session menu — reconnect (if crashed), rename, change model, close+archive.
 function openSessionMenu(session: Session, x: number, y: number) {
   const items = []
   if (reconnect.has(session.id)) {
@@ -491,6 +592,13 @@ function openSessionMenu(session: Session, x: number, y: number) {
         session.objective = name
         render()
       }
+    },
+    {
+      // Move this conversation to a different engine: the IDE relaunches the same
+      // session under the chosen provider/model and seeds it with the prior
+      // history, so the conversation carries over across models.
+      label: '⇄ Change model…',
+      onClick: () => { void changeModelFlow(session) }
     },
     {
       label: 'Close + Archive',
@@ -567,9 +675,19 @@ function render() {
     tree: trees.get(proj.id) ?? [],
     expanded: expandedDirs,
     childrenOf: (dirPath) => dirChildren.get(dirPath),
-    activePath: activeTab.kind === 'file' ? activeTab.path : undefined,
+    activePath: activeTab.kind === 'file' || activeTab.kind === 'report' ? activeTab.path : undefined,
     onToggleDir: (dirPath) => toggleDir(proj.localPath, dirPath),
-    onOpenFile: (filePath, name) => openFile(proj.localPath, filePath, name)
+    // Left-click: .html renders in-app (F15), everything else opens the editor.
+    onOpenFile: (filePath, name) =>
+      isHtml(filePath)
+        ? openReport(proj.localPath, filePath, name)
+        : openFile(proj.localPath, filePath, name),
+    // Right-click any file: offer "Open in new tab" → rendered report (F15).
+    onContextMenu: (filePath, name, x, y) =>
+      showMenu(x, y, [
+        { label: 'Open in new tab', onClick: () => openReport(proj.localPath, filePath, name) },
+        { label: 'Open in editor', onClick: () => openFile(proj.localPath, filePath, name) }
+      ])
   }))
   // Only mount a live terminal for sessions launched this run; hydrated/stale
   // sessions have no pty and are shown as reconnectable instead.
@@ -577,15 +695,19 @@ function render() {
     ? terminalFor(activeSession.id)
     : undefined
   const fileEl = activeTab.kind === 'file' ? fileEditorFor(proj.localPath, activeTab.path) : undefined
+  const reportEl = activeTab.kind === 'report' ? reportViewerFor(activeTab.path) : undefined
   body.appendChild(SupervisionView({
     session: activeSession,
     projectName: proj.name,
     openFiles,
+    openReports,
     activeTab,
     terminalEl,
     fileEl,
+    reportEl,
     onSelectTab: (tab) => { activeTab = tab; render() },
-    onCloseFile: closeFile
+    onCloseFile: closeFile,
+    onCloseReport: closeReport
   }))
   body.appendChild(
     Cockpit({

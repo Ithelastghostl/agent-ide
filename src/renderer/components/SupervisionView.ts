@@ -13,21 +13,35 @@ export interface OpenFile {
   dirty: boolean
 }
 
-/** Which tab is active: the session terminal, or a specific open file. */
-export type ActiveTab = { kind: 'session' } | { kind: 'file'; path: string }
+/** An HTML report open as a rendered tab. `name` is the tab label. */
+export interface OpenReport {
+  path: string
+  name: string
+}
+
+/** Which tab is active: the session terminal, a file editor, or a rendered report. */
+export type ActiveTab =
+  | { kind: 'session' }
+  | { kind: 'file'; path: string }
+  | { kind: 'report'; path: string }
 
 export interface SupervisionProps {
   session: Session | null
   projectName: string
   /** Files open as editor tabs (alongside the session tab). */
   openFiles: OpenFile[]
+  /** HTML reports open as rendered tabs (F15). */
+  openReports: OpenReport[]
   activeTab: ActiveTab
   /** Terminal element for the session tab (L2+); omitted → placeholder. */
   terminalEl?: HTMLElement
   /** Editor element for the active file tab; omitted when a session tab is active. */
   fileEl?: HTMLElement
+  /** Rendered-report element for the active report tab (a sandboxed iframe). */
+  reportEl?: HTMLElement
   onSelectTab: (tab: ActiveTab) => void
   onCloseFile: (path: string) => void
+  onCloseReport: (path: string) => void
 }
 
 /** Center pane: a tab strip (session + open files) over the active tab's content
@@ -67,12 +81,34 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
     tab.onclick = () => p.onSelectTab({ kind: 'file', path: f.path })
     tabs.appendChild(tab)
   }
+
+  // One tab per open report (rendered HTML), with a close button. F15.
+  for (const r of p.openReports) {
+    const active = p.activeTab.kind === 'report' && p.activeTab.path === r.path
+    const tab = document.createElement('div')
+    tab.className = 'ed-tab report' + (active ? ' on' : '')
+    const name = document.createElement('span')
+    name.className = 'fname'
+    name.textContent = r.name
+    tab.appendChild(name)
+    const close = document.createElement('span')
+    close.className = 'close'
+    close.textContent = '×'
+    close.title = 'Close'
+    close.onclick = (e) => { e.stopPropagation(); p.onCloseReport(r.path) }
+    tab.appendChild(close)
+    tab.onclick = () => p.onSelectTab({ kind: 'report', path: r.path })
+    tabs.appendChild(tab)
+  }
   editor.appendChild(tabs)
 
   const superv = document.createElement('div')
   superv.className = 'superv'
 
-  if (p.activeTab.kind === 'file' && p.fileEl) {
+  if (p.activeTab.kind === 'report' && p.reportEl) {
+    // Rendered report fills the pane (a sandboxed iframe; its own bar is inside).
+    superv.appendChild(p.reportEl)
+  } else if (p.activeTab.kind === 'file' && p.fileEl) {
     // File editor fills the pane (its own header lives inside fileEl).
     superv.appendChild(p.fileEl)
   } else {

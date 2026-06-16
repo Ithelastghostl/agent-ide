@@ -1,14 +1,16 @@
-import { ipcMain, dialog, shell, type BrowserWindow } from 'electron'
-import { readdirSync, existsSync, readFileSync, writeFileSync, statSync } from 'node:fs'
+import { app, ipcMain, dialog, shell, type BrowserWindow } from 'electron'
+import { readdirSync, existsSync, readFileSync, writeFileSync, statSync, appendFileSync } from 'node:fs'
 import { join, resolve, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 import { PtyManager, type SpawnOpts } from './ptyManager'
-import { launchArgv, resumeArgv } from './providers'
+import { launchArgv } from './providers'
 import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory } from './github'
-import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, codexConfigMount, findRunningContainer, findContainerPresence, startContainerById } from './devcontainer'
+import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, codexConfigMount, geminiConfigMount, findRunningContainer, findContainerPresence, startContainerById, resolveContainerUser } from './devcontainer'
 import { probeHealth, loginArgv, installInContainer } from './providerHealth'
+import { PortForwarder, ContainerPortWatcher, loopbackPort } from './portForwarder'
+import { historyFile, buildPrimer } from './history'
 import { Store } from './store'
 import { isProvider, type Provider, type Session } from '@shared/types'
 
@@ -90,14 +92,17 @@ async function ensureContainer(projectId: string, workspace: string, importConfi
     containerByProject.set(projectId, presence.id)
     return presence.id
   }
-  // Always make the host's Codex login visible inside the container (read-only),
-  // so a containerized Codex session is pre-authenticated and never needs the
-  // in-container OAuth loopback (localhost:1455, which the host browser can't
-  // reach). ~/.claude stays opt-in via importConfig. Only mount dirs that exist
-  // so the build doesn't fail on a bind to a missing source.
+  // Make the host's provider logins visible inside the container (read-only), so
+  // containerized sessions are pre-authenticated and never need an in-container
+  // OAuth loopback (the callback can't reach a listener trapped in the container's
+  // network namespace). Mounted into the remoteUser's home (sessions exec as that
+  // user, not root). ~/.claude stays opt-in via importConfig; ~/.codex and
+  // ~/.gemini mount whenever present. Only mount dirs that exist so the build
+  // doesn't fail on a bind to a missing source.
   const home = homedir()
   const mounts: string[] = []
   if (existsSync(join(home, '.codex'))) mounts.push(codexConfigMount(home))
+  if (existsSync(join(home, '.gemini'))) mounts.push(geminiConfigMount(home))
   if (importConfig && existsSync(join(home, '.claude'))) mounts.push(claudeConfigMount(home))
   const { containerId } = await upDevcontainer(workspace, mounts)
   containerByProject.set(projectId, containerId)
@@ -114,6 +119,63 @@ async function resolveContainerId(projectId: string, workspace: string): Promise
   return running ?? undefined
 }
 
+// Host-side port forwarders (one per container:port), for opening in-container
+// localhost services in the host browser. Lives for the app's lifetime.
+const forwarder = new PortForwarder()
+
+// VS Code-style auto port forwarding: while a containerized session runs, watch
+// the container for newly-listening localhost ports and forward each to the same
+// host port (so the host browser reaches in-container OAuth callbacks like :1455
+// and any dev server). One watcher per containerized session id.
+const watchers = new Map<string, ContainerPortWatcher>()
+function startPortWatch(sessionId: string, containerId: string, win: BrowserWindow): void {
+  if (watchers.has(sessionId)) return
+  const w = new ContainerPortWatcher(containerId, forwarder, {
+    onForward: (port) => win.webContents.send('session:status', { id: sessionId, message: `forwarding container port ${port} → localhost:${port}` })
+  })
+  watchers.set(sessionId, w)
+  w.start()
+}
+function stopPortWatch(sessionId: string): void {
+  const w = watchers.get(sessionId)
+  if (!w) return
+  watchers.delete(sessionId)
+  void w.stop()
+}
+
+/** Persist a chunk of session output: to the SQLite transcript (fast reads /
+ *  in-app replay) AND to the per-session history file (human-readable, git-
+ *  committable). The file is the IDE-owned history — the source of truth for
+ *  reconnect/model-swap primers, independent of any provider CLI. */
+function recordOutput(store: Store | undefined, sessionId: string, data: string): void {
+  store?.appendTranscript(sessionId, data, Date.now())
+  try { appendFileSync(historyFile(sessionId), data) } catch { /* best-effort mirror */ }
+}
+
+/** After a fresh engine starts for an existing session (reconnect or model swap),
+ *  seed it with the session's prior history so it continues with context. The
+ *  IDE owns this history (cleaned terminal text) — independent of any provider
+ *  CLI's own resume. Typed in after a short delay so the TUI is ready for input;
+ *  a trailing newline submits it. No-op when there's no prior history. */
+function seedPrimer(mgr: PtyManager, store: Store | undefined, sessionId: string): void {
+  const transcript = store?.getTranscript(sessionId) ?? ''
+  const primer = buildPrimer(transcript)
+  if (!primer) return
+  setTimeout(() => { try { mgr.write(sessionId, primer + '\n') } catch { /* pty gone */ } }, 1200)
+}
+
+/** Resolve the running container a session belongs to, if any. Looks the session
+ *  up in the store to get its project workspace, then queries Docker. Returns
+ *  undefined for host sessions or when no container is running. */
+async function containerForSession(store: Store | undefined, sessionId: string): Promise<string | undefined> {
+  if (!store) return undefined
+  const session = store.allSessions().find((s) => s.id === sessionId)
+  if (!session) return undefined
+  const project = store.listProjects().find((p) => p.id === session.projectId)
+  if (!project) return undefined
+  return resolveContainerId(project.id, project.localPath)
+}
+
 /** Registers all main-process IPC handlers. Thin router — logic lives in managers.
  *  `store` may be undefined if persistence failed to initialize; handlers then
  *  no-op writes and return empty reads so the UI still works. */
@@ -124,14 +186,43 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // when the originating session lives inside a container (which has no browser
   // or host display). URLs can come from untrusted CLI output — isSafeExternalUrl
   // gates the scheme so only http(s)/mailto reach the OS (never file: or custom).
-  ipcMain.handle('shell:openExternal', async (_e, url: string): Promise<boolean> => {
-    if (!isSafeExternalUrl(url)) return false
-    // Await + report the real outcome so the renderer can fall back (e.g. copy
-    // the URL) instead of silently failing when the OS handler errors.
+  //
+  // Container fix: a `localhost:<port>` URL printed by an agent INSIDE a container
+  // points at the container's loopback, which the host browser can't reach. If
+  // the originating session runs in a container, forward that port out to the
+  // host first (VS Code-style), then open the same localhost URL — this is what
+  // makes the OpenAI OAuth callback (:1455) and any in-container dev server work.
+  ipcMain.handle('shell:openExternal', async (_e, url: string, sessionId?: string): Promise<boolean> => {
+    if (!isSafeExternalUrl(url)) {
+      console.warn('[openExternal] refused unsafe url:', url)
+      return false
+    }
+    // Test observability seam: when AGENT_IDE_OPEN_LOG is set, ALSO record the URL.
+    // It must never REPLACE the real open (that would silently lie that links work),
+    // so this records and falls through to shell.openExternal below.
+    if (process.env.AGENT_IDE_OPEN_LOG) {
+      try { appendFileSync(process.env.AGENT_IDE_OPEN_LOG, url + '\n') } catch { /* best-effort */ }
+    }
     try {
+      // If a containerized session printed a localhost URL, forward that port out
+      // to the host first so the browser can reach it. Bounded so a slow/hung
+      // forward can't block opening the browser (Codex P4).
+      const port = loopbackPort(url)
+      if (port && sessionId) {
+        const containerId = await containerForSession(store, sessionId)
+        if (containerId) {
+          await Promise.race([
+            forwarder.ensure(containerId, port),
+            new Promise((r) => setTimeout(r, 2500))
+          ])
+        }
+      }
       await shell.openExternal(url)
       return true
-    } catch {
+    } catch (err) {
+      // Don't swallow silently — a discarded error here is exactly why "links
+      // don't open" was undiagnosable. Surface it (and the context) to the log.
+      console.error('[openExternal] failed for', url, 'session', sessionId, '-', (err as Error).message)
       return false
     }
   })
@@ -220,10 +311,12 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     let cwd = req.cwd
     if (req.useContainer) {
       // Don't silently downgrade to a host shell (Codex P2): bring the container
-      // up if needed so the terminal really runs inside it.
+      // up if needed so the terminal really runs inside it. Exec as the non-root
+      // remoteUser so the shell matches what agent sessions use.
       const containerId = await ensureContainer(req.projectId, req.cwd)
+      const user = await resolveContainerUser(containerId)
       shell = 'docker'
-      args = containerExecArgv(containerId, 'bash', [])
+      args = containerExecArgv(containerId, 'bash', [], { user: user ?? undefined })
       cwd = req.cwd
     }
     const now = Date.now()
@@ -234,7 +327,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     store?.saveSession(session)
     mgr.spawn(
       { id, shell, args, cwd, env: {} },
-      (data) => { win.webContents.send('pty:data', { id, data }); store?.appendTranscript(id, data, Date.now()) },
+      (data) => { win.webContents.send('pty:data', { id, data }); recordOutput(store, id, data) },
       ({ reason }) => { store?.archiveSession(id); win.webContents.send('session:exit', { id, reason }) }
     )
     return session
@@ -270,19 +363,21 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   })
 
   // F10: run an interactive CLI login as a terminal session, in project context.
-  ipcMain.handle('provider:login', async (_e, provider: Provider, projectId: string, cwd: string): Promise<string> => {
+  ipcMain.handle('provider:login', async (_e, provider: Provider, projectId: string, _cwd: string): Promise<string> => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
     const id = `login-${provider}-${newSessionId()}`
     const { cmd, args } = loginArgv(provider)
-    // Codex login MUST run on the host: it starts an OAuth loopback listener on
-    // a fixed localhost:1455 and the host browser is redirected back to it. Run
-    // inside the container and that listener is trapped in the container's
-    // network namespace (no port forwarding) — the callback never lands and
-    // login hangs. The resulting ~/.codex token is then bind-mounted (read-only)
-    // into the container so containerized sessions are authenticated anyway.
-    const containerId = provider === 'codex' ? undefined : await resolveContainerId(projectId, cwd)
-    const shell = containerId ? 'docker' : cmd
-    const spawnArgs = containerId ? containerExecArgv(containerId, cmd, args) : args
+    // ALL provider logins run on the HOST, never in the container. OAuth logins
+    // start a localhost loopback listener and the auth provider redirects the
+    // host browser back to it; that callback is a browser-side redirect, so it
+    // never passes through our openExternal port-forwarding. If login ran in the
+    // container the listener would be trapped in its network namespace and the
+    // callback would never land (the "browser response doesn't come through"
+    // bug). Logging in on the host writes ~/.codex / ~/.claude / ~/.gemini, which
+    // are bind-mounted (read-only) into the container so containerized sessions
+    // are already authenticated. cwd is irrelevant for a host login.
+    const shell = cmd
+    const spawnArgs = args
     mgr.spawn(
       { id, shell, args: spawnArgs, cwd, env: {} },
       (data) => win.webContents.send('pty:data', { id, data }),
@@ -332,6 +427,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     let shell = cmd
     let spawnArgs = args
     let cwd = req.cwd
+    let watchContainer: string | undefined
 
     if (req.useContainer) {
       if (!(await hasDevcontainerCli())) {
@@ -339,10 +435,14 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       }
       win.webContents.send('session:status', { id, message: 'starting container…' })
       const containerId = await ensureContainer(req.projectId, req.cwd, req.importConfig)
-      // run inside the container; docker exec carries the provider argv
+      // run inside the container as its non-root remoteUser; docker exec carries
+      // the provider argv. Root would break auto-approve (claude
+      // --dangerously-skip-permissions refuses to run as root).
+      const user = await resolveContainerUser(containerId)
       shell = 'docker'
-      spawnArgs = containerExecArgv(containerId, cmd, args)
+      spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined })
       cwd = req.cwd // docker process runs on host; -w handled by image default
+      watchContainer = containerId
     }
 
     const now = Date.now()
@@ -363,13 +463,14 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
         { id, shell, args: spawnArgs, cwd, env: {} },
         (data) => {
           win.webContents.send('pty:data', { id, data })
-          store?.appendTranscript(id, data, Date.now())
+          recordOutput(store, id, data)
         },
         ({ reason }) => {
           // History always retained (item 7). Clean close -> archived; crash ->
           // NOT archived (status idle) so it stays reconnectable (F4 / Codex P1).
           if (reason === 'closed') store?.archiveSession(id)
           else store?.setSessionStatus(id, 'idle')
+          stopPortWatch(id)
           win.webContents.send('session:exit', { id, reason })
         }
       )
@@ -378,37 +479,63 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     }
     store?.saveSession(session)
 
+    // Auto-forward any localhost port the in-container agent opens (OAuth :1455,
+    // dev servers, …) so the host browser can reach it — VS Code-style.
+    if (watchContainer) startPortWatch(id, watchContainer, win)
+
     return session
   })
 
-  // resume a session's conversation (interactive, subscription-safe). Runs in
-  // the SAME context as the original: inside the container if useContainer
-  // (Codex P1 — a crashed container session must not resume on the host).
-  ipcMain.handle('session:resume', async (_e, s: Session, cwd: string, useContainer: boolean): Promise<Session> => {
-    if (!isProvider(s.provider)) throw new Error(`bad provider: ${s.provider}`)
-    const { cmd, args } = resumeArgv(s.provider)
+  // Reconnect a session. The IDE owns the conversation (not the provider CLI), so
+  // we DON'T use provider "resume last/continue" flags — those grab whichever
+  // conversation the CLI saw last, which made independent sessions of the same
+  // provider bleed into one another. Instead we launch the engine FRESH and seed
+  // it with this session's own stored history (cleaned). Runs in the SAME context
+  // as the original (container vs host, Codex P1). Optional model override lets
+  // "change model" reuse this exact path to move the conversation to another engine.
+  ipcMain.handle('session:resume', async (_e, s: Session, cwd: string, useContainer: boolean, modelOverride?: { provider: Provider; model: string }): Promise<Session> => {
+    const provider = modelOverride?.provider ?? s.provider
+    const model = modelOverride?.model ?? s.model
+    if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+    // Fresh interactive launch (NOT resumeArgv). autoApprove == in a container.
+    const { cmd, args } = launchArgv({ provider, model, autoApprove: useContainer })
     let shell = cmd
     let spawnArgs = args
+    let watchContainer: string | undefined
     if (useContainer) {
       const containerId = await resolveContainerId(s.projectId, cwd)
       if (!containerId) throw new Error('cannot reconnect: the project container is not running')
+      const user = await resolveContainerUser(containerId)
       shell = 'docker'
-      spawnArgs = containerExecArgv(containerId, cmd, args)
+      spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined })
+      watchContainer = containerId
     }
     mgr.spawn(
       { id: s.id, shell, args: spawnArgs, cwd, env: {} },
       (data) => {
         win.webContents.send('pty:data', { id: s.id, data })
-        store?.appendTranscript(s.id, data, Date.now())
+        recordOutput(store, s.id, data)
       },
       ({ reason }) => {
+        stopPortWatch(s.id)
         if (reason === 'closed') store?.archiveSession(s.id)
         else store?.setSessionStatus(s.id, 'idle')
         win.webContents.send('session:exit', { id: s.id, reason })
       }
     )
-    const resumed: Session = { ...s, status: 'running', updatedAt: Date.now() }
+    // Seed the fresh engine with this session's prior history (context continuity).
+    seedPrimer(mgr, store, s.id)
+    if (watchContainer) startPortWatch(s.id, watchContainer, win)
+    const resumed: Session = { ...s, provider, model, status: 'running', updatedAt: Date.now() }
     store?.saveSession(resumed)
     return resumed
+  })
+
+  // Tear down port watchers + host-side relays on shutdown (container relays die
+  // with the container). Avoids leaking python relay processes across app restarts.
+  app.on('before-quit', () => {
+    for (const w of watchers.values()) void w.stop()
+    watchers.clear()
+    forwarder.disposeAll()
   })
 }

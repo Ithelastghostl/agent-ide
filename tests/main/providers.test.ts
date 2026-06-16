@@ -1,21 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { launchArgv, resumeArgv, FORBIDDEN_FLAGS } from '../../src/main/providers'
+import { launchArgv, FORBIDDEN_FLAGS } from '../../src/main/providers'
 import { PROVIDERS } from '@shared/types'
 
-describe('resumeArgv', () => {
-  it('uses each provider interactive resume flag (no forbidden flags)', () => {
-    expect(resumeArgv('claude')).toEqual({ cmd: 'claude', args: ['--continue'] })
-    expect(resumeArgv('codex')).toEqual({ cmd: 'codex', args: ['resume', '--last'] })
-    expect(resumeArgv('gemini')).toEqual({ cmd: 'gemini', args: ['--resume', 'latest'] })
-    for (const p of PROVIDERS) {
-      for (const bad of FORBIDDEN_FLAGS) {
-        // 'resume' is codex's own subcommand here (not the forbidden 'exec')
-        if (bad === 'exec') continue
-        expect(resumeArgv(p).args).not.toContain(bad)
-      }
-    }
-  })
-})
+// Note: provider "resume" flags (--continue/--last/latest) were removed — the IDE
+// owns each session's history and reconnects by launching fresh + replaying a
+// primer (see history.ts / session:resume), so resumeArgv no longer exists.
 
 describe('launchArgv — subscription interactive only (NN0)', () => {
   it('claude: --model, interactive, no headless/API-key flags', () => {

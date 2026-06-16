@@ -47,14 +47,9 @@ export function launchArgv(s: LaunchSpec): { cmd: string; args: string[] } {
   }
 }
 
-/** Resume an existing session's conversation (interactive). Used in L6. */
-export function resumeArgv(provider: Provider): { cmd: string; args: string[] } {
-  switch (provider) {
-    case 'claude':
-      return { cmd: 'claude', args: ['--continue'] }
-    case 'codex':
-      return { cmd: 'codex', args: ['resume', '--last'] }
-    case 'gemini':
-      return { cmd: 'gemini', args: ['--resume', 'latest'] }
-  }
-}
+// NOTE: there is intentionally no resumeArgv. Reconnecting a session does NOT use
+// the provider CLI's own resume (--continue / resume --last / --resume latest):
+// those attach to whichever conversation the CLI saw last, which made independent
+// sessions of the same provider bleed into one history. The IDE owns each
+// session's history and reconnects by launching the engine fresh (launchArgv) and
+// replaying a cleaned-history primer — see src/main/history.ts and session:resume.

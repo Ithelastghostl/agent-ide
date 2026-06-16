@@ -6,7 +6,9 @@ contextBridge.exposeInMainWorld('agentIDE', {
   ping: () => ipcRenderer.invoke('ping'),
 
   // Open a URL in the host's default browser (host-side; works from containers).
-  openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('shell:openExternal', url),
+  // Pass the originating sessionId so main can forward a container localhost port
+  // out to the host before opening (OAuth callbacks, in-container dev servers).
+  openExternal: (url: string, sessionId?: string): Promise<boolean> => ipcRenderer.invoke('shell:openExternal', url, sessionId),
 
   // model registry + session launch
   modelsAll: () => ipcRenderer.invoke('models:all'),
@@ -58,5 +60,9 @@ contextBridge.exposeInMainWorld('agentIDE', {
 
   // sessions persistence / global board
   sessionsAll: () => ipcRenderer.invoke('sessions:all'),
-  sessionResume: (s: unknown, cwd: string, useContainer: boolean) => ipcRenderer.invoke('session:resume', s, cwd, useContainer)
+  sessionResume: (s: unknown, cwd: string, useContainer: boolean) => ipcRenderer.invoke('session:resume', s, cwd, useContainer),
+  // Move a session's conversation to a different engine: relaunches the same
+  // session id under a new provider/model and seeds it with the prior history.
+  sessionChangeModel: (s: unknown, cwd: string, useContainer: boolean, provider: string, model: string) =>
+    ipcRenderer.invoke('session:resume', s, cwd, useContainer, { provider, model })
 })

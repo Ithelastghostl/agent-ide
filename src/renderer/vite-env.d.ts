@@ -6,7 +6,7 @@ declare module '*.css'
 // The preload bridge surface available on window.
 interface AgentIDEBridge {
   ping(): Promise<string>
-  openExternal(url: string): Promise<boolean>
+  openExternal(url: string, sessionId?: string): Promise<boolean>
   modelsAll(): Promise<Record<string, { id: string; label: string; tier: string }[]>>
   sessionLaunch(req: {
     projectId: string; provider: string; model: string; objective: string; cwd: string; useContainer: boolean; importConfig?: boolean
@@ -38,6 +38,7 @@ interface AgentIDEBridge {
   transcriptGet(id: string): Promise<string>
   sessionsAll(): Promise<import('@shared/types').Session[]>
   sessionResume(s: import('@shared/types').Session, cwd: string, useContainer: boolean): Promise<import('@shared/types').Session>
+  sessionChangeModel(s: import('@shared/types').Session, cwd: string, useContainer: boolean, provider: string, model: string): Promise<import('@shared/types').Session>
 }
 
 interface Window {

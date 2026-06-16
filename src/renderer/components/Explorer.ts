@@ -19,6 +19,8 @@ export interface ExplorerProps {
   onToggleDir: (dirPath: string) => void
   /** Open a file in a tab. */
   onOpenFile: (filePath: string, name: string) => void
+  /** Right-click a file: caller shows a context menu at (x, y). F15. */
+  onContextMenu?: (filePath: string, name: string, x: number, y: number) => void
 }
 
 /** Left file explorer: collapsible folders (lazy children) + click-to-open files.
@@ -69,6 +71,12 @@ export function Explorer(p: ExplorerProps): HTMLElement {
       row.onclick = () => {
         if (node.dir) p.onToggleDir(path)
         else p.onOpenFile(path, node.name)
+      }
+      if (!node.dir && p.onContextMenu) {
+        row.oncontextmenu = (e) => {
+          e.preventDefault()
+          p.onContextMenu!(path, node.name, e.clientX, e.clientY)
+        }
       }
       list.appendChild(row)
 
