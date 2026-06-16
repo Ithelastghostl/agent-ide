@@ -34,9 +34,8 @@ test('explorer: expand a folder and open a file in a new tab', async () => {
   ).toBeGreaterThan(0)
   await win.reload()
 
-  // Open the project from the rail.
-  await win.waitForSelector('.projrail .pj', { timeout: 15_000 })
-  await win.locator('.projrail .pj').first().click()
+  // Open the project from the rail (generous timeout: hydration lags under load).
+  await win.locator('.projrail .pj').first().click({ timeout: 20_000 })
 
   // Explorer shows the top level: a 'src' folder and 'README.md', collapsed.
   await win.waitForSelector('.explorer .ex-list', { timeout: 10_000 })

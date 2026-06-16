@@ -109,7 +109,14 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
   async function paste(): Promise<void> {
     try {
       const text = await navigator.clipboard.readText()
-      if (text) window.agentIDE.ptyWrite(sessionId, text)
+      // Route through xterm's paste() — NOT raw ptyWrite. paste() wraps the text
+      // in bracketed-paste markers (ESC[200~ … ESC[201~) when the running program
+      // has enabled bracketed paste (the agent CLIs do). Sending it raw made the
+      // program interpret a multi-line paste as typed input — each newline
+      // submitted/autocompleted and interleaved with the app's redraws, which is
+      // the "paste gets garbled / mixed with other characters" bug. xterm emits
+      // the (wrapped) bytes via onData, which we already forward to the pty.
+      if (text) term.paste(text)
     } catch { /* clipboard blocked */ }
   }
 

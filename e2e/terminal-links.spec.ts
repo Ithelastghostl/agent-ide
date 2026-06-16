@@ -24,14 +24,15 @@ async function openProjectWithTerminal(): Promise<{ app: ElectronApplication; wi
     env: { ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_OPEN_LOG: openLog }
   })
   const win = await app.firstWindow()
-  await win.waitForSelector('.projrail', { timeout: 15_000 })
+  await win.waitForSelector('.projrail', { timeout: 20_000 })
   await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
-  await expect.poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 10_000 }).toBeGreaterThan(0)
+  await expect.poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 15_000 }).toBeGreaterThan(0)
   await win.reload()
-  await win.waitForSelector('.projrail .pj', { timeout: 15_000 })
-  await win.locator('.projrail .pj').first().click()
-  await win.locator('.provrow.terminal .add').click()
-  await win.waitForSelector('.terminal-host .xterm', { timeout: 10_000 })
+  // Open the project from the rail. Generous timeouts: under full-suite load
+  // (many sequential Electron launches) boot() hydration can lag.
+  await win.locator('.projrail .pj').first().click({ timeout: 20_000 })
+  await win.locator('.provrow.terminal .add').click({ timeout: 20_000 })
+  await win.waitForSelector('.terminal-host .xterm', { timeout: 15_000 })
   return { app, win, openLog }
 }
 

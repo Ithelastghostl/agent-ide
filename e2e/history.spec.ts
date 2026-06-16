@@ -17,8 +17,7 @@ test('each session gets its own history file (no shared history)', async () => {
   await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
   await expect.poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 10_000 }).toBeGreaterThan(0)
   await win.reload()
-  await win.waitForSelector('.projrail .pj', { timeout: 15_000 })
-  await win.locator('.projrail .pj').first().click()
+  await win.locator('.projrail .pj').first().click({ timeout: 20_000 })
 
   // Open two plain terminal sessions and write DISTINCT text into each.
   await win.locator('.provrow.terminal .add').click()
