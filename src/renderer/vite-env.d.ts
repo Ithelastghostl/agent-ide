@@ -6,6 +6,7 @@ declare module '*.css'
 // The preload bridge surface available on window.
 interface AgentIDEBridge {
   ping(): Promise<string>
+  openExternal(url: string): Promise<boolean>
   modelsAll(): Promise<Record<string, { id: string; label: string; tier: string }[]>>
   sessionLaunch(req: {
     projectId: string; provider: string; model: string; objective: string; cwd: string; useContainer: boolean; importConfig?: boolean
@@ -26,11 +27,15 @@ interface AgentIDEBridge {
   projectsAddUrl(url: string, parentDir: string): Promise<import('@shared/types').Project>
   projectsList(): Promise<import('@shared/types').Project[]>
   fsTree(root: string): Promise<{ name: string; dir: boolean; depth: number }[]>
+  fsDir(root: string, path: string): Promise<{ name: string; dir: boolean; depth: number }[]>
+  fileRead(root: string, path: string): Promise<{ content?: string; error?: string }>
+  fileWrite(root: string, path: string, content: string): Promise<{ ok?: true; error?: string }>
   ptyWrite(id: string, data: string): void
   ptyResize(id: string, cols: number, rows: number): void
   ptyKill(id: string): void
   onPtyData(cb: (p: { id: string; data: string }) => void): () => void
   onSessionExit(cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void): void
+  transcriptGet(id: string): Promise<string>
   sessionsAll(): Promise<import('@shared/types').Session[]>
   sessionResume(s: import('@shared/types').Session, cwd: string, useContainer: boolean): Promise<import('@shared/types').Session>
 }

@@ -5,6 +5,10 @@ import { mkdirSync } from 'node:fs'
 import type { Project, Session, SessionStatus } from '@shared/types'
 
 export function defaultDbPath(): string {
+  // AGENT_IDE_DB lets tests point at a throwaway DB instead of the user's real
+  // store (e.g. ':memory:' or a tmp file). Unset in normal use.
+  const override = process.env.AGENT_IDE_DB
+  if (override) return override
   const dir = join(homedir(), 'AgentIDE')
   mkdirSync(dir, { recursive: true })
   return join(dir, 'agent-ide.sqlite')
@@ -84,13 +88,21 @@ export class Store {
     this.db.prepare(`INSERT INTO transcripts (session_id,chunk,ts) VALUES (?,?,?)`).run(sessionId, chunk, ts)
   }
 
-  getTranscript(sessionId: string): string {
-    return (
+  /** Full transcript for a session, oldest→newest, optionally tail-capped to the
+   *  last `maxBytes` characters so replaying a huge log into xterm on mount stays
+   *  fast. The cap keeps the END (most recent output), trimmed to a line start so
+   *  replay doesn't begin mid-escape-sequence. */
+  getTranscript(sessionId: string, maxBytes = 256 * 1024): string {
+    const full = (
       this.db
         .prepare(`SELECT chunk FROM transcripts WHERE session_id = ? ORDER BY ts, rowid`)
         .all(sessionId) as { chunk: string }[]
     )
       .map((r) => r.chunk)
       .join('')
+    if (full.length <= maxBytes) return full
+    const tail = full.slice(full.length - maxBytes)
+    const nl = tail.indexOf('\n')
+    return nl >= 0 ? tail.slice(nl + 1) : tail
   }
 }

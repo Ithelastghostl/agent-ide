@@ -3,7 +3,7 @@ import type { Provider, Project, Session } from '@shared/types'
 import { initialState, liveCounts, liveSessionsFor, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit, type ProviderHealth } from './components/Cockpit'
-import { SupervisionView } from './components/SupervisionView'
+import { SupervisionView, type OpenFile, type ActiveTab } from './components/SupervisionView'
 import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
 import { RepoPicker } from './components/RepoPicker'
@@ -87,6 +87,141 @@ function loadTree(projectId: string, localPath: string) {
   window.agentIDE.fsTree(localPath).then((t) => { trees.set(projectId, t as FileNode[]); render() })
 }
 
+// ---- Explorer expansion + open file tabs (per current project) ----------------
+// Expanded directory paths (project-relative) and a lazy cache of each dir's
+// children. A dir present in `dirChildren` is loaded; absent + expanded = loading.
+const expandedDirs = new Set<string>()
+const dirChildren = new Map<string, FileNode[]>()
+
+/** Fetch a directory's children once, then re-render. */
+function loadDir(localPath: string, relPath: string) {
+  if (dirChildren.has(relPath)) return
+  window.agentIDE.fsDir(localPath, relPath).then((kids) => {
+    dirChildren.set(relPath, kids as FileNode[])
+    render()
+  })
+}
+
+/** Toggle a folder open/closed; fetch children on first expand. */
+function toggleDir(localPath: string, relPath: string) {
+  if (expandedDirs.has(relPath)) {
+    expandedDirs.delete(relPath)
+  } else {
+    expandedDirs.add(relPath)
+    loadDir(localPath, relPath)
+  }
+  render()
+}
+
+// Open editor tabs and which tab is showing. activeTab defaults to the session.
+const openFiles: OpenFile[] = []
+const fileContent = new Map<string, string>()   // path -> on-disk/edited text
+let activeTab: ActiveTab = { kind: 'session' }
+
+/** Open a project file in a tab (or focus it if already open). */
+function openFile(localPath: string, relPath: string, name: string) {
+  if (!openFiles.some((f) => f.path === relPath)) {
+    openFiles.push({ path: relPath, name, dirty: false })
+  }
+  activeTab = { kind: 'file', path: relPath }
+  render()
+  if (!fileContent.has(relPath)) {
+    window.agentIDE.fileRead(localPath, relPath).then((r) => {
+      fileContent.set(relPath, r.error ? `‹ cannot open: ${r.error} ›` : (r.content ?? ''))
+      render()
+    })
+  }
+}
+
+/** Close a file tab; fall back to the session tab if it was active. */
+function closeFile(relPath: string) {
+  const i = openFiles.findIndex((f) => f.path === relPath)
+  if (i >= 0) openFiles.splice(i, 1)
+  fileContent.delete(relPath)
+  if (activeTab.kind === 'file' && activeTab.path === relPath) {
+    activeTab = openFiles.length ? { kind: 'file', path: openFiles[openFiles.length - 1].path } : { kind: 'session' }
+  }
+  render()
+}
+
+/** Switch the open project, resetting per-project file/explorer state (open
+ *  tabs, expansions and cached children are all project-relative and meaningless
+ *  across projects). No-op if the project is unchanged (keeps tabs/expansions). */
+function setCurrentProject(id: string) {
+  if (state.currentProjectId === id) { state.view = 'cockpit'; return }
+  state.currentProjectId = id
+  state.view = 'cockpit'
+  openFiles.length = 0
+  fileContent.clear()
+  expandedDirs.clear()
+  dirChildren.clear()
+  activeTab = { kind: 'session' }
+}
+
+/** Build the editable file pane for the active file tab (textarea + Ctrl+S save).
+ *  Read-only here would be simpler, but the user asked for edit+save. */
+function fileEditorFor(localPath: string, relPath: string): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'file-editor'
+
+  const bar = document.createElement('div')
+  bar.className = 'fe-bar'
+  const path = document.createElement('span')
+  path.className = 'fe-path'
+  path.textContent = relPath
+  const saveBtn = document.createElement('button')
+  saveBtn.className = 'fe-save'
+  const f = openFiles.find((x) => x.path === relPath)
+  saveBtn.textContent = f?.dirty ? 'Save ⌘S' : 'Saved'
+  saveBtn.disabled = !f?.dirty
+  bar.append(path, saveBtn)
+  wrap.appendChild(bar)
+
+  const ta = document.createElement('textarea')
+  ta.className = 'fe-area'
+  ta.spellcheck = false
+  ta.value = fileContent.get(relPath) ?? '…'
+  wrap.appendChild(ta)
+
+  const save = () => {
+    const cur = openFiles.find((x) => x.path === relPath)
+    if (!cur || !cur.dirty) return
+    const text = ta.value
+    window.agentIDE.fileWrite(localPath, relPath, text).then((r) => {
+      if (r.ok) {
+        fileContent.set(relPath, text)
+        cur.dirty = false
+        render()
+      } else {
+        // surface failure inline without losing edits
+        path.textContent = `${relPath} — save failed: ${r.error}`
+      }
+    })
+  }
+
+  ta.addEventListener('input', () => {
+    const cur = openFiles.find((x) => x.path === relPath)
+    if (!cur) return
+    const onDisk = fileContent.get(relPath) ?? ''
+    const nowDirty = ta.value !== onDisk
+    if (nowDirty !== cur.dirty) {
+      cur.dirty = nowDirty
+      saveBtn.textContent = nowDirty ? 'Save ⌘S' : 'Saved'
+      saveBtn.disabled = !nowDirty
+      // refresh the tab's dirty marker
+      render()
+    }
+  })
+  ta.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save() }
+  })
+  saveBtn.onclick = save
+
+  // Keep focus + caret usable after a re-render by focusing on mount.
+  queueMicrotask(() => ta.focus())
+  return wrap
+}
+
 // F14: reflect the REAL container status (queries Docker) once per project, so
 // the button shows "running" if a container is already up from a previous run.
 const containerStatusLoaded = new Set<string>()
@@ -105,8 +240,7 @@ function loadContainerStatus(projectId: string, localPath: string) {
 
 function addProjectToState(proj: Project) {
   if (!state.projects.find((p) => p.id === proj.id)) state.projects.push(proj)
-  state.currentProjectId = proj.id
-  state.view = 'cockpit'
+  setCurrentProject(proj.id)
   render()
 }
 
@@ -389,7 +523,7 @@ function render() {
     projects: state.projects,
     activeId: state.currentProjectId,
     counts: liveCounts(state.sessions),
-    onSelect: (id) => { state.currentProjectId = id; state.view = 'cockpit'; render() },
+    onSelect: (id) => { setCurrentProject(id); render() },
     onHome: () => { state.view = 'home'; render() },
     onAdd: () => {
       const r = document.querySelector('.projrail .add')?.getBoundingClientRect()
@@ -405,9 +539,8 @@ function render() {
       projects: state.projects,
       sessions: state.sessions,
       onOpen: (projectId, sessionId) => {
-        state.currentProjectId = projectId
+        setCurrentProject(projectId)
         state.activeSessionId = sessionId
-        state.view = 'cockpit'
         render()
       }
     })
@@ -429,13 +562,31 @@ function render() {
 
   loadTree(proj.id, proj.localPath)
   if (proj.hasDevcontainer) loadContainerStatus(proj.id, proj.localPath)
-  body.appendChild(Explorer({ projectName: proj.name, tree: trees.get(proj.id) ?? [] }))
+  body.appendChild(Explorer({
+    projectName: proj.name,
+    tree: trees.get(proj.id) ?? [],
+    expanded: expandedDirs,
+    childrenOf: (dirPath) => dirChildren.get(dirPath),
+    activePath: activeTab.kind === 'file' ? activeTab.path : undefined,
+    onToggleDir: (dirPath) => toggleDir(proj.localPath, dirPath),
+    onOpenFile: (filePath, name) => openFile(proj.localPath, filePath, name)
+  }))
   // Only mount a live terminal for sessions launched this run; hydrated/stale
   // sessions have no pty and are shown as reconnectable instead.
   const terminalEl = activeSession && launchedSessions.has(activeSession.id)
     ? terminalFor(activeSession.id)
     : undefined
-  body.appendChild(SupervisionView({ session: activeSession, projectName: proj.name, terminalEl }))
+  const fileEl = activeTab.kind === 'file' ? fileEditorFor(proj.localPath, activeTab.path) : undefined
+  body.appendChild(SupervisionView({
+    session: activeSession,
+    projectName: proj.name,
+    openFiles,
+    activeTab,
+    terminalEl,
+    fileEl,
+    onSelectTab: (tab) => { activeTab = tab; render() },
+    onCloseFile: closeFile
+  }))
   body.appendChild(
     Cockpit({
       sessions: projectSessions,

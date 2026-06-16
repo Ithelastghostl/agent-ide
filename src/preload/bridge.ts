@@ -5,6 +5,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('agentIDE', {
   ping: () => ipcRenderer.invoke('ping'),
 
+  // Open a URL in the host's default browser (host-side; works from containers).
+  openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('shell:openExternal', url),
+
   // model registry + session launch
   modelsAll: () => ipcRenderer.invoke('models:all'),
   sessionLaunch: (req: unknown) => ipcRenderer.invoke('session:launch', req),
@@ -31,6 +34,9 @@ contextBridge.exposeInMainWorld('agentIDE', {
   projectsAddUrl: (url: string, parentDir: string) => ipcRenderer.invoke('projects:addUrl', url, parentDir),
   projectsList: () => ipcRenderer.invoke('projects:list'),
   fsTree: (root: string) => ipcRenderer.invoke('fs:tree', root),
+  fsDir: (root: string, path: string) => ipcRenderer.invoke('fs:dir', root, path),
+  fileRead: (root: string, path: string) => ipcRenderer.invoke('file:read', root, path),
+  fileWrite: (root: string, path: string, content: string) => ipcRenderer.invoke('file:write', root, path, content),
 
   // terminal / session pty. No raw spawn from the renderer (NN0): ptys are
   // started in main via session:launch / terminal:open / session:resume.
@@ -46,6 +52,9 @@ contextBridge.exposeInMainWorld('agentIDE', {
   },
   onSessionExit: (cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void) =>
     ipcRenderer.on('session:exit', (_e, p) => cb(p)),
+
+  // Replay saved terminal output for a session (chat history) on mount.
+  transcriptGet: (id: string): Promise<string> => ipcRenderer.invoke('transcript:get', id),
 
   // sessions persistence / global board
   sessionsAll: () => ipcRenderer.invoke('sessions:all'),

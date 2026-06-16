@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
+import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, codexConfigMount, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
 
 describe('findContainerArgv', () => {
   it('filters running containers by the devcontainer local_folder label', () => {
@@ -47,6 +47,12 @@ describe('devcontainerUpArgv with mounts (F12)', () => {
 describe('claudeConfigMount', () => {
   it('builds a read-only bind mount of ~/.claude', () => {
     expect(claudeConfigMount('/home/me')).toBe('type=bind,source=/home/me/.claude,target=/root/.claude,readonly')
+  })
+})
+
+describe('codexConfigMount', () => {
+  it('builds a read-only bind mount of ~/.codex (host login -> containerized session)', () => {
+    expect(codexConfigMount('/home/me')).toBe('type=bind,source=/home/me/.codex,target=/root/.codex,readonly')
   })
 })
 

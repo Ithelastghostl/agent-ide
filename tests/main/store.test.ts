@@ -51,4 +51,19 @@ describe('Store', () => {
     store.appendTranscript('s1', 'world', 2)
     expect(store.getTranscript('s1')).toBe('hello world')
   })
+
+  it('returns the full transcript when under the cap', () => {
+    store.appendTranscript('s1', 'short output', 1)
+    expect(store.getTranscript('s1', 1024)).toBe('short output')
+  })
+
+  it('tail-caps a large transcript to the most recent bytes, trimmed to a line start', () => {
+    // 10 numbered lines; cap small enough to drop the earliest ones.
+    for (let i = 0; i < 10; i++) store.appendTranscript('s1', `line${i}\n`, i)
+    const out = store.getTranscript('s1', 20)
+    expect(out.length).toBeLessThanOrEqual(20)
+    expect(out).toMatch(/line9\n$/)        // keeps the END (most recent)
+    expect(out).not.toContain('line0')      // drops the oldest
+    expect(out.startsWith('line')).toBe(true) // begins at a line boundary, not mid-line
+  })
 })

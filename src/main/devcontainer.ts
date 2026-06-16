@@ -26,6 +26,14 @@ export function claudeConfigMount(homeDir: string): string {
   return `type=bind,source=${homeDir}/.claude,target=/root/.claude,readonly`
 }
 
+/** Build a read-only bind-mount string for ~/.codex into the container, so a
+ *  containerized Codex session inherits the host's existing login (OAuth token
+ *  in ~/.codex/auth.json) instead of re-running login through the trapped
+ *  in-container loopback (localhost:1455). */
+export function codexConfigMount(homeDir: string): string {
+  return `type=bind,source=${homeDir}/.codex,target=/root/.codex,readonly`
+}
+
 /** Extract the containerId from `devcontainer up` JSON output (last JSON line). */
 export function parseContainerId(stdout: string): string {
   const lines = stdout.split('\n').reverse()

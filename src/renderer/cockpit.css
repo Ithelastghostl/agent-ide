@@ -62,11 +62,19 @@
   width: 200px; background: var(--bg-page-alt); border-right: 1px solid var(--border);
   flex: none; overflow: hidden; display: flex; flex-direction: column;
 }
-.ex-h { padding: 11px 14px 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); font-weight: 600; }
-.ex-i { padding: 3px 14px 3px 22px; color: var(--text-secondary); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.ex-h { padding: 11px 14px 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); font-weight: 600; flex: none; }
+.ex-list { flex: 1; overflow-y: auto; overflow-x: hidden; padding-bottom: 6px; }
+.ex-i {
+  padding: 3px 8px; color: var(--text-secondary); font-size: 12px; cursor: pointer;
+  white-space: nowrap; display: flex; align-items: center; gap: 4px; user-select: none;
+}
 .ex-i:hover { background: var(--bg-surface); }
-.ex-i.f { padding-left: 14px; }
-.ex-i .mut { color: #4a514f; }
+.ex-i.active { background: var(--bg-surface-alt); color: var(--text-primary); }
+.ex-i .tw { width: 10px; flex: none; color: var(--text-muted); font-size: 10px; text-align: center; }
+.ex-i .ic { flex: none; font-size: 11px; opacity: .85; }
+.ex-i .nm { overflow: hidden; text-overflow: ellipsis; }
+.ex-i .mut { margin-left: auto; color: var(--accent); font-weight: 600; font-size: 10px; padding-left: 6px; }
+.ex-i.loading { color: var(--text-muted); font-style: italic; cursor: default; }
 
 /* supervision area (center) */
 .editor { flex: 1; background: var(--bg-base); display: flex; flex-direction: column; min-width: 0; }
@@ -84,6 +92,28 @@
 .sv-head .obj b { color: #fff; font-size: 13px; display: block; }
 .sv-head .obj span { color: var(--text-muted); font-size: 11px; }
 .sv-head .chip { font-size: 10px; color: var(--text-secondary); background: var(--bg-surface-alt); border: 1px solid var(--border); padding: 3px 9px; border-radius: 7px; }
+
+/* editor tabs: open files alongside the session tab */
+.ed-tabs { overflow-x: auto; }
+.ed-tab.file .fname { overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.ed-tab .close {
+  width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 4px;
+  color: var(--text-muted); font-size: 12px; flex: none;
+}
+.ed-tab .close:hover { background: var(--bg-surface); color: var(--text-primary); }
+
+/* file editor pane (textarea + save bar) */
+.file-editor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.fe-bar { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--border); }
+.fe-path { flex: 1; font-size: 11px; color: var(--text-muted); font-family: Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fe-save { font-size: 11px; color: var(--text-primary); background: var(--accent); border: none; padding: 4px 12px; border-radius: 6px; cursor: pointer; }
+.fe-save:disabled { background: var(--bg-surface-alt); color: var(--text-muted); cursor: default; }
+.fe-area {
+  flex: 1; min-height: 0; resize: none; border: none; outline: none;
+  background: var(--bg-base); color: var(--text-primary);
+  font-family: Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; padding: 12px 16px;
+  tab-size: 2; white-space: pre; overflow: auto;
+}
 .terminal-host { flex: 1; min-height: 0; padding: 6px 8px; }
 
 /* agent cockpit (right) */
