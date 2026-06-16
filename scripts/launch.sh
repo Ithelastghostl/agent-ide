@@ -6,8 +6,16 @@ set -e
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$HERE"
 
-# Build once if there's no prior build.
+# Build if there's no prior build, OR if any source is newer than the build.
+# (Only rebuilding when out/ is MISSING shipped stale code after every edit —
+# the app would run old bundles and look "unfixed". Building is cheap.)
+needs_build=false
 if [ ! -f out/main/index.js ]; then
+  needs_build=true
+elif [ -n "$(find src electron.vite.config.ts package.json -type f -newer out/main/index.js 2>/dev/null | head -1)" ]; then
+  needs_build=true
+fi
+if [ "$needs_build" = true ]; then
   npm run build
 fi
 

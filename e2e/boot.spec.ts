@@ -1,9 +1,19 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
+
+// Launch against a throwaway store so these tests are hermetic — never the user's
+// real ~/AgentIDE store (which would make "boots empty" false and cause SQLite
+// contention that flaked other specs in the full suite).
+function launchEmpty() {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-boot-')), 'store.sqlite')
+  return electron.launch({ args: [join(__dirname, '..'), '--no-sandbox'], env: { ...process.env, AGENT_IDE_DB: dbPath } })
+}
 
 // The app boots empty (F1): no project loaded, home board + "Open project" CTA.
 test('app boots to an empty home board with an Open project action', async () => {
-  const app = await electron.launch({ args: [join(__dirname, '..'), '--no-sandbox'] })
+  const app = await launchEmpty()
   const win = await app.firstWindow()
 
   // home board renders
@@ -23,7 +33,7 @@ test('app boots to an empty home board with an Open project action', async () =>
 
 // Clicking "Open project" / rail + opens the add-project menu (F2).
 test('Open project opens the add-project menu with three ways', async () => {
-  const app = await electron.launch({ args: [join(__dirname, '..'), '--no-sandbox'] })
+  const app = await launchEmpty()
   const win = await app.firstWindow()
 
   await win.waitForSelector('.open-cta', { timeout: 15_000 })
@@ -43,7 +53,7 @@ test('Open project opens the add-project menu with three ways', async () => {
 // browser (the previous bug: a mousedown closed the menu before click landed).
 // 'Clone from git URL…' opens the in-app prompt modal first — no native dialog.
 test('clicking a menu item fires its handler (opens the URL prompt)', async () => {
-  const app = await electron.launch({ args: [join(__dirname, '..'), '--no-sandbox'] })
+  const app = await launchEmpty()
   const win = await app.firstWindow()
 
   await win.waitForSelector('.open-cta', { timeout: 15_000 })
