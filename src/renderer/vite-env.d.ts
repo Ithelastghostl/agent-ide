@@ -36,6 +36,10 @@ interface AgentIDEBridge {
   onPtyData(cb: (p: { id: string; data: string }) => void): () => void
   onSessionExit(cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void): void
   transcriptGet(id: string): Promise<string>
+  libraryList(): Promise<import('@shared/types').LibraryContents>
+  libraryRead(relPath: string): Promise<{ content?: string; error?: string }>
+  libraryStatus(): Promise<{ dir: string; isClone: boolean; counts: { prompts: number; skills: number; workflows: number } }>
+  librarySync(repo?: string): Promise<{ ok?: true; error?: string }>
   sessionsAll(): Promise<import('@shared/types').Session[]>
   sessionResume(s: import('@shared/types').Session, cwd: string, useContainer: boolean): Promise<import('@shared/types').Session>
   sessionChangeModel(s: import('@shared/types').Session, cwd: string, useContainer: boolean, provider: string, model: string): Promise<import('@shared/types').Session>

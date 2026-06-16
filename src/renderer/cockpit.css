@@ -137,6 +137,22 @@
 .pill { font-size: 10px; padding: 3px 9px; border-radius: 7px; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); }
 .pill b { color: var(--accent-muted); margin-left: 3px; }
 .pill .badge { color: var(--warning); font-size: 8px; margin-left: 4px; letter-spacing: .5px; }
+/* live (non-soon) pills are clickable */
+.libpills:not(.soon) .pill { cursor: pointer; transition: .12s; }
+.libpills:not(.soon) .pill:hover { border-color: var(--accent); color: #fff; }
+
+/* library panel: search + per-item use button + empty state */
+.lib-search {
+  margin: 4px 18px 10px; padding: 7px 10px; font-size: 12px; border-radius: 7px;
+  background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); outline: none;
+}
+.lib-search:focus { border-color: var(--accent); }
+.lib-use {
+  font-size: 11px; color: var(--text-primary); background: var(--accent); border: none;
+  padding: 4px 12px; border-radius: 6px; cursor: pointer; flex: none;
+}
+.lib-use:disabled { background: var(--bg-surface-alt); color: var(--text-muted); cursor: default; }
+.lib-empty { padding: 18px; color: var(--text-muted); font-size: 12px; text-align: center; }
 .cp-div { height: 1px; background: var(--border); margin: 2px 0; }
 
 /* F14: start-container button */

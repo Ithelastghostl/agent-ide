@@ -58,6 +58,12 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // Replay saved terminal output for a session (chat history) on mount.
   transcriptGet: (id: string): Promise<string> => ipcRenderer.invoke('transcript:get', id),
 
+  // Library (GitHub-backed Prompts/Skills/Workflows).
+  libraryList: () => ipcRenderer.invoke('library:list'),
+  libraryRead: (relPath: string) => ipcRenderer.invoke('library:read', relPath),
+  libraryStatus: () => ipcRenderer.invoke('library:status'),
+  librarySync: (repo?: string) => ipcRenderer.invoke('library:sync', repo),
+
   // sessions persistence / global board
   sessionsAll: () => ipcRenderer.invoke('sessions:all'),
   sessionResume: (s: unknown, cwd: string, useContainer: boolean) => ipcRenderer.invoke('session:resume', s, cwd, useContainer),

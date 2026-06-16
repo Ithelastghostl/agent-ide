@@ -6,8 +6,9 @@ import { PtyManager, type SpawnOpts } from './ptyManager'
 import { launchArgv } from './providers'
 import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
-import { listRepos, syncHistory } from './github'
-import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, codexConfigMount, geminiConfigMount, findRunningContainer, findContainerPresence, startContainerById, resolveContainerUser } from './devcontainer'
+import { listRepos, syncHistory, cloneRepo, cloneUrl, pullRepo } from './github'
+import { libraryDir, scanLibrary, readLibraryItem, libraryIsClone } from './library'
+import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, codexConfigMount, geminiConfigMount, libraryConfigMount, findRunningContainer, findContainerPresence, startContainerById, resolveContainerUser } from './devcontainer'
 import { probeHealth, loginArgv, installInContainer } from './providerHealth'
 import { PortForwarder, ContainerPortWatcher, loopbackPort } from './portForwarder'
 import { historyFile, buildPrimer } from './history'
@@ -104,6 +105,13 @@ async function ensureContainer(projectId: string, workspace: string, importConfi
   if (existsSync(join(home, '.codex'))) mounts.push(codexConfigMount(home))
   if (existsSync(join(home, '.gemini'))) mounts.push(geminiConfigMount(home))
   if (importConfig && existsSync(join(home, '.claude'))) mounts.push(claudeConfigMount(home))
+  // Mount the IDE library (read-only) so in-container sessions can use its
+  // skills/workflows. Only when it has content (a cloned repo), to avoid binding
+  // an empty placeholder dir. (D14)
+  const lib = libraryDir()
+  if (existsSync(join(lib, 'skills')) || existsSync(join(lib, 'workflows')) || existsSync(join(lib, 'prompts'))) {
+    mounts.push(libraryConfigMount(lib))
+  }
   const { containerId } = await upDevcontainer(workspace, mounts)
   containerByProject.set(projectId, containerId)
   return containerId
@@ -255,6 +263,41 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   })
   ipcMain.handle('projects:list', () => store?.listProjects() ?? [])
   ipcMain.handle('fs:tree', (_e, root: string) => readTree(root))
+
+  // Library (GitHub-backed Prompts/Skills/Workflows) — D14. The library is a
+  // clone of the user's library repo under ~/AgentIDE/library; we scan it into
+  // the three categories and read individual items (confined to the library).
+  ipcMain.handle('library:list', () => scanLibrary(libraryDir()))
+  ipcMain.handle('library:read', (_e, relPath: string) => readLibraryItem(relPath))
+  ipcMain.handle('library:status', () => {
+    const dir = libraryDir()
+    const lib = scanLibrary(dir)
+    return {
+      dir,
+      isClone: libraryIsClone(dir),
+      counts: { prompts: lib.prompts.length, skills: lib.skills.length, workflows: lib.workflows.length }
+    }
+  })
+  // Sync: pull if already a clone; otherwise clone the given repo (owner/name via
+  // gh, or any git URL) into the (empty) library dir. `repo` is optional when a
+  // clone already exists. Returns the refreshed contents (or an error).
+  ipcMain.handle('library:sync', async (_e, repo?: string): Promise<{ ok?: true; error?: string }> => {
+    const dir = libraryDir()
+    try {
+      if (libraryIsClone(dir)) {
+        await pullRepo(dir)
+      } else if (repo) {
+        const isUrl = /^(https?:|git@|ssh:)/.test(repo)
+        if (isUrl) await cloneUrl(repo, dir)
+        else await cloneRepo(repo, dir)
+      } else {
+        return { error: 'no library repo configured yet' }
+      }
+      return { ok: true }
+    } catch (err) {
+      return { error: (err as Error).message }
+    }
+  })
 
   // Lazy directory expansion for the explorer: immediate children of `path`,
   // which must resolve inside the project `root` (confined; no host escape).

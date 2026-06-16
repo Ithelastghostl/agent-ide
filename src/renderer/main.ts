@@ -6,6 +6,8 @@ import { Cockpit, type ProviderHealth } from './components/Cockpit'
 import { SupervisionView, type OpenFile, type OpenReport, type ActiveTab } from './components/SupervisionView'
 import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
+import { LibraryPanel } from './components/LibraryPanel'
+import type { LibraryCategory, LibraryContents, LibraryItem } from '@shared/types'
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
 import { AllSessions } from './components/AllSessions'
@@ -27,6 +29,12 @@ window.agentIDE.onContainerStatus?.(({ projectId, state: s }) => {
   containerState.set(projectId, s)
   render()
 })
+
+// Library contents (D14), loaded once at boot; undefined → pills show "—".
+let library: LibraryContents | undefined
+function loadLibrary() {
+  window.agentIDE.libraryList().then((lib) => { library = lib; render() }).catch(() => { /* library unavailable */ })
+}
 
 // F4: a session's pty exited. History is always kept; a crash flags reconnect.
 window.agentIDE.onSessionExit(({ id, reason }) => {
@@ -355,6 +363,52 @@ function openGithubClone() {
   })
 }
 function closeOverlay() { document.getElementById('picker-overlay')?.remove() }
+
+// The session id we can write into right now (focused + has a live pty this run).
+function activeLivePtyId(): string | null {
+  const id = state.activeSessionId
+  return id && launchedSessions.has(id) ? id : null
+}
+
+/** Strip a leading YAML frontmatter block from a markdown body (prompt text). */
+function stripFrontmatter(text: string): string {
+  const m = /^﻿?---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/.exec(text)
+  return (m ? m[1] : text).trim()
+}
+
+// D14: open a library category in a filterable panel.
+function openLibrary(category: LibraryCategory) {
+  if (!library) return
+  const items = library[category]
+  const panel = LibraryPanel({
+    category,
+    items,
+    hasActiveSession: activeLivePtyId() !== null,
+    onUse: (item) => { void useLibraryItem(item); closeOverlay() },
+    onCancel: closeOverlay
+  })
+  panel.id = 'picker-overlay'
+  document.body.appendChild(panel)
+}
+
+// Insert a library item into the active session's pty. Prompts → the prompt body
+// (frontmatter stripped). Skills/Workflows → an invocation hint the agent CLI
+// understands (the item is in the mounted library, so the CLI can run it).
+async function useLibraryItem(item: LibraryItem) {
+  const sessionId = activeLivePtyId()
+  if (!sessionId) return
+  if (item.category === 'prompts') {
+    const r = await window.agentIDE.libraryRead(item.relPath)
+    if (r.content) window.agentIDE.ptyWrite(sessionId, stripFrontmatter(r.content))
+  } else if (item.category === 'skills') {
+    // Skills are invoked by name in the CLIs (e.g. a /name command).
+    window.agentIDE.ptyWrite(sessionId, `/${item.name} `)
+  } else {
+    // Workflow: drop a reference the agent can act on (it can read the file from
+    // the mounted library). Keep it as plain text, no auto-submit.
+    window.agentIDE.ptyWrite(sessionId, `Run the workflow "${item.name}" (library/workflows/${item.name}.js). `)
+  }
+}
 
 // F11/F12: decide run context for a devcontainer project. Returns
 // { useContainer, importConfig } or null if cancelled. Remembers per project.
@@ -715,6 +769,10 @@ function render() {
       activeSessionId: state.activeSessionId,
       reconnect,
       health,
+      libraryCounts: library
+        ? { prompts: library.prompts.length, skills: library.skills.length, workflows: library.workflows.length }
+        : undefined,
+      onLibraryPill: openLibrary,
       onLaunch: launchFlow,
       onSelectSession: (id) => { state.activeSessionId = id; render() },
       onSessionMenu: openSessionMenu,
@@ -746,6 +804,7 @@ async function boot() {
   } catch (err) {
     console.error('boot hydrate failed', err)
   }
+  loadLibrary() // D14: populate library pill counts (async, re-renders on load)
   render()
 }
 

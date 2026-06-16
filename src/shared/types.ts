@@ -36,3 +36,22 @@ export interface Project {
   localPath: string
   hasDevcontainer: boolean
 }
+
+/** A library item — a Prompt, Skill, or Workflow read from the GitHub-backed
+ *  library folder. `relPath` is the item's path relative to the library root
+ *  (used for confined reads); `path` is the absolute path for display/debug. */
+export type LibraryCategory = 'prompts' | 'skills' | 'workflows'
+
+export interface LibraryItem {
+  category: LibraryCategory
+  name: string
+  description: string
+  relPath: string
+  path: string
+}
+
+export interface LibraryContents {
+  prompts: LibraryItem[]
+  skills: LibraryItem[]
+  workflows: LibraryItem[]
+}

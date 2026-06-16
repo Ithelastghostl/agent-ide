@@ -39,6 +39,11 @@ export async function cloneUrl(url: string, dest: string): Promise<void> {
   await pexec('git', ['clone', url, dest])
 }
 
+/** `git pull` an existing clone (used to refresh the library). */
+export async function pullRepo(dir: string): Promise<void> {
+  await pexec('git', ['-C', dir, 'pull', '--ff-only'])
+}
+
 /** Derive a project folder name from a git URL or owner/name spec. */
 export function repoNameFromUrl(url: string): string {
   const cleaned = url.replace(/\.git$/, '').replace(/\/+$/, '')

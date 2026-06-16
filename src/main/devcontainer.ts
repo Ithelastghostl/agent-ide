@@ -39,6 +39,13 @@ export const claudeConfigMount = (hostHome: string, containerHome?: string) => c
 export const codexConfigMount = (hostHome: string, containerHome?: string) => configMount(hostHome, '.codex', containerHome)
 export const geminiConfigMount = (hostHome: string, containerHome?: string) => configMount(hostHome, '.gemini', containerHome)
 
+/** Read-only bind-mount of the IDE's library folder (an absolute host path, e.g.
+ *  ~/AgentIDE/library) into the container at <home>/.agent-ide/library, so a
+ *  containerized session's CLI can read the library's skills/workflows. */
+export function libraryConfigMount(libHostDir: string, containerHome: string = CONTAINER_HOME): string {
+  return `type=bind,source=${libHostDir},target=${containerHome}/.agent-ide/library,readonly`
+}
+
 /** Extract the containerId from `devcontainer up` JSON output (last JSON line). */
 export function parseContainerId(stdout: string): string {
   const lines = stdout.split('\n').reverse()
