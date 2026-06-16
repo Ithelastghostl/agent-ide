@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { PtyManager } from './ptyManager'
 import { registerIpc } from './ipc'
@@ -28,6 +28,23 @@ function createWindow(): void {
   } catch (err) {
     console.error('Store init failed — running without persistence:', err)
   }
+
+  // Links should open in the user's default browser, not a new Electron window.
+  // Deny window.open / target=_blank and hand http(s) URLs to the OS instead.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http:') || url.startsWith('https:')) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  // Guard against in-place navigation to external URLs replacing the app UI.
+  win.webContents.on('will-navigate', (event, url) => {
+    const appUrl = process.env.ELECTRON_RENDERER_URL
+    if (appUrl && url.startsWith(appUrl)) return
+    if (url.startsWith('http:') || url.startsWith('https:')) {
+      event.preventDefault()
+      shell.openExternal(url)
+    }
+  })
 
   registerIpc(ptyManager, win, store)
 
