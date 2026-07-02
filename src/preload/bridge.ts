@@ -35,10 +35,12 @@ contextBridge.exposeInMainWorld('agentIDE', {
   projectsAddLocal: (localPath: string) => ipcRenderer.invoke('projects:addLocal', localPath),
   projectsAddUrl: (url: string, parentDir: string) => ipcRenderer.invoke('projects:addUrl', url, parentDir),
   projectsList: () => ipcRenderer.invoke('projects:list'),
-  fsTree: (root: string) => ipcRenderer.invoke('fs:tree', root),
-  fsDir: (root: string, path: string) => ipcRenderer.invoke('fs:dir', root, path),
-  fileRead: (root: string, path: string) => ipcRenderer.invoke('file:read', root, path),
-  fileWrite: (root: string, path: string, content: string) => ipcRenderer.invoke('file:write', root, path, content),
+  // Files are addressed by projectId (main resolves the confined root, B1) — the
+  // renderer never sends a filesystem path as the confinement root.
+  fsTree: (projectId: string) => ipcRenderer.invoke('fs:tree', projectId),
+  fsDir: (projectId: string, path: string) => ipcRenderer.invoke('fs:dir', projectId, path),
+  fileRead: (projectId: string, path: string) => ipcRenderer.invoke('file:read', projectId, path),
+  fileWrite: (projectId: string, path: string, content: string) => ipcRenderer.invoke('file:write', projectId, path, content),
 
   // terminal / session pty. No raw spawn from the renderer (NN0): ptys are
   // started in main via session:launch / terminal:open / session:resume.

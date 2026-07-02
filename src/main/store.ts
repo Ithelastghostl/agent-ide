@@ -51,6 +51,15 @@ export class Store {
       .map((r: any) => ({ ...r, hasDevcontainer: !!r.hasDevcontainer }))
   }
 
+  /** A single project by id, or undefined if unknown. Used by main to resolve a
+   *  renderer-supplied projectId to its confined filesystem root (B1). */
+  getProject(id: string): Project | undefined {
+    const r: any = this.db
+      .prepare(`SELECT id,name,repo,localPath,hasDevcontainer FROM projects WHERE id = ?`)
+      .get(id)
+    return r ? { ...r, hasDevcontainer: !!r.hasDevcontainer } : undefined
+  }
+
   saveSession(s: Session): void {
     this.db
       .prepare(

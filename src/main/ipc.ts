@@ -57,6 +57,21 @@ export function confinedPath(root: string, target: string): string | null {
   return t
 }
 
+/** B1 (Critical): resolve a renderer file request to a confined absolute path,
+ *  where the renderer names the project by `projectId` — NOT by a raw filesystem
+ *  root. Main owns the projectId→root mapping (`getRoot`, Store-backed in prod),
+ *  so the renderer can no longer pass root='/' and read arbitrary host files.
+ *  Returns null for an unknown project or a path that escapes its root. */
+export function resolveProjectFile(
+  getRoot: (projectId: string) => string | undefined,
+  projectId: string,
+  relPath: string
+): string | null {
+  const root = getRoot(projectId)
+  if (!root) return null // unknown/unregistered project — refuse
+  return confinedPath(root, relPath)
+}
+
 export interface LaunchRequest {
   projectId: string
   provider: Provider
@@ -254,20 +269,30 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     return p
   })
   ipcMain.handle('projects:list', () => store?.listProjects() ?? [])
-  ipcMain.handle('fs:tree', (_e, root: string) => readTree(root))
+
+  // B1: the renderer names the project by id; main resolves the confined root
+  // from its own Store (never a renderer-supplied filesystem path).
+  const projectRoot = (id: string): string | undefined => store?.getProject(id)?.localPath
+
+  // Top level of a project's file tree. Confined by projectId: an unknown project
+  // (or one whose root can't be resolved) yields an empty tree, never a host path.
+  ipcMain.handle('fs:tree', (_e, projectId: string): FileNode[] => {
+    const root = projectRoot(projectId)
+    return root ? readTree(root) : []
+  })
 
   // Lazy directory expansion for the explorer: immediate children of `path`,
-  // which must resolve inside the project `root` (confined; no host escape).
-  ipcMain.handle('fs:dir', (_e, root: string, path: string): FileNode[] => {
-    const dir = confinedPath(root, path)
+  // which must resolve inside the project's root (confined; no host escape).
+  ipcMain.handle('fs:dir', (_e, projectId: string, path: string): FileNode[] => {
+    const dir = resolveProjectFile(projectRoot, projectId, path)
     return dir ? readDir(dir) : []
   })
 
   // Read a file's text for the editor tab. Confined to the project tree; refuses
   // oversized (>2 MB) or binary-looking files (NUL byte) so the textarea isn't
   // flooded with garbage. Returns { content } or { error }.
-  ipcMain.handle('file:read', (_e, root: string, path: string): { content?: string; error?: string } => {
-    const file = confinedPath(root, path)
+  ipcMain.handle('file:read', (_e, projectId: string, path: string): { content?: string; error?: string } => {
+    const file = resolveProjectFile(projectRoot, projectId, path)
     if (!file) return { error: 'path outside project' }
     try {
       if (statSync(file).size > 2 * 1024 * 1024) return { error: 'file too large to open (>2 MB)' }
@@ -281,8 +306,8 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
 
   // Save edited text back to a file in the project tree (confined). Returns
   // { ok } or { error } so the renderer can surface save failures.
-  ipcMain.handle('file:write', (_e, root: string, path: string, content: string): { ok?: true; error?: string } => {
-    const file = confinedPath(root, path)
+  ipcMain.handle('file:write', (_e, projectId: string, path: string, content: string): { ok?: true; error?: string } => {
+    const file = resolveProjectFile(projectRoot, projectId, path)
     if (!file) return { error: 'path outside project' }
     try {
       writeFileSync(file, content, 'utf8')

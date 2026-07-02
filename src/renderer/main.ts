@@ -81,10 +81,10 @@ function currentProject(): Project | null {
 
 // File tree per project, loaded lazily from the real filesystem.
 const trees = new Map<string, FileNode[]>()
-function loadTree(projectId: string, localPath: string) {
+function loadTree(projectId: string) {
   if (trees.has(projectId)) return
   trees.set(projectId, [])
-  window.agentIDE.fsTree(localPath).then((t) => { trees.set(projectId, t as FileNode[]); render() })
+  window.agentIDE.fsTree(projectId).then((t) => { trees.set(projectId, t as FileNode[]); render() })
 }
 
 // ---- Explorer expansion + open file tabs (per current project) ----------------
@@ -94,21 +94,21 @@ const expandedDirs = new Set<string>()
 const dirChildren = new Map<string, FileNode[]>()
 
 /** Fetch a directory's children once, then re-render. */
-function loadDir(localPath: string, relPath: string) {
+function loadDir(projectId: string, relPath: string) {
   if (dirChildren.has(relPath)) return
-  window.agentIDE.fsDir(localPath, relPath).then((kids) => {
+  window.agentIDE.fsDir(projectId, relPath).then((kids) => {
     dirChildren.set(relPath, kids as FileNode[])
     render()
   })
 }
 
 /** Toggle a folder open/closed; fetch children on first expand. */
-function toggleDir(localPath: string, relPath: string) {
+function toggleDir(projectId: string, relPath: string) {
   if (expandedDirs.has(relPath)) {
     expandedDirs.delete(relPath)
   } else {
     expandedDirs.add(relPath)
-    loadDir(localPath, relPath)
+    loadDir(projectId, relPath)
   }
   render()
 }
@@ -125,14 +125,14 @@ function isHtml(relPath: string): boolean {
 }
 
 /** Open a project file in a tab (or focus it if already open). */
-function openFile(localPath: string, relPath: string, name: string) {
+function openFile(projectId: string, relPath: string, name: string) {
   if (!openFiles.some((f) => f.path === relPath)) {
     openFiles.push({ path: relPath, name, dirty: false })
   }
   activeTab = { kind: 'file', path: relPath }
   render()
   if (!fileContent.has(relPath)) {
-    window.agentIDE.fileRead(localPath, relPath).then((r) => {
+    window.agentIDE.fileRead(projectId, relPath).then((r) => {
       fileContent.set(relPath, r.error ? `‹ cannot open: ${r.error} ›` : (r.content ?? ''))
       render()
     })
@@ -154,14 +154,14 @@ function closeFile(relPath: string) {
 /** F15: open a project HTML file as a rendered report tab (or focus it if open).
  *  Reuses the same on-disk text cache as the editor — a report is just that text
  *  rendered in a sandboxed iframe rather than shown in a textarea. */
-function openReport(localPath: string, relPath: string, name: string) {
+function openReport(projectId: string, relPath: string, name: string) {
   if (!openReports.some((r) => r.path === relPath)) {
     openReports.push({ path: relPath, name })
   }
   activeTab = { kind: 'report', path: relPath }
   render()
   if (!fileContent.has(relPath)) {
-    window.agentIDE.fileRead(localPath, relPath).then((r) => {
+    window.agentIDE.fileRead(projectId, relPath).then((r) => {
       fileContent.set(relPath, r.error ? `‹ cannot open: ${r.error} ›` : (r.content ?? ''))
       render()
     })
@@ -197,7 +197,7 @@ function setCurrentProject(id: string) {
 
 /** Build the editable file pane for the active file tab (textarea + Ctrl+S save).
  *  Read-only here would be simpler, but the user asked for edit+save. */
-function fileEditorFor(localPath: string, relPath: string): HTMLElement {
+function fileEditorFor(projectId: string, relPath: string): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'file-editor'
 
@@ -224,7 +224,7 @@ function fileEditorFor(localPath: string, relPath: string): HTMLElement {
     const cur = openFiles.find((x) => x.path === relPath)
     if (!cur || !cur.dirty) return
     const text = ta.value
-    window.agentIDE.fileWrite(localPath, relPath, text).then((r) => {
+    window.agentIDE.fileWrite(projectId, relPath, text).then((r) => {
       if (r.ok) {
         fileContent.set(relPath, text)
         cur.dirty = false
@@ -668,7 +668,7 @@ function render() {
   const projectSessions = liveSessionsFor(state.sessions, proj.id)
   const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
 
-  loadTree(proj.id, proj.localPath)
+  loadTree(proj.id)
   if (proj.hasDevcontainer) loadContainerStatus(proj.id, proj.localPath)
   body.appendChild(Explorer({
     projectName: proj.name,
@@ -676,17 +676,17 @@ function render() {
     expanded: expandedDirs,
     childrenOf: (dirPath) => dirChildren.get(dirPath),
     activePath: activeTab.kind === 'file' || activeTab.kind === 'report' ? activeTab.path : undefined,
-    onToggleDir: (dirPath) => toggleDir(proj.localPath, dirPath),
+    onToggleDir: (dirPath) => toggleDir(proj.id, dirPath),
     // Left-click: .html renders in-app (F15), everything else opens the editor.
     onOpenFile: (filePath, name) =>
       isHtml(filePath)
-        ? openReport(proj.localPath, filePath, name)
-        : openFile(proj.localPath, filePath, name),
+        ? openReport(proj.id, filePath, name)
+        : openFile(proj.id, filePath, name),
     // Right-click any file: offer "Open in new tab" → rendered report (F15).
     onContextMenu: (filePath, name, x, y) =>
       showMenu(x, y, [
-        { label: 'Open in new tab', onClick: () => openReport(proj.localPath, filePath, name) },
-        { label: 'Open in editor', onClick: () => openFile(proj.localPath, filePath, name) }
+        { label: 'Open in new tab', onClick: () => openReport(proj.id, filePath, name) },
+        { label: 'Open in editor', onClick: () => openFile(proj.id, filePath, name) }
       ])
   }))
   // Only mount a live terminal for sessions launched this run; hydrated/stale
@@ -694,7 +694,7 @@ function render() {
   const terminalEl = activeSession && launchedSessions.has(activeSession.id)
     ? terminalFor(activeSession.id)
     : undefined
-  const fileEl = activeTab.kind === 'file' ? fileEditorFor(proj.localPath, activeTab.path) : undefined
+  const fileEl = activeTab.kind === 'file' ? fileEditorFor(proj.id, activeTab.path) : undefined
   const reportEl = activeTab.kind === 'report' ? reportViewerFor(activeTab.path) : undefined
   body.appendChild(SupervisionView({
     session: activeSession,
