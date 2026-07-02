@@ -98,4 +98,37 @@ describe('PtyManager', () => {
     await new Promise((r) => setTimeout(r, 500))
     expect(reason).toBe('crashed')
   })
+
+  // B3 (High): a replaced (old) proc's async onExit could fire the caller's
+  // onExit for the *new* same-id session — archiving/idling a live session. Fix:
+  // per-session generation token; the old proc's exit is ignored because its
+  // generation is no longer current.
+  it('does NOT fire onExit for a replaced old proc (B3 generation race)', async () => {
+    const mgr = new PtyManager()
+    const exits: string[] = []
+    // gen 1: a long-lived proc we will replace before it exits
+    mgr.spawn(
+      { id: 'race', shell: 'bash', args: ['-c', 'sleep 2'], cwd: process.cwd(), env: {} },
+      () => {},
+      (info) => exits.push(`gen1:${info.reason}`)
+    )
+    await new Promise((r) => setTimeout(r, 200))
+    // gen 2: replace same id with a fresh long-lived proc. This kills gen1, whose
+    // onExit will fire asynchronously shortly after.
+    mgr.spawn(
+      { id: 'race', shell: 'bash', args: ['-c', 'sleep 2'], cwd: process.cwd(), env: {} },
+      () => {},
+      (info) => exits.push(`gen2:${info.reason}`)
+    )
+    // wait long enough for gen1's kill-driven exit to land
+    await new Promise((r) => setTimeout(r, 500))
+    // the live (gen2) session must be untouched: no stale exit callback fired
+    expect(exits).toEqual([])
+    expect(mgr.has('race')).toBe(true)
+
+    // and when we DO kill gen2, exactly its own callback fires — once
+    mgr.kill('race')
+    await new Promise((r) => setTimeout(r, 400))
+    expect(exits).toEqual(['gen2:closed'])
+  })
 })

@@ -35,6 +35,11 @@ export function classifyExit(userKilled: boolean): ExitReason {
 export class PtyManager {
   private procs = new Map<string, pty.IPty>()
   private killed = new Set<string>()
+  // B3: per-id generation token. Each spawn for an id bumps its generation; a
+  // proc's onExit closure captures the generation it was born under and only acts
+  // if it is still current. This prevents a replaced (old) proc's async exit from
+  // archiving/idling the new same-id session — the classic pty generation race.
+  private gen = new Map<string, number>()
 
   spawn(
     o: SpawnOpts,
@@ -42,12 +47,16 @@ export class PtyManager {
     onExit?: (info: { exitCode: number; signal?: number; reason: ExitReason }) => void
   ): string {
     // Replacing an existing id (e.g. reconnect): kill the old process first so
-    // it isn't leaked (Codex P2). Mark it killed so its exit is a clean 'closed'.
+    // it isn't leaked (Codex P2). We do NOT mark it killed: bumping the
+    // generation below makes the old proc's exit a no-op (it returns early on the
+    // generation mismatch), so its reason no longer matters and a stale 'killed'
+    // flag must not leak onto the new generation's classification.
     const prev = this.procs.get(o.id)
     if (prev) {
-      this.killed.add(o.id)
       try { prev.kill() } catch { /* already dead */ }
     }
+    const myGen = (this.gen.get(o.id) ?? 0) + 1
+    this.gen.set(o.id, myGen)
     const proc = pty.spawn(o.shell, o.args, {
       name: 'xterm-color',
       cols: 80,
@@ -57,11 +66,13 @@ export class PtyManager {
     })
     proc.onData(onData)
     proc.onExit(({ exitCode, signal }) => {
+      // Stale exit from a replaced proc: a newer generation already owns this id,
+      // so ignore it entirely — don't reclassify, delete, or notify the caller.
+      if (this.gen.get(o.id) !== myGen) return
       const reason = classifyExit(this.killed.has(o.id))
       this.killed.delete(o.id)
-      // Only clear the map if THIS proc is still the registered one (a replaced
-      // old proc exiting must not delete the new entry).
-      if (this.procs.get(o.id) === proc) this.procs.delete(o.id)
+      this.procs.delete(o.id)
+      this.gen.delete(o.id)
       onExit?.({ exitCode, signal, reason })
     })
     this.procs.set(o.id, proc)
