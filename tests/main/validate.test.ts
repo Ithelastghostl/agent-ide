@@ -4,7 +4,9 @@ import {
   asBool,
   isKnownModel,
   validateLaunchRequest,
-  validateResumeSession
+  validateResumeSession,
+  validateTaskLabel,
+  validateTaskTransition
 } from '../../src/main/validate'
 
 // B9: IPC payloads cross the renderer→main boundary as `unknown`; TS types don't
@@ -61,13 +63,17 @@ describe('validateLaunchRequest (B9)', () => {
     model: 'claude-opus-4-8',
     objective: 'do a thing',
     cwd: '/home/me/proj',
-    useContainer: false
+    useContainer: false,
+    taskKind: 'product',
+    taskSubkind: 'bug'
   }
 
   it('accepts a well-formed request', () => {
     const r = validateLaunchRequest(good, isKnownProject)
     expect(r.provider).toBe('claude')
     expect(r.projectId).toBe('proj-abc')
+    expect(r.taskKind).toBe('product')
+    expect(r.taskSubkind).toBe('bug')
   })
 
   it('rejects a bad provider (enum membership)', () => {
@@ -90,6 +96,46 @@ describe('validateLaunchRequest (B9)', () => {
 
   it('rejects a wrong-typed useContainer (no coercion)', () => {
     expect(() => validateLaunchRequest({ ...good, useContainer: 'yes' }, isKnownProject)).toThrow(/useContainer/i)
+  })
+
+  it('M-LOG-a: rejects a launch with no/invalid task label', () => {
+    const { taskKind, taskSubkind, ...noLabel } = good
+    expect(() => validateLaunchRequest(noLabel, isKnownProject)).toThrow(/taskKind/i)
+    expect(() => validateLaunchRequest({ ...good, taskKind: 'nonsense' }, isKnownProject)).toThrow(/taskKind/i)
+  })
+
+  it('M-LOG-a: a product launch requires a subkind; analysis must not have one', () => {
+    expect(() => validateLaunchRequest({ ...good, taskKind: 'product', taskSubkind: undefined }, isKnownProject)).toThrow(/subkind/i)
+    const analysis = validateLaunchRequest({ ...good, taskKind: 'analysis', taskSubkind: undefined }, isKnownProject)
+    expect(analysis.taskKind).toBe('analysis')
+    expect(analysis.taskSubkind).toBeUndefined()
+    expect(() => validateLaunchRequest({ ...good, taskKind: 'analysis', taskSubkind: 'bug' }, isKnownProject)).toThrow(/subkind/i)
+  })
+})
+
+describe('validateTaskLabel (M-LOG-a §4.1)', () => {
+  it('accepts product+subkind and analysis (no subkind)', () => {
+    expect(validateTaskLabel('product', 'code')).toEqual({ taskKind: 'product', taskSubkind: 'code' })
+    expect(validateTaskLabel('analysis', undefined)).toEqual({ taskKind: 'analysis' })
+  })
+  it('rejects unknown kind/subkind and product-without-subkind', () => {
+    expect(() => validateTaskLabel('x', 'code')).toThrow(/taskKind/i)
+    expect(() => validateTaskLabel('product', 'x')).toThrow(/subkind/i)
+    expect(() => validateTaskLabel('product', undefined)).toThrow(/subkind/i)
+  })
+})
+
+describe('validateTaskTransition (M-LOG-a §4.1 lifecycle)', () => {
+  it('allows forward moves and self-transition', () => {
+    expect(validateTaskTransition('open', 'finished')).toBe('finished')
+    expect(validateTaskTransition('finished', 'deployed')).toBe('deployed')
+    expect(validateTaskTransition('deployed', 'ticketed')).toBe('ticketed')
+    expect(validateTaskTransition('open', 'open')).toBe('open')
+    expect(validateTaskTransition(null, 'finished')).toBe('finished') // null → treated as open
+  })
+  it('rejects backward moves and unknown states', () => {
+    expect(() => validateTaskTransition('deployed', 'open')).toThrow(/backward/i)
+    expect(() => validateTaskTransition('finished', 'zombie')).toThrow(/task status/i)
   })
 })
 

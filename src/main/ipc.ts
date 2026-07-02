@@ -15,8 +15,9 @@ import { PortForwarder, ContainerPortWatcher, loopbackPort } from './portForward
 import { historyFile, buildPrimer } from './history'
 import { Store } from './store'
 import { confinedPath } from './confine'
-import { validateLaunchRequest, validateResumeSession } from './validate'
-import { isProvider, type Provider, type Session } from '@shared/types'
+import { validateLaunchRequest, validateResumeSession, validateTaskTransition } from './validate'
+import { writeRawLog } from './projectLog'
+import { isProvider, type Provider, type Session, type TaskKind, type TaskSubkind } from '@shared/types'
 
 export interface FileNode {
   name: string
@@ -133,6 +134,10 @@ export interface LaunchRequest {
   useContainer: boolean
   /** F12: bind-mount ~/.claude (read-only) into the container on first build. */
   importConfig?: boolean
+  /** M-LOG-a (§4.1): the task label chosen at launch. Required for agent
+   *  sessions; `taskSubkind` is required when `taskKind` is 'product'. */
+  taskKind?: TaskKind
+  taskSubkind?: TaskSubkind
 }
 
 let seq = 0
@@ -445,6 +450,29 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     store?.archiveSession(id)
   })
 
+  // M-LOG-a (§4.1): advance a task's lifecycle status (open→finished→deployed→
+  // ticketed), forward-only. Product chats marked 'finished' also export their raw
+  // log entry (§4.3); analysis chats just advance the status (no log). Returns the
+  // written log path (product+finished) or {ok}, or {error} on a bad transition.
+  ipcMain.handle('task:setStatus', async (_e, id: unknown, to: unknown): Promise<{ ok?: true; logPath?: string; error?: string }> => {
+    if (typeof id !== 'string' || !store) return { error: 'invalid request' }
+    const session = store.getSession(id)
+    if (!session) return { error: 'unknown session' }
+    let target: string
+    try {
+      target = validateTaskTransition(session.taskStatus, to)
+    } catch (err) {
+      return { error: (err as Error).message }
+    }
+    store.setTaskStatus(id, target)
+    // §4.3: only a PRODUCT chat entering 'finished' writes a raw log entry.
+    if (target === 'finished' && session.taskKind === 'product') {
+      const logPath = writeRawLog(store, { ...session, taskStatus: target })
+      return logPath ? { ok: true, logPath } : { ok: true }
+    }
+    return { ok: true }
+  })
+
   // F13: open a plain shell session (no agent) in the project's context.
   ipcMain.handle('terminal:open', async (_e, req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<Session> => {
     const id = `term-${newSessionId()}`
@@ -599,7 +627,11 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       objective: req.objective || `${req.provider} session`,
       status: 'running',
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      // M-LOG-a: the task label validated at launch; a new task starts 'open'.
+      taskKind: req.taskKind ?? null,
+      taskSubkind: req.taskSubkind ?? null,
+      taskStatus: req.taskKind ? 'open' : null
     }
     // Spawn FIRST; only persist once the pty actually started (Codex P2 — a
     // failed spawn must not leave a persisted "running" ghost session).

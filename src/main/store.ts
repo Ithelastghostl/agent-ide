@@ -140,6 +140,12 @@ export class Store {
       .all(projectId) as Session[]
   }
 
+  /** A single session by id, or undefined. Used by the M-LOG task lifecycle to
+   *  read the current label/status before advancing it. */
+  getSession(id: string): Session | undefined {
+    return this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id) as Session | undefined
+  }
+
   allSessions(): Session[] {
     return this.db.prepare(`SELECT * FROM sessions ORDER BY createdAt`).all() as Session[]
   }

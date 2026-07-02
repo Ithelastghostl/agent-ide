@@ -10,9 +10,11 @@ interface AgentIDEBridge {
   modelsAll(): Promise<Record<import('@shared/types').Provider, import('@shared/types').Model[]>>
   sessionLaunch(req: {
     projectId: string; provider: string; model: string; objective: string; cwd: string; useContainer: boolean; importConfig?: boolean
+    taskKind?: import('@shared/types').TaskKind; taskSubkind?: import('@shared/types').TaskSubkind
   }): Promise<import('@shared/types').Session>
   sessionRename(id: string, name: string): Promise<void>
   sessionArchive(id: string): Promise<void>
+  taskSetStatus(id: string, to: string): Promise<{ ok?: true; logPath?: string; error?: string }>
   terminalOpen(req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<import('@shared/types').Session>
   containerStart(projectId: string, workspace: string, importConfig: boolean): Promise<string>
   containerStatus(projectId: string, workspace: string): Promise<'running' | 'stopped' | 'none'>

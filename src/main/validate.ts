@@ -1,4 +1,4 @@
-import { isProvider, type Provider, type Session, type SessionStatus } from '@shared/types'
+import { isProvider, type Provider, type Session, type SessionStatus, type TaskKind, type TaskSubkind } from '@shared/types'
 import { modelsFor } from './models'
 import type { LaunchRequest } from './ipc' // type-only: no runtime cycle
 
@@ -43,14 +43,57 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null
 }
 
+const TASK_KINDS: readonly TaskKind[] = ['product', 'analysis']
+const TASK_SUBKINDS: readonly TaskSubkind[] = ['code', 'feature', 'bug']
+
+// M-LOG task lifecycle order (§4.1). A status may advance to itself or the next
+// state(s); it never moves backward. 'ticketed' is terminal.
+const TASK_ORDER = ['open', 'finished', 'deployed', 'ticketed'] as const
+type TaskStatusName = typeof TASK_ORDER[number]
+
+/** Validate a task-status transition (§4.1): forward-only along
+ *  open→finished→deployed→ticketed (self-transition allowed for idempotency).
+ *  Returns the validated target status; throws on an unknown or backward move. */
+export function validateTaskTransition(from: unknown, to: unknown): TaskStatusName {
+  const iTo = TASK_ORDER.indexOf(to as TaskStatusName)
+  if (iTo < 0) throw new Error(`invalid task status: ${String(to)}`)
+  // `from` may be null/undefined for a freshly-seen session — treat as 'open'.
+  const fromName = (typeof from === 'string' && TASK_ORDER.includes(from as TaskStatusName) ? from : 'open') as TaskStatusName
+  const iFrom = TASK_ORDER.indexOf(fromName)
+  if (iTo < iFrom) throw new Error(`invalid task transition: ${fromName} → ${String(to)} (backward)`)
+  return to as TaskStatusName
+}
+
+/** Validate the M-LOG task label (§4.1). Agent sessions must carry a kind; a
+ *  'product' kind must carry a subkind; 'analysis' must not. Returns the
+ *  validated pair (both undefined only if the caller allows an unlabeled
+ *  session — terminals, which don't go through this validator). */
+export function validateTaskLabel(kind: unknown, subkind: unknown): { taskKind: TaskKind; taskSubkind?: TaskSubkind } {
+  if (typeof kind !== 'string' || !TASK_KINDS.includes(kind as TaskKind)) {
+    throw new Error('invalid taskKind: expected "product" or "analysis"')
+  }
+  const taskKind = kind as TaskKind
+  if (taskKind === 'product') {
+    if (typeof subkind !== 'string' || !TASK_SUBKINDS.includes(subkind as TaskSubkind)) {
+      throw new Error('invalid taskSubkind: a product task requires "code", "feature", or "bug"')
+    }
+    return { taskKind, taskSubkind: subkind as TaskSubkind }
+  }
+  if (subkind !== undefined && subkind !== null) {
+    throw new Error('invalid taskSubkind: only product tasks have a subkind')
+  }
+  return { taskKind }
+}
+
 /** Validate a session:launch payload. `isKnownProject` enforces project ownership
  *  — main resolves the confined root by projectId (B1), so an unknown project is
- *  refused here too. */
+ *  refused here too. M-LOG-a: an agent launch must carry a valid task label. */
 export function validateLaunchRequest(v: unknown, isKnownProject: (id: string) => boolean): LaunchRequest {
   if (!isRecord(v)) throw new Error('invalid launch request: expected object')
   const provider = asProvider(v.provider)
   const projectId = asString(v.projectId, 'projectId')
   if (!isKnownProject(projectId)) throw new Error(`invalid projectId: unknown project`)
+  const { taskKind, taskSubkind } = validateTaskLabel(v.taskKind, v.taskSubkind)
   return {
     projectId,
     provider,
@@ -58,7 +101,9 @@ export function validateLaunchRequest(v: unknown, isKnownProject: (id: string) =
     objective: asString(v.objective, 'objective', { allowEmpty: true }),
     cwd: asString(v.cwd, 'cwd', { allowEmpty: true }),
     useContainer: asBool(v.useContainer, 'useContainer'),
-    importConfig: v.importConfig === undefined ? undefined : asBool(v.importConfig, 'importConfig')
+    importConfig: v.importConfig === undefined ? undefined : asBool(v.importConfig, 'importConfig'),
+    taskKind,
+    taskSubkind
   }
 }
 

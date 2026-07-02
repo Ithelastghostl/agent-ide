@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('agentIDE', {
   sessionLaunch: (req: unknown) => ipcRenderer.invoke('session:launch', req),
   sessionRename: (id: string, name: string) => ipcRenderer.invoke('session:rename', id, name),
   sessionArchive: (id: string) => ipcRenderer.invoke('session:archive', id),
+  // M-LOG-a: advance a task's lifecycle (open→finished→deployed→ticketed). Marking
+  // a product chat 'finished' writes its raw log entry in main.
+  taskSetStatus: (id: string, to: string) => ipcRenderer.invoke('task:setStatus', id, to),
   terminalOpen: (req: unknown) => ipcRenderer.invoke('terminal:open', req),
 
   // container lifecycle (F14)
