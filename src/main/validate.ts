@@ -85,6 +85,36 @@ export function validateTaskLabel(kind: unknown, subkind: unknown): { taskKind: 
   return { taskKind }
 }
 
+function asStringArray(v: unknown, field: string, max = 200): string[] {
+  if (!Array.isArray(v)) throw new Error(`invalid ${field}: expected array`)
+  if (v.length > max) throw new Error(`invalid ${field}: too many items`)
+  return v.map((x, i) => asString(x, `${field}[${i}]`, { allowEmpty: true }))
+}
+
+/** M-LOG-b (§4.4): validate the schema-constrained ticket the addendum CLI must
+ *  emit — a single JSON object {title, subkind, problem, solution,
+ *  files_touched[], key_decisions[], follow_ups[], test_status, deploy_ref}.
+ *  Throws on any shape mismatch (the caller retries once with the error, then
+ *  surfaces a ticket-failed state). Reuses the B9 field guards. */
+export function validateTicketFields(v: unknown): import('@shared/types').TicketFields {
+  if (!isRecord(v)) throw new Error('invalid ticket: expected a JSON object')
+  const subkind = v.subkind
+  if (typeof subkind !== 'string' || !TASK_SUBKINDS.includes(subkind as TaskSubkind)) {
+    throw new Error('invalid ticket.subkind: expected code|feature|bug')
+  }
+  return {
+    title: asString(v.title, 'ticket.title', { max: 200 }),
+    subkind: subkind as TaskSubkind,
+    problem: asString(v.problem, 'ticket.problem', { allowEmpty: true, max: 20000 }),
+    solution: asString(v.solution, 'ticket.solution', { allowEmpty: true, max: 20000 }),
+    files_touched: asStringArray(v.files_touched, 'ticket.files_touched'),
+    key_decisions: asStringArray(v.key_decisions, 'ticket.key_decisions'),
+    follow_ups: asStringArray(v.follow_ups, 'ticket.follow_ups'),
+    test_status: asString(v.test_status, 'ticket.test_status', { allowEmpty: true, max: 2000 }),
+    deploy_ref: asString(v.deploy_ref, 'ticket.deploy_ref', { allowEmpty: true, max: 2000 })
+  }
+}
+
 /** Validate a session:launch payload. `isKnownProject` enforces project ownership
  *  — main resolves the confined root by projectId (B1), so an unknown project is
  *  refused here too. M-LOG-a: an agent launch must carry a valid task label. */

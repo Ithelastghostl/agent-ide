@@ -6,7 +6,8 @@ import {
   validateLaunchRequest,
   validateResumeSession,
   validateTaskLabel,
-  validateTaskTransition
+  validateTaskTransition,
+  validateTicketFields
 } from '../../src/main/validate'
 
 // B9: IPC payloads cross the renderer→main boundary as `unknown`; TS types don't
@@ -136,6 +137,36 @@ describe('validateTaskTransition (M-LOG-a §4.1 lifecycle)', () => {
   it('rejects backward moves and unknown states', () => {
     expect(() => validateTaskTransition('deployed', 'open')).toThrow(/backward/i)
     expect(() => validateTaskTransition('finished', 'zombie')).toThrow(/task status/i)
+  })
+})
+
+describe('validateTicketFields (M-LOG-b §4.4 schema)', () => {
+  const good = {
+    title: 'Fix the widget race', subkind: 'bug', problem: 'it raced', solution: 'added a lock',
+    files_touched: ['a.ts', 'b.ts'], key_decisions: ['use a mutex'], follow_ups: [],
+    test_status: 'unit green', deploy_ref: 'commit abc123'
+  }
+  it('accepts a well-formed ticket', () => {
+    const t = validateTicketFields(good)
+    expect(t.title).toBe('Fix the widget race')
+    expect(t.subkind).toBe('bug')
+    expect(t.files_touched).toEqual(['a.ts', 'b.ts'])
+  })
+  it('rejects a bad subkind', () => {
+    expect(() => validateTicketFields({ ...good, subkind: 'chore' })).toThrow(/subkind/i)
+  })
+  it('rejects a missing title', () => {
+    expect(() => validateTicketFields({ ...good, title: '' })).toThrow(/title/i)
+    const { title, ...noTitle } = good
+    expect(() => validateTicketFields(noTitle)).toThrow(/title/i)
+  })
+  it('rejects non-array list fields', () => {
+    expect(() => validateTicketFields({ ...good, files_touched: 'a.ts' })).toThrow(/files_touched/i)
+    expect(() => validateTicketFields({ ...good, follow_ups: null })).toThrow(/follow_ups/i)
+  })
+  it('rejects a non-object payload', () => {
+    expect(() => validateTicketFields('not json')).toThrow(/object/i)
+    expect(() => validateTicketFields(null)).toThrow()
   })
 })
 

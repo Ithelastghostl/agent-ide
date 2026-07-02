@@ -161,4 +161,22 @@ describe('Store', () => {
     store.saveSession({ id: 's4', projectId: 'p1', provider: 'gemini', model: 'gemini-2.5-pro', objective: 'o', status: 'running', createdAt: 1, updatedAt: 1, taskKind: 'analysis', taskStatus: 'open' })
     expect(store.getSessions('p1')[0].taskKind).toBe('analysis')
   })
+
+  // M-LOG-b: tickets round-trip; getTickets is newest-first per project.
+  it('M-LOG-b: saves and reads tickets newest-first', () => {
+    store.saveTicket({ id: 't1', sessionId: 's1', projectId: 'p1', subkind: 'bug', title: 'First', bodyMd: '# First', fieldsJson: '{}', createdAt: 100 })
+    store.saveTicket({ id: 't2', sessionId: 's2', projectId: 'p1', subkind: 'feature', title: 'Second', bodyMd: '# Second', fieldsJson: '{}', createdAt: 200 })
+    store.saveTicket({ id: 't3', sessionId: 's3', projectId: 'p2', subkind: 'code', title: 'Other', bodyMd: '# Other', fieldsJson: '{}', createdAt: 300 })
+    const p1 = store.getTickets('p1')
+    expect(p1.map((t) => t.id)).toEqual(['t2', 't1']) // newest first
+    expect(store.getTicketBySession('s1')?.title).toBe('First')
+    expect(store.getTickets('p2')).toHaveLength(1)
+  })
+
+  it('M-LOG-b: saveTicket is idempotent (re-generate updates in place)', () => {
+    store.saveTicket({ id: 't1', sessionId: 's1', projectId: 'p1', subkind: 'bug', title: 'V1', bodyMd: 'a', fieldsJson: '{}', createdAt: 1 })
+    store.saveTicket({ id: 't1', sessionId: 's1', projectId: 'p1', subkind: 'bug', title: 'V2', bodyMd: 'b', fieldsJson: '{}', createdAt: 1 })
+    expect(store.getTickets('p1')).toHaveLength(1)
+    expect(store.getTickets('p1')[0].title).toBe('V2')
+  })
 })

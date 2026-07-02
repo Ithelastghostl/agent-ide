@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { mkdirSync } from 'node:fs'
-import type { Project, Session, SessionStatus } from '@shared/types'
+import type { Project, Session, SessionStatus, Ticket } from '@shared/types'
 import { projectId as durableProjectId } from './projects'
 
 export function defaultDbPath(): string {
@@ -38,6 +38,13 @@ export class Store {
       );
       CREATE TABLE IF NOT EXISTS transcripts (
         session_id TEXT, chunk TEXT, ts INTEGER
+      );
+      -- M-LOG-b (§4.2): one row per ticketed task. body_md is the rendered ticket;
+      -- fields_json is the schema-validated source (TicketFields).
+      CREATE TABLE IF NOT EXISTS tickets (
+        id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, projectId TEXT NOT NULL,
+        subkind TEXT NOT NULL, title TEXT NOT NULL, bodyMd TEXT NOT NULL,
+        fieldsJson TEXT NOT NULL, createdAt INTEGER NOT NULL
       );
       -- B6: index the transcript read path (WHERE session_id ORDER BY ts, ...).
       -- rowid is SQLite's implicit primary key and orders rows within equal ts,
@@ -132,6 +139,29 @@ export class Store {
    *  ticketed). Separate from the runtime `status` (running/idle/archived). */
   setTaskStatus(id: string, taskStatus: string): void {
     this.db.prepare(`UPDATE sessions SET taskStatus = ? WHERE id = ?`).run(taskStatus, id)
+  }
+
+  /** M-LOG-b (§4.4): persist a generated ticket (idempotent per id). */
+  saveTicket(t: Ticket): void {
+    this.db
+      .prepare(
+        `INSERT INTO tickets (id,sessionId,projectId,subkind,title,bodyMd,fieldsJson,createdAt)
+         VALUES (@id,@sessionId,@projectId,@subkind,@title,@bodyMd,@fieldsJson,@createdAt)
+         ON CONFLICT(id) DO UPDATE SET title=@title, bodyMd=@bodyMd, fieldsJson=@fieldsJson`
+      )
+      .run(t)
+  }
+
+  /** Tickets for a project, newest first (for the Log list). */
+  getTickets(projectId: string): Ticket[] {
+    return this.db
+      .prepare(`SELECT * FROM tickets WHERE projectId = ? ORDER BY createdAt DESC`)
+      .all(projectId) as Ticket[]
+  }
+
+  /** The ticket generated for a session, if any. */
+  getTicketBySession(sessionId: string): Ticket | undefined {
+    return this.db.prepare(`SELECT * FROM tickets WHERE sessionId = ?`).get(sessionId) as Ticket | undefined
   }
 
   getSessions(projectId: string): Session[] {

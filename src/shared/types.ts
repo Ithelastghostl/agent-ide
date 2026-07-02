@@ -51,6 +51,34 @@ export interface Project {
   hasDevcontainer: boolean
 }
 
+// M-LOG-b (§4.4): the schema-constrained fields the addendum pass must produce
+// from a deployed product chat's transcript. Validated in main; a single JSON
+// object is demanded from the headless CLI.
+export interface TicketFields {
+  title: string
+  subkind: TaskSubkind
+  problem: string
+  solution: string
+  files_touched: string[]
+  key_decisions: string[]
+  follow_ups: string[]
+  test_status: string
+  deploy_ref: string
+}
+
+/** A generated roadmap ticket (§4.2 tickets table): rendered body_md + the
+ *  schema-validated source fields, one row per ticketed task. */
+export interface Ticket {
+  id: string
+  sessionId: string
+  projectId: string
+  subkind: TaskSubkind
+  title: string
+  bodyMd: string
+  fieldsJson: string // JSON.stringify(TicketFields)
+  createdAt: number
+}
+
 /** A library item — a Prompt, Skill, or Workflow read from the GitHub-backed
  *  library folder. `relPath` is the item's path relative to the library root
  *  (used for confined reads); `path` is the absolute path for display/debug. */
