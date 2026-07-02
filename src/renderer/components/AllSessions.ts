@@ -49,10 +49,25 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
       const mdl = document.createElement('span')
       mdl.className = 'mdl'
       mdl.textContent = s.model
+      // M-LOG-a (§4.5.2): task label chip + lifecycle status. Terminals/unlabeled
+      // sessions have no taskKind → no chip.
+      const chips: HTMLElement[] = []
+      if (s.taskKind) {
+        const chip = document.createElement('span')
+        chip.className = `task-chip ${s.taskKind}`
+        chip.textContent = s.taskKind === 'product' && s.taskSubkind ? s.taskSubkind : s.taskKind
+        chips.push(chip)
+        if (s.taskStatus && s.taskStatus !== 'open') {
+          const ts = document.createElement('span')
+          ts.className = `task-status ${s.taskStatus}`
+          ts.textContent = s.taskStatus
+          chips.push(ts)
+        }
+      }
       const stt = document.createElement('span')
       stt.className = 'stt'
       stt.textContent = s.status
-      row.append(pv, nm, mdl, stt)
+      row.append(pv, nm, ...chips, mdl, stt)
       group.appendChild(row)
     }
     el.appendChild(group)

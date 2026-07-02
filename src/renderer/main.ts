@@ -1,5 +1,5 @@
 import './cockpit.css'
-import type { Provider, Project, Session } from '@shared/types'
+import type { Provider, Project, Session, TaskKind, TaskSubkind } from '@shared/types'
 import { initialState, liveCounts, liveSessionsFor, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit, type ProviderHealth } from './components/Cockpit'
@@ -431,7 +431,27 @@ async function resolveRunContext(proj: Project): Promise<{ useContainer: boolean
   return { useContainer, importConfig: useContainer && choice.checked }
 }
 
-// F3: launch a session — choose run context, prompt for a name, then pick a model.
+// M-LOG-a (§4.5.1): "What is this chat for?" — every agent session is a labeled
+// task. Product chats (code/feature/bug) get logged; analysis chats don't.
+// Returns { taskKind, taskSubkind } or null if cancelled.
+async function chooseTaskLabel(): Promise<{ taskKind: TaskKind; taskSubkind?: TaskSubkind } | null> {
+  const kind = await chooseOption<TaskKind>('What is this chat for?', [
+    { label: 'Product — build/change the code', value: 'product', primary: true, hint: 'Logged as a task; can become a roadmap ticket' },
+    { label: 'Analysis — explore / ask / understand', value: 'analysis', hint: 'Saved and replayable, but not logged' }
+  ])
+  if (!kind) return null
+  if (kind.value === 'analysis') return { taskKind: 'analysis' }
+  const sub = await chooseOption<TaskSubkind>('What kind of product work?', [
+    { label: 'Feature — new functionality', value: 'feature', primary: true },
+    { label: 'Bug — fix a defect', value: 'bug' },
+    { label: 'Code — refactor / chore / infra', value: 'code' }
+  ])
+  if (!sub) return null
+  return { taskKind: 'product', taskSubkind: sub.value }
+}
+
+// F3: launch a session — choose run context, prompt for a name, label the task,
+// then pick a model.
 async function launchFlow(provider: Provider) {
   const proj = currentProject()
   if (!proj) return
@@ -439,6 +459,8 @@ async function launchFlow(provider: Provider) {
   if (ctx === null) return // cancelled
   const name = await promptText(`Name this ${provider} session`, 'e.g. fix auth bug')
   if (name === null) return // cancelled
+  const label = await chooseTaskLabel() // M-LOG-a
+  if (label === null) return // cancelled
   const picker = ModelPicker({
     provider,
     models: modelsFor(provider),
@@ -452,7 +474,9 @@ async function launchFlow(provider: Provider) {
           objective: name || `${prov} session`,
           cwd: proj.localPath,
           useContainer: ctx.useContainer,
-          importConfig: ctx.importConfig
+          importConfig: ctx.importConfig,
+          taskKind: label.taskKind,
+          taskSubkind: label.taskSubkind
         })
         launchedSessions.add(session.id)
         state.sessions.push(session)
@@ -634,6 +658,19 @@ function openSessionMenu(session: Session, x: number, y: number) {
     items.push({
       label: '↻ Reconnect',
       onClick: () => { void reconnectSession(session) }
+    })
+  }
+  // M-LOG-a (§4.5.3): a product task can be marked finished, which exports its raw
+  // log entry in main. Only shown for a product chat still 'open'.
+  if (session.taskKind === 'product' && (session.taskStatus ?? 'open') === 'open') {
+    items.push({
+      label: '✓ Mark finished (export log)',
+      onClick: async () => {
+        const res = await window.agentIDE.taskSetStatus(session.id, 'finished')
+        if (res.error) { console.error('mark finished failed', res.error); return }
+        session.taskStatus = 'finished'
+        render()
+      }
     })
   }
   items.push(

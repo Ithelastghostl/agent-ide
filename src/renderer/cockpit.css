@@ -287,3 +287,9 @@
 .as-row .nm { flex: 1; color: var(--text-primary); font-size: 12.5px; }
 .as-row .mdl { font-size: 9px; color: var(--text-muted); background: var(--bg-page); border: 1px solid var(--border); padding: 2px 6px; border-radius: 5px; }
 .as-row .stt { font-size: 9px; color: var(--text-muted); }
+/* M-LOG-a: task label chip + lifecycle status on a session row. */
+.as-row .task-chip { font-size: 9px; padding: 2px 6px; border-radius: 5px; text-transform: capitalize; border: 1px solid var(--border); }
+.as-row .task-chip.product { color: var(--accent); border-color: var(--accent-dim); }
+.as-row .task-chip.analysis { color: var(--text-muted); }
+.as-row .task-status { font-size: 9px; color: var(--text-muted); text-transform: capitalize; opacity: 0.85; }
+.as-row .task-status.finished { color: var(--accent); }
