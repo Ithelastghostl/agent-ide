@@ -476,7 +476,9 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // sessions persistence + global board (NN4) + resume + history (D16)
   ipcMain.handle('sessions:all', () => store?.allSessions() ?? [])
   ipcMain.handle('sessions:byProject', (_e, projectId: string) => store?.getSessions(projectId) ?? [])
-  ipcMain.handle('history:sync', (_e, repoDir: string, timestamp: string) => syncHistory(repoDir, timestamp))
+  // B8: the history repo dir is main-owned (historyDir()); the renderer supplies
+  // only the timestamp and never a filesystem path. Returns per-step status.
+  ipcMain.handle('history:sync', (_e, timestamp: string) => syncHistory(String(timestamp ?? '')))
 
   // terminal pty
   ipcMain.handle('pty:spawn', (_e, o: SpawnOpts) => {

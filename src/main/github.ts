@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { historyDir } from './history'
 
 const pexec = promisify(execFile)
 
@@ -46,14 +47,42 @@ export function repoNameFromUrl(url: string): string {
   return last || 'project'
 }
 
-/** Run the history-sync commands in a given repo directory. */
-export async function syncHistory(repoDir: string, timestamp: string): Promise<void> {
+/** Whether a git failure is the benign "nothing to commit" no-op (the ONLY error
+ *  history-sync should swallow — B8). Everything else (no remote, auth failure,
+ *  not a repo) is a real error the caller must see. */
+export function isNothingToCommit(output: string): boolean {
+  return /nothing to commit|nothing added to commit|no changes added to commit/i.test(output)
+}
+
+/** Status of one history-sync step. `skipped` marks a benign no-op (nothing to
+ *  commit); `ok:false` with `error` is a real failure that was NOT swallowed. */
+export interface SyncStepResult {
+  step: 'add' | 'commit' | 'push'
+  ok: boolean
+  skipped?: boolean
+  error?: string
+}
+
+/** Commit and push the IDE-owned history repo (B8). The directory is resolved
+ *  internally (historyDir()) — never supplied by the renderer, which must not be
+ *  able to run git in an arbitrary path. Returns per-step status; only "nothing
+ *  to commit" is treated as a benign skip, all other failures are reported. */
+export async function syncHistory(timestamp: string): Promise<SyncStepResult[]> {
+  const dir = historyDir()
+  const results: SyncStepResult[] = []
   for (const [cmd, args] of buildHistorySyncCommands(timestamp)) {
+    const step = args[0] as SyncStepResult['step']
     try {
-      await pexec(cmd, args, { cwd: repoDir })
-    } catch {
-      // `git commit` exits non-zero when there's nothing to commit — ignore so
-      // a no-op sync doesn't throw.
+      await pexec(cmd, args, { cwd: dir })
+      results.push({ step, ok: true })
+    } catch (err) {
+      const out = `${(err as { stdout?: string }).stdout ?? ''}\n${(err as { stderr?: string }).stderr ?? ''}\n${(err as Error).message ?? ''}`
+      if (step === 'commit' && isNothingToCommit(out)) {
+        results.push({ step, ok: true, skipped: true }) // benign no-op
+      } else {
+        results.push({ step, ok: false, error: ((err as Error).message || out).trim() })
+      }
     }
   }
+  return results
 }
