@@ -12,6 +12,7 @@ import { probeHealth, loginArgv, installInContainer } from './providerHealth'
 import { PortForwarder, ContainerPortWatcher, loopbackPort } from './portForwarder'
 import { historyFile, buildPrimer } from './history'
 import { Store } from './store'
+import { validateLaunchRequest, validateResumeSession } from './validate'
 import { isProvider, type Provider, type Session } from '@shared/types'
 
 export interface FileNode {
@@ -436,7 +437,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   })
 
   // F10: run an interactive CLI login as a terminal session, in project context.
-  ipcMain.handle('provider:login', async (_e, provider: Provider, projectId: string, _cwd: string): Promise<string> => {
+  ipcMain.handle('provider:login', async (_e, provider: Provider, projectId: string, cwd: string): Promise<string> => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
     const id = `login-${provider}-${newSessionId()}`
     const { cmd, args } = loginArgv(provider)
@@ -492,8 +493,10 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // launch a real provider session (interactive CLI, subscription-safe per NN0).
   // Containerized projects run the CLI INSIDE the devcontainer with auto-approve
   // (NN2 + D26); host projects run on the host and prompt for approval.
-  ipcMain.handle('session:launch', async (_e, req: LaunchRequest): Promise<Session> => {
-    if (!isProvider(req.provider)) throw new Error(`bad provider: ${req.provider}`)
+  ipcMain.handle('session:launch', async (_e, raw: unknown): Promise<Session> => {
+    // B9: validate the renderer payload in main (types don't cross IPC). Enforces
+    // provider/model membership, project ownership, field types + length caps.
+    const req: LaunchRequest = validateLaunchRequest(raw, (id) => !!store?.getProject(id))
     const id = newSessionId()
 
     // Build the provider invocation. autoApprove == running in a container.
@@ -568,7 +571,18 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // it with this session's own stored history (cleaned). Runs in the SAME context
   // as the original (container vs host, Codex P1). Optional model override lets
   // "change model" reuse this exact path to move the conversation to another engine.
-  ipcMain.handle('session:resume', async (_e, s: Session, cwd: string, useContainer: boolean, modelOverride?: { provider: Provider; model: string }): Promise<Session> => {
+  ipcMain.handle('session:resume', async (_e, rawSession: unknown, rawCwd: unknown, rawUseContainer: unknown, rawOverride?: unknown): Promise<Session> => {
+    // B9: validate the renderer payload in main. The session's provider/model/
+    // status are membership-checked; an optional model override is validated as a
+    // fresh launch request (provider + model membership) reusing the same guards.
+    const s: Session = validateResumeSession(rawSession)
+    const cwd = typeof rawCwd === 'string' ? rawCwd : ''
+    const useContainer = rawUseContainer === true
+    let modelOverride: { provider: Provider; model: string } | undefined
+    if (rawOverride !== undefined) {
+      const ov = validateResumeSession({ ...s, provider: (rawOverride as { provider?: unknown }).provider, model: (rawOverride as { model?: unknown }).model })
+      modelOverride = { provider: ov.provider, model: ov.model }
+    }
     const provider = modelOverride?.provider ?? s.provider
     const model = modelOverride?.model ?? s.model
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
