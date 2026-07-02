@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // M-LOG-a: advance a task's lifecycle (open→finished→deployed→ticketed). Marking
   // a product chat 'finished' writes its raw log entry in main.
   taskSetStatus: (id: string, to: string) => ipcRenderer.invoke('task:setStatus', id, to),
+  // M-LOG-b: generate a roadmap ticket for a deployed product chat (headless
+  // addendum pass); crash-safe with retry. And the project Log list (tickets).
+  taskGenerateTicket: (id: string) => ipcRenderer.invoke('task:generateTicket', id),
+  logTickets: (projectId: string) => ipcRenderer.invoke('log:tickets', projectId),
   terminalOpen: (req: unknown) => ipcRenderer.invoke('terminal:open', req),
 
   // container lifecycle (F14)

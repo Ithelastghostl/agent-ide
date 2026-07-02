@@ -673,6 +673,24 @@ function openSessionMenu(session: Session, x: number, y: number) {
       }
     })
   }
+  // M-LOG-b (§4.5.3): a finished/deployed product task can generate its roadmap
+  // ticket via the headless addendum pass. On success the task becomes 'ticketed';
+  // on failure it stays deployed (retry available).
+  if (session.taskKind === 'product' && (session.taskStatus === 'finished' || session.taskStatus === 'deployed')) {
+    items.push({
+      label: '📋 Mark deployed → generate ticket',
+      onClick: async () => {
+        session.taskStatus = 'deployed'; render()
+        const res = await window.agentIDE.taskGenerateTicket(session.id)
+        if (res.error) {
+          console.error('ticket generation failed (stays deployed — retry):', res.error)
+          await promptText('Ticket generation failed — retry available', res.error).catch(() => {})
+          return
+        }
+        session.taskStatus = 'ticketed'; render()
+      }
+    })
+  }
   items.push(
     {
       label: 'Rename…',

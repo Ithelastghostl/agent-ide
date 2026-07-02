@@ -14,11 +14,13 @@ import { containerExecArgv, claudeConfigMount, codexConfigMount, geminiConfigMou
 import { loginArgv } from './providerHealth'
 import { loopbackPort } from './portForwarder'
 import type { Runtime, TerminalRuntime, ContainerRuntime, PortForwardService, PortWatchHandle } from './runtime'
-import { historyFile, buildPrimer } from './history'
+import { historyFile, buildPrimer, stripAnsi } from './history'
 import { Store } from './store'
 import { confinedPath } from './confine'
 import { validateLaunchRequest, validateResumeSession, validateTaskTransition } from './validate'
-import { writeRawLog } from './projectLog'
+import { writeRawLog, writeTicketFile } from './projectLog'
+import { generateTicket, type HeadlessRunner } from './ticketService'
+import { notEnabledRunner } from './headlessRunner'
 import { isProvider, type Provider, type Session, type TaskKind, type TaskSubkind } from '@shared/types'
 
 export interface FileNode {
@@ -272,7 +274,7 @@ async function containerForSession(container: ContainerRuntime, store: Store | u
 /** Registers all main-process IPC handlers. Thin router — logic lives in managers.
  *  `store` may be undefined if persistence failed to initialize; handlers then
  *  no-op writes and return empty reads so the UI still works. */
-export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store): void {
+export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store, ticketRunner: HeadlessRunner = notEnabledRunner): void {
   // M1: all platform side effects go through the runtime. `mgr` aliases the
   // terminal runtime, whose method names match the old PtyManager so the many
   // spawn/write/resize/kill/primeWhenReady call sites are unchanged.
@@ -476,6 +478,45 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store)
     }
     return { ok: true }
   })
+
+  // M-LOG-b (§4.4): generate a roadmap ticket for a deployed product chat via the
+  // headless addendum pass. Crash-safe (§4.6-16): the session is moved to
+  // 'deployed' first; the ticket runs; only on success is it written + the status
+  // advanced to 'ticketed'. On ANY failure the session STAYS 'deployed' with a
+  // working retry (this handler is idempotent) and the transcript is never
+  // mutated. Returns the ticket id/path or an error to retry.
+  ipcMain.handle('task:generateTicket', async (_e, id: unknown): Promise<{ ok?: true; ticketId?: string; ticketPath?: string; error?: string }> => {
+    if (typeof id !== 'string' || !store) return { error: 'invalid request' }
+    const session = store.getSession(id)
+    if (!session) return { error: 'unknown session' }
+    if (session.taskKind !== 'product') return { error: 'only product tasks generate tickets' }
+    // Advance to 'deployed' if not already past it (forward-only; ignore if it's
+    // already deployed/ticketed).
+    if ((session.taskStatus ?? 'open') !== 'deployed' && session.taskStatus !== 'ticketed') {
+      try { validateTaskTransition(session.taskStatus, 'deployed'); store.setTaskStatus(id, 'deployed') } catch { /* already past */ }
+    }
+    const transcript = stripAnsi(store.getTranscript(id))
+    try {
+      const { fields, bodyMd } = await generateTicket(ticketRunner, session, transcript)
+      const createdAt = Date.now()
+      const ticketId = `ticket-${id}-${createdAt}`
+      const ticketPath = writeTicketFile(session.projectId, fields.title, bodyMd, createdAt)
+      store.saveTicket({
+        id: ticketId, sessionId: id, projectId: session.projectId, subkind: fields.subkind,
+        title: fields.title, bodyMd, fieldsJson: JSON.stringify(fields), createdAt
+      })
+      store.setTaskStatus(id, 'ticketed') // only NOW advance — crash-safe
+      return { ok: true, ticketId, ticketPath: ticketPath ?? undefined }
+    } catch (err) {
+      // stays 'deployed' — retry available; transcript untouched.
+      return { error: (err as Error).message }
+    }
+  })
+
+  // M-LOG-b (§4.5.4): the project Log list — raw entries + generated tickets.
+  ipcMain.handle('log:tickets', (_e, projectId: unknown) =>
+    typeof projectId === 'string' && store ? store.getTickets(projectId) : []
+  )
 
   // F13: open a plain shell session (no agent) in the project's context.
   ipcMain.handle('terminal:open', async (_e, req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<Session> => {

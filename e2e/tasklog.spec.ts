@@ -68,5 +68,17 @@ test('a product task persists its label and exports a raw log on finish', async 
   expect(body).toContain('task_kind: product')
   expect(body).toContain('task_subkind: feature')
 
+  // M-LOG-b §4.6-16: ticket generation is crash-safe. With the default (deferred)
+  // headless runner it fails cleanly; the session must STAY 'deployed' (not
+  // corrupted), with the error surfaced for retry — never advanced to 'ticketed'.
+  const ticket = await win.evaluate((id) => window.agentIDE.taskGenerateTicket(id), launched.id!)
+  expect(ticket.error).toBeTruthy()       // deferred runner → clean failure
+  expect(ticket.ok).toBeUndefined()
+  const after = await win.evaluate(async (pid) => {
+    const s = (await window.agentIDE.sessionsAll()).find((x: any) => x.projectId === pid && x.taskKind === 'product')
+    return s?.taskStatus
+  }, projectId)
+  expect(after).toBe('deployed')          // stayed deployed — retry available
+
   await app.close()
 })

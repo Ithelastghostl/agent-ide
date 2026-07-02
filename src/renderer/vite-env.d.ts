@@ -15,6 +15,8 @@ interface AgentIDEBridge {
   sessionRename(id: string, name: string): Promise<void>
   sessionArchive(id: string): Promise<void>
   taskSetStatus(id: string, to: string): Promise<{ ok?: true; logPath?: string; error?: string }>
+  taskGenerateTicket(id: string): Promise<{ ok?: true; ticketId?: string; ticketPath?: string; error?: string }>
+  logTickets(projectId: string): Promise<import('@shared/types').Ticket[]>
   terminalOpen(req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<import('@shared/types').Session>
   containerStart(projectId: string, workspace: string, importConfig: boolean): Promise<string>
   containerStatus(projectId: string, workspace: string): Promise<'running' | 'stopped' | 'none'>

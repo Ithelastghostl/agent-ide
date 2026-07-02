@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, symlinkSync, mkdirSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../../src/main/store'
-import { writeRawLog, rawLogFrontmatter, projectRawLogDir } from '../../src/main/projectLog'
+import { writeRawLog, rawLogFrontmatter, projectRawLogDir, writeTicketFile, slugify, dateStamp, projectTicketsDir } from '../../src/main/projectLog'
 import type { Session } from '@shared/types'
 
 // M-LOG-a §4.3: a PRODUCT chat marked finished writes an ANSI-stripped raw log
@@ -65,5 +65,31 @@ describe('projectLog raw export (M-LOG-a §4.3)', () => {
     const dir = projectRawLogDir('proj-xyz')
     expect(existsSync(dir)).toBe(true)
     expect(dir).toBe(join(root, 'proj-xyz', 'log', 'raw'))
+  })
+})
+
+// M-LOG-b (§4.3): tickets are written to log/tickets/<date>-<slug>.md.
+describe('ticket file writing (M-LOG-b)', () => {
+  let root: string
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'agide-tkt-')); process.env.AGENT_IDE_PROJECTS = root })
+  afterEach(() => { delete process.env.AGENT_IDE_PROJECTS; rmSync(root, { recursive: true, force: true }) })
+
+  it('slugify makes a safe filename slug', () => {
+    expect(slugify('Fix the Widget Race!')).toBe('fix-the-widget-race')
+    expect(slugify('   ')).toBe('ticket')
+  })
+  it('dateStamp formats yyyy-mm-dd (UTC)', () => {
+    expect(dateStamp(Date.UTC(2026, 6, 2, 15, 30))).toBe('2026-07-02')
+  })
+  it('writes tickets/<date>-<slug>.md and returns its path', () => {
+    const at = Date.UTC(2026, 6, 2)
+    const p = writeTicketFile('proj-abc', 'Fix widget race', '# Fix widget race\nbody', at)
+    expect(p).toBe(join(root, 'proj-abc', 'log', 'tickets', '2026-07-02-fix-widget-race.md'))
+    expect(readFileSync(p!, 'utf8')).toContain('# Fix widget race')
+  })
+  it('projectTicketsDir creates the tickets dir', () => {
+    const dir = projectTicketsDir('proj-q')
+    expect(existsSync(dir)).toBe(true)
+    expect(dir).toBe(join(root, 'proj-q', 'log', 'tickets'))
   })
 })
