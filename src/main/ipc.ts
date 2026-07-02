@@ -1,5 +1,6 @@
 import { app, ipcMain, dialog, shell, type BrowserWindow } from 'electron'
-import { readdirSync, existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appendFile, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appendFile, realpathSync } from 'node:fs'
+import { readdir } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { PtyManager, type SpawnOpts } from './ptyManager'
@@ -21,6 +22,27 @@ export interface FileNode {
   depth: number
 }
 
+/** Result of a directory listing (B11): the (capped) children plus whether the
+ *  listing was truncated by the per-directory cap, so the UI can offer "load
+ *  more" instead of silently hiding files. */
+export interface DirListing {
+  nodes: FileNode[]
+  truncated: boolean
+}
+
+/** Directories skipped by default in the explorer (B11): large vendored / build
+ *  output trees that would make an unbounded synchronous read stall main. The
+ *  explorer can override with { includeHeavy: true }. */
+export const HEAVY_DIRS = new Set(['node_modules', '.venv', 'venv', 'dist', 'build', '.git', '__pycache__', '.next', 'target'])
+
+/** Max entries returned per directory before truncation (B11). */
+export const DIR_CAP = 1000
+
+export interface ReadDirOpts {
+  includeHeavy?: boolean
+  cap?: number
+}
+
 /** Whether a URL is safe to hand to the OS default handler. Only http(s) and
  *  mailto are allowed — terminal output is untrusted and file:/custom schemes
  *  could trigger unintended local handlers. */
@@ -29,21 +51,29 @@ export function isSafeExternalUrl(url: unknown): url is string {
 }
 
 /** Immediate children of a directory (dirs first, alpha), for the explorer.
- *  Children load lazily as folders are expanded — no fixed depth/count cap. */
-export function readDir(dir: string): FileNode[] {
+ *  B11: async (never blocks main), skips heavy vendor/build dirs by default, and
+ *  caps the number of entries — reporting `truncated` so the UI can offer "load
+ *  more" rather than reading an unbounded directory. Children load lazily as
+ *  folders are expanded. */
+export async function readDir(dir: string, opts: ReadDirOpts = {}): Promise<DirListing> {
+  const cap = opts.cap ?? DIR_CAP
   try {
-    return readdirSync(dir, { withFileTypes: true })
+    const entries = await readdir(dir, { withFileTypes: true })
+    const visible = entries
       .filter((e) => e.name !== '.git')
+      .filter((e) => opts.includeHeavy || !(e.isDirectory() && HEAVY_DIRS.has(e.name)))
       .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
-      .map((e) => ({ name: e.name, dir: e.isDirectory(), depth: 0 }))
+    const truncated = visible.length > cap
+    const nodes = visible.slice(0, cap).map((e) => ({ name: e.name, dir: e.isDirectory(), depth: 0 }))
+    return { nodes, truncated }
   } catch {
-    return []
+    return { nodes: [], truncated: false }
   }
 }
 
 /** Top level of the project tree (depth 0 only; subdirs fetched on expand). */
-export function readTree(root: string): FileNode[] {
-  return readDir(root)
+export async function readTree(root: string, opts: ReadDirOpts = {}): Promise<DirListing> {
+  return readDir(root, opts)
 }
 
 /** realpath of `p` if it exists, else the realpath of its deepest existing
@@ -325,16 +355,17 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
 
   // Top level of a project's file tree. Confined by projectId: an unknown project
   // (or one whose root can't be resolved) yields an empty tree, never a host path.
-  ipcMain.handle('fs:tree', (_e, projectId: string): FileNode[] => {
+  // B11: async, returns { nodes, truncated }.
+  ipcMain.handle('fs:tree', async (_e, projectId: string): Promise<DirListing> => {
     const root = projectRoot(projectId)
-    return root ? readTree(root) : []
+    return root ? readTree(root) : { nodes: [], truncated: false }
   })
 
   // Lazy directory expansion for the explorer: immediate children of `path`,
   // which must resolve inside the project's root (confined; no host escape).
-  ipcMain.handle('fs:dir', (_e, projectId: string, path: string): FileNode[] => {
+  ipcMain.handle('fs:dir', async (_e, projectId: string, path: string): Promise<DirListing> => {
     const dir = resolveProjectFile(projectRoot, projectId, path)
-    return dir ? readDir(dir) : []
+    return dir ? readDir(dir) : { nodes: [], truncated: false }
   })
 
   // Read a file's text for the editor tab. Confined to the project tree; refuses

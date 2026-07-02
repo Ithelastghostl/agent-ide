@@ -84,7 +84,7 @@ const trees = new Map<string, FileNode[]>()
 function loadTree(projectId: string) {
   if (trees.has(projectId)) return
   trees.set(projectId, [])
-  window.agentIDE.fsTree(projectId).then((t) => { trees.set(projectId, t as FileNode[]); render() })
+  window.agentIDE.fsTree(projectId).then((t) => { trees.set(projectId, t.nodes as FileNode[]); render() })
 }
 
 // ---- Explorer expansion + open file tabs (per current project) ----------------
@@ -97,7 +97,7 @@ const dirChildren = new Map<string, FileNode[]>()
 function loadDir(projectId: string, relPath: string) {
   if (dirChildren.has(relPath)) return
   window.agentIDE.fsDir(projectId, relPath).then((kids) => {
-    dirChildren.set(relPath, kids as FileNode[])
+    dirChildren.set(relPath, kids.nodes as FileNode[])
     render()
   })
 }

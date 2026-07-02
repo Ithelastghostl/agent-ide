@@ -26,8 +26,8 @@ interface AgentIDEBridge {
   projectsAddLocal(localPath: string): Promise<import('@shared/types').Project>
   projectsAddUrl(url: string, parentDir: string): Promise<import('@shared/types').Project>
   projectsList(): Promise<import('@shared/types').Project[]>
-  fsTree(projectId: string): Promise<{ name: string; dir: boolean; depth: number }[]>
-  fsDir(projectId: string, path: string): Promise<{ name: string; dir: boolean; depth: number }[]>
+  fsTree(projectId: string): Promise<{ nodes: { name: string; dir: boolean; depth: number }[]; truncated: boolean }>
+  fsDir(projectId: string, path: string): Promise<{ nodes: { name: string; dir: boolean; depth: number }[]; truncated: boolean }>
   fileRead(projectId: string, path: string): Promise<{ content?: string; error?: string }>
   fileWrite(projectId: string, path: string, content: string): Promise<{ ok?: true; error?: string }>
   ptyWrite(id: string, data: string): void
