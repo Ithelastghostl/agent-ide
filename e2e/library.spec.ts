@@ -23,7 +23,7 @@ test('library pills show counts and inserting a prompt writes it to the active s
   writeFileSync(join(libDir, 'workflows', 'audit.js'), "export const meta = { name: 'audit', description: 'audit', phases: [] }\n")
 
   const app = await electron.launch({
-    args: [join(__dirname, '..'), '--no-sandbox'],
+    args: [join(__dirname, '..'), '--no-sandbox', '--ozone-platform=x11'],
     env: { ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_HISTORY: histDir, AGENT_IDE_LIBRARY: libDir }
   })
   const win = await app.firstWindow()
