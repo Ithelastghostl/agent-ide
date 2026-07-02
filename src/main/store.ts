@@ -45,6 +45,7 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_transcripts_session ON transcripts(session_id, ts);
     `)
     this.migrateProjectIds() // B7: upgrade legacy kebab ids to durable hash ids
+    this.migrateSessionTaskColumns() // M-LOG-a: add task label columns (additive)
   }
 
   /** B7: recompute each project's id as the durable hash of its (repo, localPath)
@@ -96,14 +97,41 @@ export class Store {
     return r ? { ...r, hasDevcontainer: !!r.hasDevcontainer } : undefined
   }
 
+  /** M-LOG-a (§4.2): additively add the task-label columns to `sessions`. Guarded
+   *  by a pragma check so it's a no-op once applied (SQLite ADD COLUMN errors if
+   *  the column exists). Existing rows get NULL (grandfathered — no retro-label). */
+  migrateSessionTaskColumns(): void {
+    const cols = new Set(
+      (this.db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]).map((c) => c.name)
+    )
+    const add = (name: string, ddl: string) => {
+      if (!cols.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${ddl}`)
+    }
+    add('taskKind', 'taskKind TEXT')       // 'product' | 'analysis' | NULL
+    add('taskSubkind', 'taskSubkind TEXT') // 'code' | 'feature' | 'bug' | NULL
+    add('taskStatus', 'taskStatus TEXT')   // 'open' | 'finished' | 'deployed' | 'ticketed' | NULL
+  }
+
   saveSession(s: Session): void {
     this.db
       .prepare(
-        `INSERT INTO sessions (id,projectId,provider,model,objective,status,createdAt,updatedAt)
-         VALUES (@id,@projectId,@provider,@model,@objective,@status,@createdAt,@updatedAt)
-         ON CONFLICT(id) DO UPDATE SET status=@status, model=@model, objective=@objective, updatedAt=@updatedAt`
+        `INSERT INTO sessions (id,projectId,provider,model,objective,status,createdAt,updatedAt,taskKind,taskSubkind,taskStatus)
+         VALUES (@id,@projectId,@provider,@model,@objective,@status,@createdAt,@updatedAt,@taskKind,@taskSubkind,@taskStatus)
+         ON CONFLICT(id) DO UPDATE SET status=@status, model=@model, objective=@objective, updatedAt=@updatedAt,
+           taskKind=@taskKind, taskSubkind=@taskSubkind, taskStatus=@taskStatus`
       )
-      .run(s)
+      .run({
+        ...s,
+        taskKind: s.taskKind ?? null,
+        taskSubkind: s.taskSubkind ?? null,
+        taskStatus: s.taskStatus ?? null
+      })
+  }
+
+  /** M-LOG-a: set a session's task lifecycle status (open→finished→deployed→
+   *  ticketed). Separate from the runtime `status` (running/idle/archived). */
+  setTaskStatus(id: string, taskStatus: string): void {
+    this.db.prepare(`UPDATE sessions SET taskStatus = ? WHERE id = ?`).run(taskStatus, id)
   }
 
   getSessions(projectId: string): Session[] {

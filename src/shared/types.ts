@@ -12,6 +12,16 @@ export function isTerminalSession(id: string): boolean {
 
 export type SessionStatus = 'running' | 'idle' | 'archived'
 
+// M-LOG (§4.1): every agent chat is one labeled task. `kind` routes it — only
+// `product` chats enter the per-project log; `analysis` chats stay saved but
+// produce no log. `subkind` applies to product chats only. Plain terminals
+// (term-/login-) are unlabeled (all task_* null).
+export type TaskKind = 'product' | 'analysis'
+export type TaskSubkind = 'code' | 'feature' | 'bug'
+// M-LOG task lifecycle (§4.1): open → finished (work done in-chat) → deployed
+// (user confirms shipped) → ticketed (addendum pass wrote a ticket — M-LOG-b).
+export type TaskStatus = 'open' | 'finished' | 'deployed' | 'ticketed'
+
 export interface Model {
   id: string
   label: string
@@ -27,6 +37,10 @@ export interface Session {
   status: SessionStatus
   createdAt: number
   updatedAt: number
+  // M-LOG labels (null for terminals and grandfathered pre-M-LOG sessions).
+  taskKind?: TaskKind | null
+  taskSubkind?: TaskSubkind | null
+  taskStatus?: TaskStatus | null
 }
 
 export interface Project {

@@ -126,4 +126,39 @@ describe('Store', () => {
     store.migrateProjectIds()
     expect(store.listProjects().map((p) => p.id)).toEqual([id])
   })
+
+  // M-LOG-a: sessions carry task labels; the migration is additive + idempotent.
+  it('M-LOG-a: round-trips task label fields on a session', () => {
+    store.saveSession({
+      id: 's1', projectId: 'p1', provider: 'claude', model: 'claude-opus-4-8', objective: 'o',
+      status: 'running', createdAt: 1, updatedAt: 1,
+      taskKind: 'product', taskSubkind: 'bug', taskStatus: 'open'
+    })
+    const s = store.getSessions('p1')[0]
+    expect(s.taskKind).toBe('product')
+    expect(s.taskSubkind).toBe('bug')
+    expect(s.taskStatus).toBe('open')
+  })
+
+  it('M-LOG-a: a session without labels grandfathers to null task fields', () => {
+    store.saveSession({ id: 's2', projectId: 'p1', provider: 'codex', model: 'gpt-5-codex', objective: 'o', status: 'running', createdAt: 1, updatedAt: 1 })
+    const s = store.getSessions('p1')[0]
+    expect(s.taskKind ?? null).toBeNull()
+    expect(s.taskStatus ?? null).toBeNull()
+  })
+
+  it('M-LOG-a: setTaskStatus advances the lifecycle independently of runtime status', () => {
+    store.saveSession({ id: 's3', projectId: 'p1', provider: 'claude', model: 'claude-opus-4-8', objective: 'o', status: 'running', createdAt: 1, updatedAt: 1, taskKind: 'product', taskSubkind: 'code', taskStatus: 'open' })
+    store.setTaskStatus('s3', 'finished')
+    const s = store.getSessions('p1')[0]
+    expect(s.taskStatus).toBe('finished')
+    expect(s.status).toBe('running') // runtime status untouched
+  })
+
+  it('M-LOG-a: migrateSessionTaskColumns is idempotent', () => {
+    store.migrateSessionTaskColumns()
+    store.migrateSessionTaskColumns() // second call must not throw
+    store.saveSession({ id: 's4', projectId: 'p1', provider: 'gemini', model: 'gemini-2.5-pro', objective: 'o', status: 'running', createdAt: 1, updatedAt: 1, taskKind: 'analysis', taskStatus: 'open' })
+    expect(store.getSessions('p1')[0].taskKind).toBe('analysis')
+  })
 })
