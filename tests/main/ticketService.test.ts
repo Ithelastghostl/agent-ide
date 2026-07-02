@@ -26,6 +26,17 @@ describe('chunkTranscript (§4.4 map-reduce)', () => {
     expect(chunks.length).toBeGreaterThan(1)
     expect(chunks.join('').replace(/\n/g, '')).toBe(big.replace(/\n/g, '')) // no content lost
   })
+
+  it('hard-splits a single line longer than the budget (no chunk exceeds maxChars)', () => {
+    // a pathological transcript: one 5000-char line with no newlines. A pure
+    // line-split can't bound it; every chunk must still be within the budget so
+    // the CLI input budget is never blown.
+    const oneHugeLine = 'y'.repeat(5000)
+    const chunks = chunkTranscript(oneHugeLine, 1000)
+    expect(chunks.length).toBeGreaterThan(1)
+    expect(chunks.every((c) => c.length <= 1000)).toBe(true)
+    expect(chunks.join('')).toBe(oneHugeLine) // nothing lost
+  })
 })
 
 describe('extractJson', () => {
@@ -38,6 +49,14 @@ describe('extractJson', () => {
   })
   it('throws when there is no JSON object', () => {
     expect(() => extractJson('no json here')).toThrow()
+  })
+  it('extracts the first object even when prose with braces follows it', () => {
+    // the CLI sometimes appends commentary; brace-matching must stop at the first
+    // complete object rather than swallowing trailing {braces}.
+    expect(extractJson('{"a":1} also see {elsewhere}')).toEqual({ a: 1 })
+  })
+  it('handles braces inside string values', () => {
+    expect(extractJson('{"solution":"use a } brace {here"}')).toEqual({ solution: 'use a } brace {here' })
   })
 })
 

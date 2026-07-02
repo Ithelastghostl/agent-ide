@@ -20,14 +20,25 @@ export type HeadlessRunner = (prompt: string) => Promise<string>
  *  for ANSI-stripped PTY text where reliable turn markers aren't guaranteed. */
 export function chunkTranscript(transcript: string, maxChars = 150_000): string[] {
   if (transcript.length <= maxChars) return [transcript]
+  // Build segments (each guaranteed <= maxChars): a line keeps its trailing "\n",
+  // and any segment still longer than the budget — a pathological single long
+  // line — is hard-split so no segment can blow the CLI input budget.
+  const segments: string[] = []
+  const lines = transcript.split('\n')
+  lines.forEach((line, i) => {
+    const seg = i < lines.length - 1 ? line + '\n' : line // last line has no trailing \n
+    if (seg.length <= maxChars) {
+      if (seg) segments.push(seg)
+    } else {
+      for (let j = 0; j < seg.length; j += maxChars) segments.push(seg.slice(j, j + maxChars))
+    }
+  })
+  // Pack segments into chunks up to maxChars.
   const chunks: string[] = []
   let cur = ''
-  for (const line of transcript.split('\n')) {
-    if (cur.length + line.length + 1 > maxChars && cur) {
-      chunks.push(cur)
-      cur = ''
-    }
-    cur += line + '\n'
+  for (const seg of segments) {
+    if (cur && cur.length + seg.length > maxChars) { chunks.push(cur); cur = '' }
+    cur += seg
   }
   if (cur) chunks.push(cur)
   return chunks
@@ -64,15 +75,35 @@ export function notesPrompt(session: Session, chunk: string, i: number, n: numbe
   ].join('\n')
 }
 
-/** Extract the first top-level JSON object from CLI output (which may wrap it in
- *  prose or a code fence despite instructions). Returns the parsed value or throws. */
+/** Extract the FIRST complete top-level JSON object from CLI output (which may
+ *  wrap it in prose or a code fence despite instructions). Brace-matches from the
+ *  first `{`, respecting string literals and escapes, so a `}` inside a string —
+ *  or trailing prose containing braces — doesn't break parsing. Returns the parsed
+ *  value or throws. */
 export function extractJson(output: string): unknown {
   const fenced = output.match(/```(?:json)?\s*([\s\S]*?)```/)
   const candidate = fenced ? fenced[1] : output
   const start = candidate.indexOf('{')
-  const end = candidate.lastIndexOf('}')
-  if (start < 0 || end < start) throw new Error('no JSON object in CLI output')
-  return JSON.parse(candidate.slice(start, end + 1))
+  if (start < 0) throw new Error('no JSON object in CLI output')
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let i = start; i < candidate.length; i++) {
+    const ch = candidate[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (ch === '\\') esc = true
+      else if (ch === '"') inStr = false
+    } else if (ch === '"') {
+      inStr = true
+    } else if (ch === '{') {
+      depth++
+    } else if (ch === '}') {
+      depth--
+      if (depth === 0) return JSON.parse(candidate.slice(start, i + 1)) // first complete object
+    }
+  }
+  throw new Error('no complete JSON object in CLI output')
 }
 
 /** Render the ticket Markdown body from the validated fields. */
