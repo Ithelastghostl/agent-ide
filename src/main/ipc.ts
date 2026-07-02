@@ -1,6 +1,6 @@
 import { app, ipcMain, dialog, shell, type BrowserWindow } from 'electron'
-import { readdirSync, existsSync, readFileSync, writeFileSync, statSync, appendFileSync } from 'node:fs'
-import { join, resolve, relative, isAbsolute } from 'node:path'
+import { readdirSync, existsSync, readFileSync, writeFileSync, statSync, appendFileSync, realpathSync } from 'node:fs'
+import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { PtyManager, type SpawnOpts } from './ptyManager'
 import { launchArgv } from './providers'
@@ -45,16 +45,46 @@ export function readTree(root: string): FileNode[] {
   return readDir(root)
 }
 
-/** Resolve `target` and confirm it stays inside `root` (no `..`/symlink escape).
- *  File reads/writes from the renderer are confined to the open project's tree —
- *  the renderer must never read/write arbitrary host paths. Returns the resolved
- *  absolute path, or null if it would escape. */
+/** realpath of `p` if it exists, else the realpath of its deepest existing
+ *  ancestor with the not-yet-existing tail re-appended. Lets us confine a target
+ *  that doesn't exist yet (a new file being written) while still resolving any
+ *  symlinks along the part of the path that IS real. Falls back to `p` verbatim
+ *  if nothing on the path exists (e.g. a wholly-synthetic test root). */
+function realpathAllowingMissing(p: string): string {
+  let existing = p
+  const tail: string[] = []
+  // walk up until we hit a path component that exists on disk
+  while (!existsSync(existing)) {
+    const parent = dirname(existing)
+    if (parent === existing) return p // reached filesystem root without existing — no real part
+    tail.unshift(basename(existing))
+    existing = parent
+  }
+  return tail.length ? join(realpathSync.native(existing), ...tail) : realpathSync.native(existing)
+}
+
+/** Resolve `target` and confirm it stays inside `root` — rejecting both lexical
+ *  (`..`) AND symlink escapes (B1/B2). File reads/writes from the renderer are
+ *  confined to the open project's tree; the renderer must never read/write
+ *  arbitrary host paths. A symlink inside the root pointing outside it is refused
+ *  because containment is checked against the *real* (symlink-resolved) paths.
+ *  Returns the resolved real absolute path, or null if it would escape. */
 export function confinedPath(root: string, target: string): string | null {
+  // 1. Cheap lexical check first: rejects '', '.', and '..' escapes and absolute
+  //    targets without touching the filesystem.
   const r = resolve(root)
   const t = resolve(root, target)
-  const rel = relative(r, t)
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null
-  return t
+  const lexRel = relative(r, t)
+  if (lexRel === '' || lexRel.startsWith('..') || isAbsolute(lexRel)) return null
+
+  // 2. Symlink-aware check: resolve symlinks on the real root and on the target
+  //    (down to its deepest existing ancestor), then confirm real containment.
+  const realRoot = realpathAllowingMissing(r)
+  const realTarget = realpathAllowingMissing(t)
+  const realRel = relative(realRoot, realTarget)
+  if (realRel === '' || realRel.startsWith('..') || isAbsolute(realRel)) return null
+
+  return realTarget
 }
 
 /** B1 (Critical): resolve a renderer file request to a confined absolute path,
