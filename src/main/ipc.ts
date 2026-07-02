@@ -1,5 +1,5 @@
 import { app, ipcMain, dialog, shell, type BrowserWindow } from 'electron'
-import { readdirSync, existsSync, readFileSync, writeFileSync, statSync, appendFileSync, realpathSync } from 'node:fs'
+import { readdirSync, existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appendFile, realpathSync } from 'node:fs'
 import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { PtyManager, type SpawnOpts } from './ptyManager'
@@ -204,8 +204,12 @@ function stopPortWatch(sessionId: string): void {
  *  committable). The file is the IDE-owned history — the source of truth for
  *  reconnect/model-swap primers, independent of any provider CLI. */
 function recordOutput(store: Store | undefined, sessionId: string, data: string): void {
+  // DB write is batched/debounced inside the Store (B6). The human-readable file
+  // mirror is appended asynchronously so a burst of PTY output never blocks the
+  // main thread on synchronous disk I/O (B6). Best-effort — the DB is the source
+  // of truth for primers; the file is a convenience/committable mirror.
   store?.appendTranscript(sessionId, data, Date.now())
-  try { appendFileSync(historyFile(sessionId), data) } catch { /* best-effort mirror */ }
+  appendFile(historyFile(sessionId), data, () => { /* best-effort mirror */ })
 }
 
 /** After a fresh engine starts for an existing session (reconnect or model swap),
@@ -606,5 +610,6 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     for (const { watcher } of watchers.values()) void watcher.stop()
     watchers.clear()
     void forwarder.disposeAll()
+    store?.flush() // B6: persist any buffered transcript chunks before exit
   })
 }

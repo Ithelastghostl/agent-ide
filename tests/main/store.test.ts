@@ -66,4 +66,33 @@ describe('Store', () => {
     expect(out).not.toContain('line0')      // drops the oldest
     expect(out.startsWith('line')).toBe(true) // begins at a line boundary, not mid-line
   })
+
+  // B6: writes are batched (debounced) instead of one synchronous INSERT per
+  // chunk. getTranscript must flush pending chunks first so a reconnect primer
+  // always sees the latest output — no data lost in the buffer.
+  it('B6: getTranscript flushes buffered chunks (no lost tail)', () => {
+    for (let i = 0; i < 50; i++) store.appendTranscript('s1', `c${i};`, i)
+    // read immediately, before any debounce timer could have fired
+    const out = store.getTranscript('s1')
+    expect(out).toBe(Array.from({ length: 50 }, (_, i) => `c${i};`).join(''))
+  })
+
+  it('B6: explicit flush() is idempotent and persists everything once', () => {
+    store.appendTranscript('s1', 'a', 1)
+    store.appendTranscript('s1', 'b', 2)
+    store.flush()
+    store.flush() // second flush must not duplicate
+    expect(store.getTranscript('s1')).toBe('ab')
+  })
+
+  it('B6: tail cap is correct on a large transcript read newest-first', () => {
+    // 2000 lines → well over a small cap; ensures the tail read returns the right
+    // suffix without depending on concatenating the whole history.
+    for (let i = 0; i < 2000; i++) store.appendTranscript('s1', `L${i}\n`, i)
+    const out = store.getTranscript('s1', 64)
+    expect(out.length).toBeLessThanOrEqual(64)
+    expect(out).toMatch(/L1999\n$/)
+    expect(out).not.toContain('L0\n')
+    expect(out.startsWith('L')).toBe(true)
+  })
 })

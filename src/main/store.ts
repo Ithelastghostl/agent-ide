@@ -17,6 +17,12 @@ export function defaultDbPath(): string {
 /** SQLite-backed persistence for projects, sessions, and transcripts. */
 export class Store {
   private db: Database.Database
+  // B6: buffer transcript chunks and flush them in a single transaction on a
+  // short debounce (or when read/closed), instead of one synchronous INSERT per
+  // PTY chunk on the main thread. High-frequency output no longer stalls the UI.
+  private pending: { session_id: string; chunk: string; ts: number }[] = []
+  private flushTimer: ReturnType<typeof setTimeout> | null = null
+  private static readonly FLUSH_DEBOUNCE_MS = 100
 
   constructor(path: string = defaultDbPath()) {
     this.db = new Database(path)
@@ -32,6 +38,10 @@ export class Store {
       CREATE TABLE IF NOT EXISTS transcripts (
         session_id TEXT, chunk TEXT, ts INTEGER
       );
+      -- B6: index the transcript read path (WHERE session_id ORDER BY ts, ...).
+      -- rowid is SQLite's implicit primary key and orders rows within equal ts,
+      -- so (session_id, ts) covers the ORDER BY ts, rowid query without listing it.
+      CREATE INDEX IF NOT EXISTS idx_transcripts_session ON transcripts(session_id, ts);
     `)
   }
 
@@ -93,25 +103,60 @@ export class Store {
     this.db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`).run(status, id)
   }
 
+  /** Queue a transcript chunk. Buffered and written in a batched transaction on a
+   *  short debounce (B6) — not a synchronous per-chunk INSERT. A read or close
+   *  flushes first, so no chunk is ever lost. */
   appendTranscript(sessionId: string, chunk: string, ts: number): void {
-    this.db.prepare(`INSERT INTO transcripts (session_id,chunk,ts) VALUES (?,?,?)`).run(sessionId, chunk, ts)
+    this.pending.push({ session_id: sessionId, chunk, ts })
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => this.flush(), Store.FLUSH_DEBOUNCE_MS)
+    }
+  }
+
+  /** Write all buffered transcript chunks in one transaction. Idempotent (a
+   *  no-op when the buffer is empty) and safe to call from a timer, a read, or
+   *  shutdown. */
+  flush(): void {
+    if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null }
+    if (this.pending.length === 0) return
+    const batch = this.pending
+    this.pending = []
+    const insert = this.db.prepare(`INSERT INTO transcripts (session_id,chunk,ts) VALUES (@session_id,@chunk,@ts)`)
+    const writeAll = this.db.transaction((rows: typeof batch) => {
+      for (const r of rows) insert.run(r)
+    })
+    writeAll(batch)
   }
 
   /** Full transcript for a session, oldest→newest, optionally tail-capped to the
    *  last `maxBytes` characters so replaying a huge log into xterm on mount stays
    *  fast. The cap keeps the END (most recent output), trimmed to a line start so
-   *  replay doesn't begin mid-escape-sequence. */
+   *  replay doesn't begin mid-escape-sequence. B6: reads newest-first and stops
+   *  once `maxBytes` is gathered, rather than concatenating the whole history. */
   getTranscript(sessionId: string, maxBytes = 256 * 1024): string {
-    const full = (
-      this.db
-        .prepare(`SELECT chunk FROM transcripts WHERE session_id = ? ORDER BY ts, rowid`)
-        .all(sessionId) as { chunk: string }[]
-    )
-      .map((r) => r.chunk)
-      .join('')
-    if (full.length <= maxBytes) return full
-    const tail = full.slice(full.length - maxBytes)
+    this.flush() // ensure buffered chunks are visible (primer must see the latest)
+    const rows = this.db
+      .prepare(`SELECT chunk FROM transcripts WHERE session_id = ? ORDER BY ts DESC, rowid DESC`)
+      .all(sessionId) as { chunk: string }[]
+    // Walk newest→oldest, prepending, until we have enough; then we can stop
+    // reading further history entirely.
+    const parts: string[] = []
+    let len = 0
+    for (const r of rows) {
+      parts.push(r.chunk)
+      len += r.chunk.length
+      if (len >= maxBytes) break
+    }
+    const collected = parts.reverse().join('')
+    if (len <= maxBytes) return collected
+    const tail = collected.slice(collected.length - maxBytes)
     const nl = tail.indexOf('\n')
     return nl >= 0 ? tail.slice(nl + 1) : tail
+  }
+
+  /** Flush pending writes and close the database (app shutdown). */
+  close(): void {
+    this.flush()
+    this.db.close()
   }
 }
