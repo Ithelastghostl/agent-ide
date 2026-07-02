@@ -1,4 +1,4 @@
-import { PROVIDERS, isTerminalSession, type Provider, type Session } from '@shared/types'
+import { PROVIDERS, isTerminalSession, type Provider, type Session, type LibraryCategory } from '@shared/types'
 
 export type ProviderHealth = 'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'
 
@@ -9,6 +9,10 @@ export interface CockpitProps {
   reconnect?: Set<string>
   /** last-known connection health per provider (F8/F9). */
   health?: Partial<Record<Provider, ProviderHealth>>
+  /** Library item counts per category (D14). Undefined → not loaded yet. */
+  libraryCounts?: { prompts: number; skills: number; workflows: number }
+  /** Clicking a library pill opens that category's list. */
+  onLibraryPill?: (category: LibraryCategory) => void
   onLaunch: (provider: Provider) => void
   onSelectSession: (id: string) => void
   onSessionMenu?: (session: Session, x: number, y: number) => void
@@ -99,17 +103,29 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   title.append(glyph, document.createTextNode('AGENT COCKPIT'))
   el.appendChild(title)
 
-  // library (deferred — greyed "SOON" per D14)
+  // Library (D14) — live, clickable pills with real counts. Greyed only until
+  // counts load. Clicking a pill opens that category's filterable list.
   const libSec = document.createElement('div')
   libSec.className = 'cp-sec'
   libSec.textContent = 'Library'
   el.appendChild(libSec)
   const pills = document.createElement('div')
-  pills.className = 'libpills soon'
-  pills.innerHTML =
-    '<span class="pill">📌 Prompts<b>—</b><span class="badge">SOON</span></span>' +
-    '<span class="pill">🧠 Skills<b>—</b></span>' +
-    '<span class="pill">⚙ Flows<b>—</b></span>'
+  pills.className = 'libpills' + (p.libraryCounts ? '' : ' soon')
+  const counts = p.libraryCounts ?? { prompts: 0, skills: 0, workflows: 0 }
+  const pillDefs: { icon: string; label: string; category: LibraryCategory; n: number }[] = [
+    { icon: '📌', label: 'Prompts', category: 'prompts', n: counts.prompts },
+    { icon: '🧠', label: 'Skills', category: 'skills', n: counts.skills },
+    { icon: '⚙', label: 'Flows', category: 'workflows', n: counts.workflows }
+  ]
+  for (const d of pillDefs) {
+    const pill = document.createElement('span')
+    pill.className = 'pill'
+    const cnt = document.createElement('b')
+    cnt.textContent = p.libraryCounts ? String(d.n) : '—'
+    pill.append(document.createTextNode(`${d.icon} ${d.label}`), cnt)
+    if (p.libraryCounts) pill.onclick = () => p.onLibraryPill?.(d.category)
+    pills.appendChild(pill)
+  }
   el.appendChild(pills)
 
   const div = document.createElement('div')

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, codexConfigMount, geminiConfigMount, parseRemoteUser, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
+import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, codexConfigMount, geminiConfigMount, libraryConfigMount, parseRemoteUser, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
 
 describe('findContainerArgv', () => {
   it('filters running containers by the devcontainer local_folder label', () => {
@@ -58,6 +58,9 @@ describe('config mounts', () => {
   })
   it('honors an explicit container home', () => {
     expect(codexConfigMount('/home/me', '/home/vscode')).toBe('type=bind,source=/home/me/.codex,target=/home/vscode/.codex,readonly')
+  })
+  it('libraryConfigMount mounts an absolute library dir read-only into the container', () => {
+    expect(libraryConfigMount('/home/me/AgentIDE/library')).toBe('type=bind,source=/home/me/AgentIDE/library,target=/home/node/.agent-ide/library,readonly')
   })
 })
 

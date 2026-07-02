@@ -1,18 +1,20 @@
 import { app, ipcMain, dialog, shell, type BrowserWindow } from 'electron'
-import { existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appendFile, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appendFile } from 'node:fs'
 import { readdir } from 'node:fs/promises'
-import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path'
+import { join, resolve, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 import { PtyManager } from './ptyManager'
 import { launchArgv } from './providers'
 import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
-import { listRepos, syncHistory } from './github'
-import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, codexConfigMount, geminiConfigMount, findRunningContainer, findContainerPresence, startContainerById, resolveContainerUser } from './devcontainer'
+import { listRepos, syncHistory, cloneRepo, cloneUrl, pullRepo } from './github'
+import { libraryDir, scanLibrary, readLibraryItem, libraryIsClone } from './library'
+import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, codexConfigMount, geminiConfigMount, libraryConfigMount, findRunningContainer, findContainerPresence, startContainerById, resolveContainerUser } from './devcontainer'
 import { probeHealth, loginArgv, installInContainer } from './providerHealth'
 import { PortForwarder, ContainerPortWatcher, loopbackPort } from './portForwarder'
 import { historyFile, buildPrimer } from './history'
 import { Store } from './store'
+import { confinedPath } from './confine'
 import { validateLaunchRequest, validateResumeSession } from './validate'
 import { isProvider, type Provider, type Session } from '@shared/types'
 
@@ -100,47 +102,10 @@ export async function readTree(root: string, opts: ReadDirOpts = {}): Promise<Di
   return readDir(root, opts)
 }
 
-/** realpath of `p` if it exists, else the realpath of its deepest existing
- *  ancestor with the not-yet-existing tail re-appended. Lets us confine a target
- *  that doesn't exist yet (a new file being written) while still resolving any
- *  symlinks along the part of the path that IS real. Falls back to `p` verbatim
- *  if nothing on the path exists (e.g. a wholly-synthetic test root). */
-function realpathAllowingMissing(p: string): string {
-  let existing = p
-  const tail: string[] = []
-  // walk up until we hit a path component that exists on disk
-  while (!existsSync(existing)) {
-    const parent = dirname(existing)
-    if (parent === existing) return p // reached filesystem root without existing — no real part
-    tail.unshift(basename(existing))
-    existing = parent
-  }
-  return tail.length ? join(realpathSync.native(existing), ...tail) : realpathSync.native(existing)
-}
-
-/** Resolve `target` and confirm it stays inside `root` — rejecting both lexical
- *  (`..`) AND symlink escapes (B1/B2). File reads/writes from the renderer are
- *  confined to the open project's tree; the renderer must never read/write
- *  arbitrary host paths. A symlink inside the root pointing outside it is refused
- *  because containment is checked against the *real* (symlink-resolved) paths.
- *  Returns the resolved real absolute path, or null if it would escape. */
-export function confinedPath(root: string, target: string): string | null {
-  // 1. Cheap lexical check first: rejects '', '.', and '..' escapes and absolute
-  //    targets without touching the filesystem.
-  const r = resolve(root)
-  const t = resolve(root, target)
-  const lexRel = relative(r, t)
-  if (lexRel === '' || lexRel.startsWith('..') || isAbsolute(lexRel)) return null
-
-  // 2. Symlink-aware check: resolve symlinks on the real root and on the target
-  //    (down to its deepest existing ancestor), then confirm real containment.
-  const realRoot = realpathAllowingMissing(r)
-  const realTarget = realpathAllowingMissing(t)
-  const realRel = relative(realRoot, realTarget)
-  if (realRel === '' || realRel.startsWith('..') || isAbsolute(realRel)) return null
-
-  return realTarget
-}
+// confinedPath (B1/B2 symlink-hardened) now lives in ./confine so the library
+// reader (L1) shares the exact same check without depending on this module.
+// Re-exported because existing callers/tests import it from ipc.
+export { confinedPath }
 
 /** B1 (Critical): resolve a renderer file request to a confined absolute path,
  *  where the renderer names the project by `projectId` — NOT by a raw filesystem
@@ -204,6 +169,13 @@ async function ensureContainer(projectId: string, workspace: string, importConfi
   if (existsSync(join(home, '.codex'))) mounts.push(codexConfigMount(home))
   if (existsSync(join(home, '.gemini'))) mounts.push(geminiConfigMount(home))
   if (importConfig && existsSync(join(home, '.claude'))) mounts.push(claudeConfigMount(home))
+  // Mount the IDE library (read-only) so in-container sessions can use its
+  // skills/workflows. Only when it has content (a cloned repo), to avoid binding
+  // an empty placeholder dir. (D14)
+  const lib = libraryDir()
+  if (existsSync(join(lib, 'skills')) || existsSync(join(lib, 'workflows')) || existsSync(join(lib, 'prompts'))) {
+    mounts.push(libraryConfigMount(lib))
+  }
   const { containerId } = await upDevcontainer(workspace, mounts)
   containerByProject.set(projectId, containerId)
   return containerId
@@ -385,6 +357,45 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   ipcMain.handle('fs:tree', async (_e, projectId: string): Promise<DirListing> => {
     const root = projectRoot(projectId)
     return root ? readTree(root) : { nodes: [], truncated: false }
+  })
+
+  // Library (GitHub-backed Prompts/Skills/Workflows) — D14. The library is a
+  // clone of the user's library repo under ~/AgentIDE/library; we scan it into
+  // the three categories and read individual items (confined to the library).
+  ipcMain.handle('library:list', () => scanLibrary(libraryDir()))
+  // B9: validate the renderer input at the boundary; a non-string relPath is
+  // refused, not passed into path resolution.
+  ipcMain.handle('library:read', (_e, relPath: unknown) =>
+    typeof relPath === 'string' ? readLibraryItem(relPath) : { error: 'invalid path' }
+  )
+  ipcMain.handle('library:status', () => {
+    const dir = libraryDir()
+    const lib = scanLibrary(dir)
+    return {
+      dir,
+      isClone: libraryIsClone(dir),
+      counts: { prompts: lib.prompts.length, skills: lib.skills.length, workflows: lib.workflows.length }
+    }
+  })
+  // Sync: pull if already a clone; otherwise clone the given repo (owner/name via
+  // gh, or any git URL) into the (empty) library dir. `repo` is optional when a
+  // clone already exists. Returns the refreshed contents (or an error).
+  ipcMain.handle('library:sync', async (_e, repo?: string): Promise<{ ok?: true; error?: string }> => {
+    const dir = libraryDir()
+    try {
+      if (libraryIsClone(dir)) {
+        await pullRepo(dir)
+      } else if (repo) {
+        const isUrl = /^(https?:|git@|ssh:)/.test(repo)
+        if (isUrl) await cloneUrl(repo, dir)
+        else await cloneRepo(repo, dir)
+      } else {
+        return { error: 'no library repo configured yet' }
+      }
+      return { ok: true }
+    } catch (err) {
+      return { error: (err as Error).message }
+    }
   })
 
   // Lazy directory expansion for the explorer: immediate children of `path`,
