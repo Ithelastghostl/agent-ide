@@ -171,21 +171,32 @@ const forwarder = new PortForwarder()
 // VS Code-style auto port forwarding: while a containerized session runs, watch
 // the container for newly-listening localhost ports and forward each to the same
 // host port (so the host browser reaches in-container OAuth callbacks like :1455
-// and any dev server). One watcher per containerized session id.
-const watchers = new Map<string, ContainerPortWatcher>()
+// and any dev server). B5: ONE watcher per CONTAINER, refcounted by the sessions
+// using it — a session ending must not tear down forwards another session in the
+// same container still needs. The watcher (and its forwards) stop only when the
+// last session in that container stops.
+const watchers = new Map<string, { watcher: ContainerPortWatcher; sessions: Set<string> }>()
 function startPortWatch(sessionId: string, containerId: string, win: BrowserWindow): void {
-  if (watchers.has(sessionId)) return
-  const w = new ContainerPortWatcher(containerId, forwarder, {
+  const existing = watchers.get(containerId)
+  if (existing) {
+    existing.sessions.add(sessionId) // share the one watcher for this container
+    return
+  }
+  const watcher = new ContainerPortWatcher(containerId, forwarder, {
     onForward: (port) => win.webContents.send('session:status', { id: sessionId, message: `forwarding container port ${port} → localhost:${port}` })
   })
-  watchers.set(sessionId, w)
-  w.start()
+  watchers.set(containerId, { watcher, sessions: new Set([sessionId]) })
+  watcher.start()
 }
 function stopPortWatch(sessionId: string): void {
-  const w = watchers.get(sessionId)
-  if (!w) return
-  watchers.delete(sessionId)
-  void w.stop()
+  for (const [containerId, entry] of watchers) {
+    if (!entry.sessions.delete(sessionId)) continue
+    if (entry.sessions.size === 0) { // last session in this container — tear down
+      watchers.delete(containerId)
+      void entry.watcher.stop()
+    }
+    return
+  }
 }
 
 /** Persist a chunk of session output: to the SQLite transcript (fast reads /
@@ -256,8 +267,11 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       if (port && sessionId) {
         const containerId = await containerForSession(store, sessionId)
         if (containerId) {
+          // Ad-hoc forward for an opened URL; owned by the container so it isn't
+          // torn down when one session ends (B5). Bounded so a slow/hung forward
+          // can't block opening the browser (Codex P4).
           await Promise.race([
-            forwarder.ensure(containerId, port),
+            forwarder.ensure(containerId, port, `manual:${containerId}`),
             new Promise((r) => setTimeout(r, 2500))
           ])
         }
@@ -589,8 +603,8 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // Tear down port watchers + host-side relays on shutdown (container relays die
   // with the container). Avoids leaking python relay processes across app restarts.
   app.on('before-quit', () => {
-    for (const w of watchers.values()) void w.stop()
+    for (const { watcher } of watchers.values()) void watcher.stop()
     watchers.clear()
-    forwarder.disposeAll()
+    void forwarder.disposeAll()
   })
 }

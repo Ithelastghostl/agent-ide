@@ -1,11 +1,13 @@
-import { spawn, execFile } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { createServer, connect, type Server, type Socket } from 'node:net'
 
 const pexec = promisify(execFile)
 
-/** A relay script (TCP splice) run via python3, which both the host and the
- *  devcontainer image already ship. Listens on (bindHost, listenPort) and pipes
- *  every connection to (dialHost, dialPort). Kept dependency-free on purpose. */
+/** A relay script (TCP splice) run via python3 INSIDE the container (which the
+ *  devcontainer image ships). Listens on 0.0.0.0:bridgePort and pipes every
+ *  connection to 127.0.0.1:servicePort. The host hop is a Node net.Server (see
+ *  PortForwarder) — only the in-container hop stays python, to avoid a rebuild. */
 function relayPy(bindHost: string, listenPort: number, dialHost: string, dialPort: number): string {
   return `
 import socket, threading, sys
@@ -52,74 +54,169 @@ export async function containerIp(containerId: string): Promise<string | null> {
   }
 }
 
+/** B10: pick a bridge port that is not already in use, instead of deriving one
+ *  from the service port (`40000 + port % 20000` collided, e.g. 1455 vs 21455).
+ *  First free port at/after 40000 not in `used`. Pure + deterministic. */
+export function allocBridgePort(used: Set<number>): number {
+  for (let p = 40000; p < 60000; p++) {
+    if (!used.has(p)) return p
+  }
+  throw new Error('no free bridge port in 40000–59999')
+}
+
+/** Dependencies the forwarder needs, injectable so the relay lifecycle can be
+ *  unit-tested without Docker. */
+export interface PortForwarderDeps {
+  containerIp: (containerId: string) => Promise<string | null>
+  /** Start the in-container relay: 0.0.0.0:bridgePort → 127.0.0.1:servicePort. */
+  dockerExec: (containerId: string, bridgePort: number, servicePort: number, marker: string) => Promise<void>
+  /** Kill the in-container relay tagged with `marker`. */
+  dockerKill?: (containerId: string, marker: string) => Promise<void>
+}
+
+const realDeps: PortForwarderDeps = {
+  containerIp,
+  dockerExec: async (containerId, bridgePort, servicePort, marker) => {
+    await pexec('docker', [
+      'exec', '-d', containerId,
+      'python3', '-c', relayPy('0.0.0.0', bridgePort, '127.0.0.1', servicePort) + `\n# ${marker}`
+    ])
+  },
+  dockerKill: async (containerId, marker) => {
+    await pexec('docker', ['exec', containerId, 'pkill', '-f', marker])
+  }
+}
+
+interface Forward {
+  server: Server // host-side Node relay listening on 127.0.0.1:servicePort
+  sockets: Set<Socket> // live spliced connections, for a clean teardown
+  bridgePort: number
+  marker: string
+  owners: Set<string> // B5: refcount — the forward lives until the last owner releases
+}
+
 /** Forwards container `localhost:<port>` out to the HOST's `localhost:<port>`, the
  *  way VS Code does, so a browser on the host can reach a service the agent runs
  *  inside the container (dev servers, OAuth loopback callbacks like :1455, …).
  *
- *  Two hops, both python3 (no extra deps, no container rebuild):
- *    host 127.0.0.1:port  ──►  containerIP:bridgePort  ──►  container 127.0.0.1:port
- *  The in-container relay binds 0.0.0.0:bridgePort so the host can reach it over
- *  the bridge IP; the host relay re-exposes it on the same localhost:port the URL
- *  names. Idempotent per (container, port). */
+ *  Two hops:
+ *    host 127.0.0.1:port (Node net.Server)  ──►  containerIP:bridgePort  ──►  container 127.0.0.1:port (python)
+ *
+ *  Refcounted per (container, port): multiple sessions can share one forward and
+ *  it is torn down only when the last owner releases it (B5). The host hop
+ *  succeeds only once it is actually listening, and fails cleanly on a bind error
+ *  (B4). The bridge port is allocated dynamically to avoid collisions (B10). */
 export class PortForwarder {
-  // key = `${containerId}:${port}` → handles so we don't double-forward / can stop.
-  private active = new Map<string, { hostProc: ReturnType<typeof spawn>; containerKillId: string }>()
+  private active = new Map<string, Forward>()
+  private usedBridgePorts = new Set<number>()
+  private readonly deps: PortForwarderDeps
+  /** Test-only: force the host relay to dial this port on the container IP,
+   *  standing in for the in-container relay's bridge port. */
+  _dialPortForTest?: number
 
-  /** Ensure container `port` is reachable at host `localhost:<port>`. Returns true
-   *  once a forward is in place (or already was). */
-  async ensure(containerId: string, port: number): Promise<boolean> {
-    const key = `${containerId}:${port}`
-    if (this.active.has(key)) return true
+  constructor(deps: Partial<PortForwarderDeps> = {}) {
+    this.deps = { ...realDeps, ...deps }
+  }
 
-    const ip = await containerIp(containerId)
+  private key(containerId: string, port: number): string {
+    return `${containerId}:${port}`
+  }
+
+  isActive(containerId: string, port: number): boolean {
+    return this.active.has(this.key(containerId, port))
+  }
+
+  /** Ensure container `port` is reachable at host `localhost:<port>` on behalf of
+   *  `owner`. Returns true once a forward is in place (or already was). Idempotent
+   *  per (container, port); repeat callers just add themselves as owners (B5). */
+  async ensure(containerId: string, port: number, owner: string): Promise<boolean> {
+    const key = this.key(containerId, port)
+    const existing = this.active.get(key)
+    if (existing) {
+      existing.owners.add(owner)
+      return true
+    }
+
+    const ip = await this.deps.containerIp(containerId)
     if (!ip) return false
 
-    // The in-container relay must bind a DIFFERENT port than the service: binding
-    // 0.0.0.0:port would collide with the service already on 127.0.0.1:port (the
-    // wildcard address includes loopback), so the relay's bind fails and the
-    // connection hangs. Use a stable high bridge port derived from the original.
-    const bridgePort = 40000 + (port % 20000)
+    const bridgePort = allocBridgePort(this.usedBridgePorts)
+    this.usedBridgePorts.add(bridgePort)
+    const marker = `agentide-fwd-${port}-${bridgePort}`
 
-    // 1) In-container relay: 0.0.0.0:bridgePort → 127.0.0.1:port. Detached via
-    //    `docker exec -d`; tagged with a marker arg so we can pkill it on stop.
-    const marker = `agentide-fwd-${port}`
+    // 1) In-container relay: 0.0.0.0:bridgePort → 127.0.0.1:port.
     try {
-      await pexec('docker', [
-        'exec', '-d', containerId,
-        'python3', '-c', relayPy('0.0.0.0', bridgePort, '127.0.0.1', port) + `\n# ${marker}`
-      ])
+      await this.deps.dockerExec(containerId, bridgePort, port, marker)
     } catch {
+      this.usedBridgePorts.delete(bridgePort)
       return false
     }
 
-    // 2) Host relay: 127.0.0.1:port → containerIP:bridgePort. Long-lived child of
-    //    the app; killed when we stop forwarding or the app exits.
-    const hostProc = spawn('python3', ['-c', relayPy('127.0.0.1', port, ip, bridgePort)], {
-      stdio: 'ignore',
-      detached: false
+    // 2) Host relay: a Node net.Server on 127.0.0.1:port that splices each
+    //    connection to (ip, bridgePort). Only report success once it is LISTENING;
+    //    fail (and clean up the container relay) on a bind error (B4).
+    const dialPort = this._dialPortForTest ?? bridgePort
+    const sockets = new Set<Socket>()
+    const server = createServer((client) => {
+      const upstream = connect(dialPort, ip)
+      sockets.add(client); sockets.add(upstream)
+      const drop = (s: Socket) => { sockets.delete(s); try { s.destroy() } catch { /* */ } }
+      client.on('error', () => drop(client))
+      upstream.on('error', () => { drop(client); drop(upstream) })
+      client.on('close', () => drop(client))
+      upstream.on('close', () => drop(upstream))
+      client.pipe(upstream); upstream.pipe(client)
     })
-    hostProc.on('error', () => this.active.delete(key))
 
-    this.active.set(key, { hostProc, containerKillId: marker })
+    const listening = await new Promise<boolean>((resolve) => {
+      server.once('error', () => resolve(false)) // e.g. EADDRINUSE
+      server.listen(port, '127.0.0.1', () => resolve(true))
+    })
+    if (!listening) {
+      try { server.close() } catch { /* */ }
+      this.usedBridgePorts.delete(bridgePort)
+      await this.deps.dockerKill?.(containerId, marker).catch(() => {})
+      return false
+    }
+    // If the app exits, remove the record when the server closes.
+    server.on('close', () => { this.active.delete(key); this.usedBridgePorts.delete(bridgePort) })
+
+    this.active.set(key, { server, sockets, bridgePort, marker, owners: new Set([owner]) })
     return true
   }
 
-  /** Tear down a single forward. */
-  async stop(containerId: string, port: number): Promise<void> {
-    const key = `${containerId}:${port}`
-    const h = this.active.get(key)
-    if (!h) return
-    this.active.delete(key)
-    try { h.hostProc.kill() } catch { /* already gone */ }
-    try { await pexec('docker', ['exec', containerId, 'pkill', '-f', h.containerKillId]) } catch { /* container gone */ }
+  /** Release one owner's claim on a forward. The forward is torn down only when
+   *  the last owner releases it (B5). */
+  async release(containerId: string, port: number, owner: string): Promise<void> {
+    const key = this.key(containerId, port)
+    const f = this.active.get(key)
+    if (!f) return
+    f.owners.delete(owner)
+    if (f.owners.size > 0) return // still in use by another session
+    await this.teardown(containerId, key, f)
   }
 
-  /** Kill every host-side relay (app shutdown). Container relays die with the container. */
-  disposeAll(): void {
-    for (const { hostProc } of this.active.values()) {
-      try { hostProc.kill() } catch { /* ignore */ }
-    }
+  private async teardown(containerId: string, key: string, f: Forward): Promise<void> {
+    this.active.delete(key)
+    this.usedBridgePorts.delete(f.bridgePort)
+    for (const s of f.sockets) { try { s.destroy() } catch { /* */ } }
+    f.sockets.clear()
+    try { f.server.close() } catch { /* already closed */ }
+    await this.deps.dockerKill?.(containerId, f.marker).catch(() => {})
+  }
+
+  /** Kill every host-side relay (app shutdown). Container relays die with the
+   *  container, but we best-effort pkill them too. */
+  async disposeAll(): Promise<void> {
+    const entries = [...this.active.entries()]
     this.active.clear()
+    this.usedBridgePorts.clear()
+    await Promise.all(entries.map(async ([key, f]) => {
+      const containerId = key.slice(0, key.lastIndexOf(':'))
+      for (const s of f.sockets) { try { s.destroy() } catch { /* */ } }
+      try { f.server.close() } catch { /* */ }
+      await this.deps.dockerKill?.(containerId, f.marker).catch(() => {})
+    }))
   }
 }
 
@@ -163,9 +260,10 @@ export async function listeningPorts(containerId: string): Promise<number[]> {
 }
 
 /** Watches a container for newly-opened listening ports and auto-forwards each to
- *  the same host port (VS Code-style). One watcher per session; stop() ends the
- *  poll and tears down the forwards it created. Ports that vanish stay forwarded
- *  (cheap, and avoids churn if a server restarts); everything is cleaned on stop. */
+ *  the same host port (VS Code-style). Refcounted per container in the caller
+ *  (ipc.ts): one watcher per container regardless of how many sessions use it, so
+ *  a session ending never tears down another session's forwards (B5). Ports that
+ *  vanish stay forwarded (cheap, avoids churn if a server restarts). */
 export class ContainerPortWatcher {
   private timer: ReturnType<typeof setInterval> | null = null
   private forwarded = new Set<number>()
@@ -173,8 +271,14 @@ export class ContainerPortWatcher {
   constructor(
     private readonly containerId: string,
     private readonly forwarder: PortForwarder,
-    private readonly opts: { intervalMs?: number; onForward?: (port: number) => void } = {}
+    private readonly opts: { intervalMs?: number; onForward?: (port: number) => void; owner?: string } = {}
   ) {}
+
+  private get owner(): string {
+    // One watcher per container; use the container id as the forward owner so all
+    // ports it opens are released together when the watcher stops.
+    return this.opts.owner ?? `watcher:${this.containerId}`
+  }
 
   /** Begin polling. Safe to call once; re-calling is a no-op. */
   start(): void {
@@ -184,7 +288,7 @@ export class ContainerPortWatcher {
       for (const port of ports) {
         if (this.forwarded.has(port)) continue
         this.forwarded.add(port)
-        const ok = await this.forwarder.ensure(this.containerId, port)
+        const ok = await this.forwarder.ensure(this.containerId, port, this.owner)
         if (ok) this.opts.onForward?.(port)
         else this.forwarded.delete(port) // retry next tick if it failed
       }
@@ -193,11 +297,11 @@ export class ContainerPortWatcher {
     this.timer = setInterval(() => void tick(), this.opts.intervalMs ?? 1000)
   }
 
-  /** Stop polling and tear down every forward this watcher established. */
+  /** Stop polling and release this watcher's claim on every forward it made. */
   async stop(): Promise<void> {
     if (this.timer) { clearInterval(this.timer); this.timer = null }
     const ports = [...this.forwarded]
     this.forwarded.clear()
-    await Promise.all(ports.map((p) => this.forwarder.stop(this.containerId, p)))
+    await Promise.all(ports.map((p) => this.forwarder.release(this.containerId, p, this.owner)))
   }
 }
