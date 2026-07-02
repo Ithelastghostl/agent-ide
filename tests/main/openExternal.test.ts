@@ -24,4 +24,21 @@ describe('isSafeExternalUrl — guards what reaches the OS browser', () => {
     expect(isSafeExternalUrl('not a url')).toBe(false)
     expect(isSafeExternalUrl('')).toBe(false)
   })
+
+  // S-URL hardening (B-Finding 14): parse with new URL() and reject embedded
+  // credentials and control characters, which can be used to spoof or smuggle.
+  it('rejects URLs with embedded credentials', () => {
+    expect(isSafeExternalUrl('https://user:pass@evil.example.com/')).toBe(false)
+    expect(isSafeExternalUrl('http://admin@localhost:1455/')).toBe(false)
+  })
+
+  it('rejects URLs containing control characters (CR/LF/NUL/tab)', () => {
+    expect(isSafeExternalUrl('https://example.com/\r\nSet-Cookie: x')).toBe(false)
+    expect(isSafeExternalUrl('https://example.com/\x00')).toBe(false)
+    expect(isSafeExternalUrl('https://exa\tmple.com/')).toBe(false)
+  })
+
+  it('still accepts a normal https URL with a path and query', () => {
+    expect(isSafeExternalUrl('https://github.com/login/device?x=1&y=2')).toBe(true)
+  })
 })

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appe
 import { readdir } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
-import { PtyManager, type SpawnOpts } from './ptyManager'
+import { PtyManager } from './ptyManager'
 import { launchArgv } from './providers'
 import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
@@ -43,11 +43,35 @@ export interface ReadDirOpts {
   cap?: number
 }
 
-/** Whether a URL is safe to hand to the OS default handler. Only http(s) and
- *  mailto are allowed — terminal output is untrusted and file:/custom schemes
- *  could trigger unintended local handlers. */
+/** Whether a URL is safe to hand to the OS default handler (S-URL / B-Finding 14).
+ *  Terminal output is untrusted, so this is strict: parse with `new URL()`, allow
+ *  ONLY http(s)/mailto schemes, and reject embedded credentials (`user:pass@host`,
+ *  used to spoof) and any control characters (CR/LF/NUL/tab — header/URL
+ *  smuggling). file:/custom schemes could trigger unintended local handlers. */
 export function isSafeExternalUrl(url: unknown): url is string {
-  return typeof url === 'string' && /^(https?|mailto):/i.test(url)
+  if (typeof url !== 'string' || url.length === 0) return false
+  if (/[\x00-\x1f\x7f]/.test(url)) return false // control chars
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return false
+  if (parsed.username || parsed.password) return false // embedded credentials
+  return true
+}
+
+/** The single choke point for opening a URL in the OS default browser (S-URL):
+ *  used by the shell:openExternal IPC, the window-open handler, and the
+ *  navigation guard. Returns whether the URL was accepted and handed off. */
+export function safeOpenExternal(url: string): boolean {
+  if (!isSafeExternalUrl(url)) {
+    console.warn('[safeOpenExternal] refused unsafe url:', url)
+    return false
+  }
+  void shell.openExternal(url)
+  return true
 }
 
 /** Immediate children of a directory (dirs first, alpha), for the explorer.
@@ -514,11 +538,10 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // only the timestamp and never a filesystem path. Returns per-step status.
   ipcMain.handle('history:sync', (_e, timestamp: string) => syncHistory(String(timestamp ?? '')))
 
-  // terminal pty
-  ipcMain.handle('pty:spawn', (_e, o: SpawnOpts) => {
-    mgr.spawn(o, (data) => win.webContents.send('pty:data', { id: o.id, data }))
-    return o.id
-  })
+  // terminal pty write/resize/kill only. S-NOSPAWN (keep-list #1): there is NO
+  // pty:spawn — the renderer must not be able to start an arbitrary shell with
+  // arbitrary argv/cwd/env, bypassing session:launch/terminal:open, the
+  // FORBIDDEN_FLAGS guard, and payload validation. All ptys are started in main.
   ipcMain.on('pty:write', (_e, id: string, data: string) => mgr.write(id, data))
   ipcMain.on('pty:resize', (_e, id: string, cols: number, rows: number) => mgr.resize(id, cols, rows))
   ipcMain.on('pty:kill', (_e, id: string) => mgr.kill(id))

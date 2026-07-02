@@ -1,7 +1,7 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { PtyManager } from './ptyManager'
-import { registerIpc } from './ipc'
+import { registerIpc, safeOpenExternal } from './ipc'
 import { Store } from './store'
 
 // Display name shown in the taskbar / window manager (distinct from the npm
@@ -35,9 +35,10 @@ function createWindow(): void {
   }
 
   // Links should open in the user's default browser, not a new Electron window.
-  // Deny window.open / target=_blank and hand http(s) URLs to the OS instead.
+  // Deny window.open / target=_blank and hand safe URLs to the OS instead — via
+  // the single safeOpenExternal choke point (S-URL).
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http:') || url.startsWith('https:')) shell.openExternal(url)
+    safeOpenExternal(url)
     return { action: 'deny' }
   })
 
@@ -45,10 +46,8 @@ function createWindow(): void {
   win.webContents.on('will-navigate', (event, url) => {
     const appUrl = process.env.ELECTRON_RENDERER_URL
     if (appUrl && url.startsWith(appUrl)) return
-    if (url.startsWith('http:') || url.startsWith('https:')) {
-      event.preventDefault()
-      shell.openExternal(url)
-    }
+    event.preventDefault() // never navigate the app frame away
+    safeOpenExternal(url)  // hand off iff safe (no-op otherwise)
   })
 
   registerIpc(ptyManager, win, store)
