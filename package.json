@@ -10,6 +10,7 @@
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
     "e2e": "npm run rebuild:electron && playwright test",
+    "native-gate": "npm run rebuild:electron && electron scripts/native-gate.js --no-sandbox --ozone-platform=x11",
     "rebuild:electron": "electron-rebuild -f -w node-pty,better-sqlite3",
     "rebuild": "electron-rebuild -f -w node-pty,better-sqlite3",
     "postinstall": "electron-rebuild -f -w node-pty,better-sqlite3"
