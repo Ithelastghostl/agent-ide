@@ -9,7 +9,7 @@ import { ModelPicker } from './components/ModelPicker'
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
 import { AllSessions } from './components/AllSessions'
-import { modelsFor } from './models'
+import { modelsFor, loadModels } from './models'
 import { showMenu, promptText, chooseOption } from './ui'
 
 const root = document.getElementById('app')!
@@ -734,7 +734,8 @@ async function boot() {
   try {
     const [projects, sessions] = await Promise.all([
       window.agentIDE.projectsList(),
-      window.agentIDE.sessionsAll()
+      window.agentIDE.sessionsAll(),
+      loadModels() // B13: fetch the model registry from main (single source)
     ])
     state.projects = projects
     state.sessions = sessions

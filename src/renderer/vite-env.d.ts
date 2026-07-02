@@ -7,7 +7,7 @@ declare module '*.css'
 interface AgentIDEBridge {
   ping(): Promise<string>
   openExternal(url: string, sessionId?: string): Promise<boolean>
-  modelsAll(): Promise<Record<string, { id: string; label: string; tier: string }[]>>
+  modelsAll(): Promise<Record<import('@shared/types').Provider, import('@shared/types').Model[]>>
   sessionLaunch(req: {
     projectId: string; provider: string; model: string; objective: string; cwd: string; useContainer: boolean; importConfig?: boolean
   }): Promise<import('@shared/types').Session>
