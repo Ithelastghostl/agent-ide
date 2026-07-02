@@ -21,13 +21,13 @@
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
-    "better-sqlite3": "12.10.1",
-    "electron": "37.10.3",
+    "better-sqlite3": "12.11.1",
+    "electron": "42.5.2",
     "node-pty": "1.1.0"
   },
   "devDependencies": {
     "@devcontainers/cli": "0.87.0",
-    "@electron/rebuild": "4.0.4",
+    "@electron/rebuild": "4.1.0",
     "@playwright/test": "1.61.0",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "25.9.3",
