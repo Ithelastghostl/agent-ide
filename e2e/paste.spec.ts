@@ -13,7 +13,7 @@ test('paste arrives wrapped in bracketed-paste markers (not garbled)', async () 
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-db-')), 'store.sqlite')
   const histDir = mkdtempSync(join(tmpdir(), 'agide-hist-'))
   const app = await electron.launch({
-    args: [join(__dirname, '..'), '--no-sandbox'],
+    args: [join(__dirname, '..'), '--no-sandbox', '--ozone-platform=x11'],
     env: { ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_HISTORY: histDir }
   })
   const win = await app.firstWindow()

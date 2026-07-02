@@ -8,7 +8,9 @@ import { join } from 'path'
 // contention that flaked other specs in the full suite).
 function launchEmpty() {
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-boot-')), 'store.sqlite')
-  return electron.launch({ args: [join(__dirname, '..'), '--no-sandbox'], env: { ...process.env, AGENT_IDE_DB: dbPath } })
+  // --ozone-platform=x11: on a Wayland session E42's Wayland+Vulkan path SIGSEGVs;
+  // must be a real launch arg (in-app switch is too late). See src/main/index.ts.
+  return electron.launch({ args: [join(__dirname, '..'), '--no-sandbox', '--ozone-platform=x11'], env: { ...process.env, AGENT_IDE_DB: dbPath } })
 }
 
 // The app boots empty (F1): no project loaded, home board + "Open project" CTA.

@@ -4,6 +4,19 @@ import { PtyManager } from './ptyManager'
 import { registerIpc, safeOpenExternal } from './ipc'
 import { Store } from './store'
 
+// R1 / Linux-Wayland note: on a Wayland session (Ubuntu 24.04+ default), Electron
+// 42's Wayland ozone backend is incompatible with Vulkan and SIGSEGVs at startup
+// in wayland_surface_factory.cc ("'--ozone-platform=wayland' is not compatible
+// with Vulkan"). This was the historical "Electron 42 crashes on this box"
+// blocker — NOT a kernel/upstream regression. The fix is to run the X11 ozone
+// backend (via XWayland on Wayland sessions). It MUST be applied as a real launch
+// argument (`--ozone-platform=x11`) or by stripping WAYLAND_DISPLAY before the
+// process starts — ozone selects its backend in native code before this main
+// module executes, so app.commandLine.appendSwitch() here is too late and is
+// overridden by a present WAYLAND_DISPLAY. The launch sites therefore pass the
+// flag: dev/start via the npm scripts, e2e via the Playwright launch args, and
+// the packaged app via its launcher (M5). See scripts/linux-launch note.
+
 // Display name shown in the taskbar / window manager (distinct from the npm
 // package id "agent-ide", which stays as the data-dir/package identifier).
 app.setName("Nacho's IDE")

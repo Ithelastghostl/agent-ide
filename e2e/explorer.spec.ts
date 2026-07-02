@@ -19,7 +19,7 @@ test('explorer: expand a folder and open a file in a new tab', async () => {
   const proj = seedProjectDir()
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-db-')), 'store.sqlite')
   const app = await electron.launch({
-    args: [join(__dirname, '..'), '--no-sandbox'],
+    args: [join(__dirname, '..'), '--no-sandbox', '--ozone-platform=x11'],
     env: { ...process.env, AGENT_IDE_DB: dbPath }
   })
   const win = await app.firstWindow()

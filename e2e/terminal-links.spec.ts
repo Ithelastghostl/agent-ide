@@ -20,7 +20,7 @@ async function openProjectWithTerminal(): Promise<{ app: ElectronApplication; wi
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-db-')), 'store.sqlite')
   const openLog = join(mkdtempSync(join(tmpdir(), 'agide-open-')), 'opened.log')
   const app = await electron.launch({
-    args: [join(__dirname, '..'), '--no-sandbox'],
+    args: [join(__dirname, '..'), '--no-sandbox', '--ozone-platform=x11'],
     env: { ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_OPEN_LOG: openLog }
   })
   const win = await app.firstWindow()

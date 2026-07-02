@@ -4,9 +4,9 @@
   "description": "Agent IDE — standalone cockpit for supervising AI coding-agent sessions",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "npm run rebuild:electron && electron-vite dev",
+    "dev": "npm run rebuild:electron && electron-vite dev -- --ozone-platform=x11",
     "build": "electron-vite build",
-    "start": "npm run rebuild:electron && npm run build && electron-vite preview",
+    "start": "npm run rebuild:electron && npm run build && electron-vite preview -- --ozone-platform=x11",
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
     "e2e": "npm run rebuild:electron && playwright test",
