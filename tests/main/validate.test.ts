@@ -194,4 +194,20 @@ describe('validateResumeSession (B9: status transitions + membership)', () => {
   it('rejects a missing id', () => {
     expect(() => validateResumeSession({ ...good, id: '' })).toThrow(/id/i)
   })
+
+  // SEC (review finding #2): resume/model-swap must PRESERVE the M-LOG task label +
+  // lifecycle, not drop them (which made saveSession NULL the columns → data loss).
+  it('preserves task label + status across a resume', () => {
+    const labeled = { ...good, taskKind: 'product', taskSubkind: 'bug', taskStatus: 'deployed' }
+    const s = validateResumeSession(labeled)
+    expect(s.taskKind).toBe('product')
+    expect(s.taskSubkind).toBe('bug')
+    expect(s.taskStatus).toBe('deployed')
+  })
+  it('keeps task fields null for an unlabeled session, and drops invalid ones', () => {
+    expect(validateResumeSession(good).taskKind ?? null).toBeNull() // good has no label
+    const bad = validateResumeSession({ ...good, taskKind: 'nonsense', taskStatus: 'zombie' })
+    expect(bad.taskKind).toBeNull()
+    expect(bad.taskStatus).toBeNull()
+  })
 })

@@ -153,6 +153,10 @@ function newSessionId(): string {
 // One container per project, brought up lazily and reused across its sessions.
 // The map is a cache; Docker is the source of truth (survives app restarts).
 const containerByProject = new Map<string, string>()
+
+// M-LOG-b: session ids with a ticket-generation pass in flight — blocks a second
+// concurrent generate for the same session (no double headless pass / dup rows).
+const ticketsInFlight = new Set<string>()
 async function ensureContainer(container: ContainerRuntime, projectId: string, workspace: string, importConfig = false): Promise<string> {
   // Docker is the source of truth (Codex P2 — no stale cache fast-path):
   // running -> reuse; stopped -> start it (don't rebuild); none -> build.
@@ -490,8 +494,15 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     const session = store.getSession(id)
     if (!session) return { error: 'unknown session' }
     if (session.taskKind !== 'product') return { error: 'only product tasks generate tickets' }
-    // Advance to 'deployed' if not already past it (forward-only; ignore if it's
-    // already deployed/ticketed).
+    // Idempotency guard: if this task already has a ticket, return it instead of
+    // regenerating (which would duplicate the row + re-run the billed pass).
+    const existing = store.getTicketBySession(id)
+    if (existing) return { ok: true, ticketId: existing.id }
+    // In-flight guard: a second concurrent call for the same session is refused
+    // (e.g. a double-click), so we never run two headless passes at once.
+    if (ticketsInFlight.has(id)) return { error: 'ticket generation already in progress' }
+    ticketsInFlight.add(id)
+    // Advance to 'deployed' if not already past it (forward-only).
     if ((session.taskStatus ?? 'open') !== 'deployed' && session.taskStatus !== 'ticketed') {
       try { validateTaskTransition(session.taskStatus, 'deployed'); store.setTaskStatus(id, 'deployed') } catch { /* already past */ }
     }
@@ -499,7 +510,7 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     try {
       const { fields, bodyMd } = await generateTicket(ticketRunner, session, transcript)
       const createdAt = Date.now()
-      const ticketId = `ticket-${id}-${createdAt}`
+      const ticketId = `ticket-${id}` // deterministic → a retry upserts, never duplicates
       const ticketPath = writeTicketFile(session.projectId, fields.title, bodyMd, createdAt)
       store.saveTicket({
         id: ticketId, sessionId: id, projectId: session.projectId, subkind: fields.subkind,
@@ -510,6 +521,8 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     } catch (err) {
       // stays 'deployed' — retry available; transcript untouched.
       return { error: (err as Error).message }
+    } finally {
+      ticketsInFlight.delete(id)
     }
   })
 

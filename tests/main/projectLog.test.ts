@@ -92,4 +92,20 @@ describe('ticket file writing (M-LOG-b)', () => {
     expect(existsSync(dir)).toBe(true)
     expect(dir).toBe(join(root, 'proj-q', 'log', 'tickets'))
   })
+
+  // SEC (review finding #1): a DANGLING symlink planted at the target name must not
+  // let the write escape the confined dir. existsSync follows symlinks and returns
+  // false for a dangling one, so a naive walk would re-append the name verbatim and
+  // writeFileSync would follow the link outside the dir. confinedPath must refuse it.
+  it('refuses a write through a dangling symlink whose target is outside the dir', () => {
+    const outside = join(root, 'outside')
+    mkdirSync(outside, { recursive: true })
+    const dir = projectTicketsDir('proj-evil')
+    const outsideTarget = join(outside, 'stolen.md') // does NOT exist yet (dangling)
+    symlinkSync(outsideTarget, join(dir, '2026-07-02-evil.md')) // plant the trap
+
+    const p = writeTicketFile('proj-evil', 'evil', '# pwned', Date.UTC(2026, 6, 2))
+    expect(p).toBeNull()                 // refused
+    expect(existsSync(outsideTarget)).toBe(false) // nothing written outside
+  })
 })

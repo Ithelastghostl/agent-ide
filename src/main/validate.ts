@@ -145,6 +145,16 @@ export function validateResumeSession(v: unknown): Session {
   const provider = asProvider(v.provider)
   const status = asString(v.status, 'status') as SessionStatus
   if (!STATUSES.includes(status)) throw new Error(`invalid status: unknown session status`)
+  // Preserve the M-LOG task fields across resume/model-swap — omitting them here
+  // caused saveSession's UPSERT to NULL them, silently wiping a task's label +
+  // lifecycle on every reconnect (SEC finding). Validate defensively; a session
+  // may legitimately be unlabeled (terminals, grandfathered rows).
+  const taskKind = v.taskKind == null ? null
+    : (TASK_KINDS.includes(v.taskKind as TaskKind) ? (v.taskKind as TaskKind) : null)
+  const taskSubkind = v.taskSubkind == null ? null
+    : (TASK_SUBKINDS.includes(v.taskSubkind as TaskSubkind) ? (v.taskSubkind as TaskSubkind) : null)
+  const taskStatus: Session['taskStatus'] = v.taskStatus == null ? null
+    : (TASK_ORDER.includes(v.taskStatus as TaskStatusName) ? (v.taskStatus as TaskStatusName) : null)
   return {
     id: asString(v.id, 'id'),
     projectId: asString(v.projectId, 'projectId'),
@@ -153,6 +163,9 @@ export function validateResumeSession(v: unknown): Session {
     objective: asString(v.objective, 'objective', { allowEmpty: true }),
     status,
     createdAt: typeof v.createdAt === 'number' ? v.createdAt : 0,
-    updatedAt: typeof v.updatedAt === 'number' ? v.updatedAt : 0
+    updatedAt: typeof v.updatedAt === 'number' ? v.updatedAt : 0,
+    taskKind,
+    taskSubkind,
+    taskStatus
   }
 }

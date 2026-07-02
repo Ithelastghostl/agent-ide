@@ -46,10 +46,12 @@ export function dateStamp(createdAt: number): string {
  *  confined to the project's tickets dir. Returns the written path, or null on
  *  failure. */
 export function writeTicketFile(projectId: string, title: string, bodyMd: string, createdAt: number): string | null {
-  const dir = projectTicketsDir(projectId)
-  const target = confinedPath(dir, `${dateStamp(createdAt)}-${slugify(title)}.md`)
-  if (!target) return null
   try {
+    const dir = projectTicketsDir(projectId)
+    // dateStamp/slugify are inside the try: dateStamp throws on an invalid
+    // timestamp (RangeError), which must not escape as an unhandled throw.
+    const target = confinedPath(dir, `${dateStamp(createdAt)}-${slugify(title)}.md`)
+    if (!target) return null
     writeFileSync(target, bodyMd, 'utf8')
     return target
   } catch {
