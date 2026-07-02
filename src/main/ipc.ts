@@ -3,15 +3,17 @@ import { existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appe
 import { readdir } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
-import { PtyManager } from './ptyManager'
 import { launchArgv } from './providers'
 import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory, cloneRepo, cloneUrl, pullRepo } from './github'
 import { libraryDir, scanLibrary, readLibraryItem, libraryIsClone } from './library'
-import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, codexConfigMount, geminiConfigMount, libraryConfigMount, findRunningContainer, findContainerPresence, startContainerById, resolveContainerUser } from './devcontainer'
-import { probeHealth, loginArgv, installInContainer } from './providerHealth'
-import { PortForwarder, ContainerPortWatcher, loopbackPort } from './portForwarder'
+// Pure argv/mount builders stay here (platform-agnostic); side-effecting docker
+// ops now go through runtime.container (M1).
+import { containerExecArgv, claudeConfigMount, codexConfigMount, geminiConfigMount, libraryConfigMount } from './devcontainer'
+import { loginArgv } from './providerHealth'
+import { loopbackPort } from './portForwarder'
+import type { Runtime, TerminalRuntime, ContainerRuntime, PortForwardService, PortWatchHandle } from './runtime'
 import { historyFile, buildPrimer } from './history'
 import { Store } from './store'
 import { confinedPath } from './confine'
@@ -149,16 +151,16 @@ function newSessionId(): string {
 // One container per project, brought up lazily and reused across its sessions.
 // The map is a cache; Docker is the source of truth (survives app restarts).
 const containerByProject = new Map<string, string>()
-async function ensureContainer(projectId: string, workspace: string, importConfig = false): Promise<string> {
+async function ensureContainer(container: ContainerRuntime, projectId: string, workspace: string, importConfig = false): Promise<string> {
   // Docker is the source of truth (Codex P2 — no stale cache fast-path):
   // running -> reuse; stopped -> start it (don't rebuild); none -> build.
-  const presence = await findContainerPresence(workspace)
+  const presence = await container.findPresence(workspace)
   if (presence.state === 'running') {
     containerByProject.set(projectId, presence.id)
     return presence.id
   }
   if (presence.state === 'stopped') {
-    await startContainerById(presence.id)
+    await container.startById(presence.id)
     containerByProject.set(projectId, presence.id)
     return presence.id
   }
@@ -181,7 +183,7 @@ async function ensureContainer(projectId: string, workspace: string, importConfi
   if (existsSync(join(lib, 'skills')) || existsSync(join(lib, 'workflows')) || existsSync(join(lib, 'prompts'))) {
     mounts.push(libraryConfigMount(lib))
   }
-  const { containerId } = await upDevcontainer(workspace, mounts)
+  const { containerId } = await container.up(workspace, mounts)
   containerByProject.set(projectId, containerId)
   return containerId
 }
@@ -189,16 +191,12 @@ async function ensureContainer(projectId: string, workspace: string, importConfi
 /** Authoritative running-container id for a project. Docker is the source of
  *  truth (Codex P2 — never trust a cached id that may be stopped/removed); the
  *  cache is refreshed from the query result. */
-async function resolveContainerId(projectId: string, workspace: string): Promise<string | undefined> {
-  const running = await findRunningContainer(workspace)
+async function resolveContainerId(container: ContainerRuntime, projectId: string, workspace: string): Promise<string | undefined> {
+  const running = await container.findRunning(workspace)
   if (running) containerByProject.set(projectId, running)
   else containerByProject.delete(projectId)
   return running ?? undefined
 }
-
-// Host-side port forwarders (one per container:port), for opening in-container
-// localhost services in the host browser. Lives for the app's lifetime.
-const forwarder = new PortForwarder()
 
 // VS Code-style auto port forwarding: while a containerized session runs, watch
 // the container for newly-listening localhost ports and forward each to the same
@@ -206,15 +204,16 @@ const forwarder = new PortForwarder()
 // and any dev server). B5: ONE watcher per CONTAINER, refcounted by the sessions
 // using it — a session ending must not tear down forwards another session in the
 // same container still needs. The watcher (and its forwards) stop only when the
-// last session in that container stops.
-const watchers = new Map<string, { watcher: ContainerPortWatcher; sessions: Set<string> }>()
-function startPortWatch(sessionId: string, containerId: string, win: BrowserWindow): void {
+// last session in that container stops. Forwarding runs through the runtime's
+// PortForwardService (M1) rather than a module-level singleton.
+const watchers = new Map<string, { watcher: PortWatchHandle; sessions: Set<string> }>()
+function startPortWatch(ports: PortForwardService, sessionId: string, containerId: string, win: BrowserWindow): void {
   const existing = watchers.get(containerId)
   if (existing) {
     existing.sessions.add(sessionId) // share the one watcher for this container
     return
   }
-  const watcher = new ContainerPortWatcher(containerId, forwarder, {
+  const watcher = ports.watch(containerId, {
     onForward: (port) => win.webContents.send('session:status', { id: sessionId, message: `forwarding container port ${port} → localhost:${port}` })
   })
   watchers.set(containerId, { watcher, sessions: new Set([sessionId]) })
@@ -251,7 +250,7 @@ function recordOutput(store: Store | undefined, sessionId: string, data: string)
  *  a blind fixed delay) and is tied to the session's current pty generation, so it
  *  never lands in a killed/replaced session or interleaves the initial render. A
  *  trailing newline submits it. No-op when there's no prior history. */
-function seedPrimer(mgr: PtyManager, store: Store | undefined, sessionId: string): void {
+function seedPrimer(mgr: TerminalRuntime, store: Store | undefined, sessionId: string): void {
   const transcript = store?.getTranscript(sessionId) ?? ''
   const primer = buildPrimer(transcript)
   if (!primer) return
@@ -261,19 +260,24 @@ function seedPrimer(mgr: PtyManager, store: Store | undefined, sessionId: string
 /** Resolve the running container a session belongs to, if any. Looks the session
  *  up in the store to get its project workspace, then queries Docker. Returns
  *  undefined for host sessions or when no container is running. */
-async function containerForSession(store: Store | undefined, sessionId: string): Promise<string | undefined> {
+async function containerForSession(container: ContainerRuntime, store: Store | undefined, sessionId: string): Promise<string | undefined> {
   if (!store) return undefined
   const session = store.allSessions().find((s) => s.id === sessionId)
   if (!session) return undefined
   const project = store.listProjects().find((p) => p.id === session.projectId)
   if (!project) return undefined
-  return resolveContainerId(project.id, project.localPath)
+  return resolveContainerId(container, project.id, project.localPath)
 }
 
 /** Registers all main-process IPC handlers. Thin router — logic lives in managers.
  *  `store` may be undefined if persistence failed to initialize; handlers then
  *  no-op writes and return empty reads so the UI still works. */
-export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store): void {
+export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store): void {
+  // M1: all platform side effects go through the runtime. `mgr` aliases the
+  // terminal runtime, whose method names match the old PtyManager so the many
+  // spawn/write/resize/kill/primeWhenReady call sites are unchanged.
+  const mgr = runtime.terminal
+  const { container, host, ports } = runtime
   ipcMain.handle('ping', () => 'pong')
 
   // Open a URL in the host's default browser. Runs host-side, so it works even
@@ -303,13 +307,13 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       // forward can't block opening the browser (Codex P4).
       const port = loopbackPort(url)
       if (port && sessionId) {
-        const containerId = await containerForSession(store, sessionId)
+        const containerId = await containerForSession(container, store, sessionId)
         if (containerId) {
           // Ad-hoc forward for an opened URL; owned by the container so it isn't
           // torn down when one session ends (B5). Bounded so a slow/hung forward
           // can't block opening the browser (Codex P4).
           await Promise.race([
-            forwarder.ensure(containerId, port, `manual:${containerId}`),
+            ports.ensure(containerId, port, `manual:${containerId}`),
             new Promise((r) => setTimeout(r, 2500))
           ])
         }
@@ -483,8 +487,8 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       // Don't silently downgrade to a host shell (Codex P2): bring the container
       // up if needed so the terminal really runs inside it. Exec as the non-root
       // remoteUser so the shell matches what agent sessions use.
-      const containerId = await ensureContainer(req.projectId, req.cwd)
-      const user = await resolveContainerUser(containerId)
+      const containerId = await ensureContainer(container, req.projectId, req.cwd)
+      const user = await container.resolveUser(containerId)
       shell = 'docker'
       args = containerExecArgv(containerId, 'bash', [], { user: user ?? undefined })
       cwd = req.cwd
@@ -506,12 +510,12 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // F14: explicitly bring up the project's devcontainer once (warm it before
   // launching sessions). Returns the container id. Reused by all its sessions.
   ipcMain.handle('container:start', async (_e, projectId: string, workspace: string, importConfig: boolean) => {
-    if (!(await hasDevcontainerCli())) {
+    if (!(await container.hasCli())) {
       throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
     }
     win.webContents.send('container:status', { projectId, state: 'starting' })
     try {
-      const containerId = await ensureContainer(projectId, workspace, importConfig)
+      const containerId = await ensureContainer(container, projectId, workspace, importConfig)
       win.webContents.send('container:status', { projectId, state: 'running' })
       return containerId
     } catch (err) {
@@ -522,14 +526,14 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // Container status for this project, by Docker state (accurate across app
   // restarts): 'running' | 'stopped' (built but exited) | 'none' (never built).
   ipcMain.handle('container:status', async (_e, _projectId: string, workspace: string) => {
-    return (await findContainerPresence(workspace)).state
+    return (await container.findPresence(workspace)).state
   })
 
   // F8: provider connection health, in the project's context (host or container).
   ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string, cwd: string) => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
-    const containerId = await resolveContainerId(projectId, cwd)
-    return probeHealth(provider, { containerId })
+    const containerId = await resolveContainerId(container, projectId, cwd)
+    return host.probeHealth(provider, { containerId })
   })
 
   // F10: run an interactive CLI login as a terminal session, in project context.
@@ -559,10 +563,10 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // F9: install a provider CLI inside the project's container (with renderer confirm).
   ipcMain.handle('provider:install', async (_e, provider: Provider, projectId: string, cwd: string) => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
-    const containerId = await resolveContainerId(projectId, cwd)
+    const containerId = await resolveContainerId(container, projectId, cwd)
     if (!containerId) throw new Error('no running container for this project')
-    await installInContainer(provider, containerId)
-    return probeHealth(provider, { containerId })
+    await host.installInContainer(provider, containerId)
+    return host.probeHealth(provider, { containerId })
   })
 
   // Replay a session's saved terminal output (chat history). The renderer writes
@@ -603,15 +607,15 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     let watchContainer: string | undefined
 
     if (req.useContainer) {
-      if (!(await hasDevcontainerCli())) {
+      if (!(await container.hasCli())) {
         throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
       }
       win.webContents.send('session:status', { id, message: 'starting container…' })
-      const containerId = await ensureContainer(req.projectId, req.cwd, req.importConfig)
+      const containerId = await ensureContainer(container, req.projectId, req.cwd, req.importConfig)
       // run inside the container as its non-root remoteUser; docker exec carries
       // the provider argv. Root would break auto-approve (claude
       // --dangerously-skip-permissions refuses to run as root).
-      const user = await resolveContainerUser(containerId)
+      const user = await container.resolveUser(containerId)
       shell = 'docker'
       spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined })
       cwd = req.cwd // docker process runs on host; -w handled by image default
@@ -658,7 +662,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
 
     // Auto-forward any localhost port the in-container agent opens (OAuth :1455,
     // dev servers, …) so the host browser can reach it — VS Code-style.
-    if (watchContainer) startPortWatch(id, watchContainer, win)
+    if (watchContainer) startPortWatch(ports, id, watchContainer, win)
 
     return session
   })
@@ -691,9 +695,9 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     let spawnArgs = args
     let watchContainer: string | undefined
     if (useContainer) {
-      const containerId = await resolveContainerId(s.projectId, cwd)
+      const containerId = await resolveContainerId(container, s.projectId, cwd)
       if (!containerId) throw new Error('cannot reconnect: the project container is not running')
-      const user = await resolveContainerUser(containerId)
+      const user = await container.resolveUser(containerId)
       shell = 'docker'
       spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined })
       watchContainer = containerId
@@ -713,7 +717,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     )
     // Seed the fresh engine with this session's prior history (context continuity).
     seedPrimer(mgr, store, s.id)
-    if (watchContainer) startPortWatch(s.id, watchContainer, win)
+    if (watchContainer) startPortWatch(ports, s.id, watchContainer, win)
     const resumed: Session = { ...s, provider, model, status: 'running', updatedAt: Date.now() }
     store?.saveSession(resumed)
     return resumed
@@ -724,7 +728,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   app.on('before-quit', () => {
     for (const { watcher } of watchers.values()) void watcher.stop()
     watchers.clear()
-    void forwarder.disposeAll()
+    void ports.disposeAll()
     store?.flush() // B6: persist any buffered transcript chunks before exit
   })
 }

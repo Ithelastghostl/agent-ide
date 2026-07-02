@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
-import { PtyManager } from './ptyManager'
+import { createRuntime } from './runtime'
 import { registerIpc, safeOpenExternal } from './ipc'
 import { Store } from './store'
 
@@ -21,7 +21,9 @@ import { Store } from './store'
 // package id "agent-ide", which stays as the data-dir/package identifier).
 app.setName("Nacho's IDE")
 
-const ptyManager = new PtyManager()
+// M1: the platform runtime (Linux impl in the beta). All node-pty/docker/host
+// side effects go through this; ipc.ts is platform-agnostic above it.
+const runtime = createRuntime()
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -63,7 +65,7 @@ function createWindow(): void {
     safeOpenExternal(url)  // hand off iff safe (no-op otherwise)
   })
 
-  registerIpc(ptyManager, win, store)
+  registerIpc(runtime, win, store)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
