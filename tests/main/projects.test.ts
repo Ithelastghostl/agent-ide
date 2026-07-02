@@ -58,10 +58,42 @@ describe('projectFromPath', () => {
   })
 })
 
-describe('projectId', () => {
-  it('kebab-cases and prefixes', () => {
-    expect(projectId('My Cool App')).toBe('proj-my-cool-app')
-    expect(projectId('sample-api')).toBe('proj-sample-api')
+// B7: project id must be a durable hash of the project's canonical identity (repo
+// URL or absolute local path), NOT a kebab of its basename — otherwise owner1/app,
+// owner2/app and /tmp/app all collapse to "proj-app" and overwrite each other in
+// the store (id is the PRIMARY KEY).
+describe('projectId (B7 durable, collision-free)', () => {
+  it('is deterministic for the same identity', () => {
+    expect(projectId('owner/app', '/home/me/AgentIDE/app')).toBe(projectId('owner/app', '/home/me/AgentIDE/app'))
+  })
+
+  it('distinguishes two repos that share a basename (the B7 collision)', () => {
+    const a = projectId('owner1/app', '/a/app')
+    const b = projectId('owner2/app', '/b/app')
+    expect(a).not.toBe(b)
+  })
+
+  it('distinguishes a repo project from a local folder with the same basename', () => {
+    const repo = projectId('owner/app', '/x/app')
+    const local = projectId('', '/tmp/app') // no remote — keyed by path
+    expect(repo).not.toBe(local)
+  })
+
+  it('distinguishes two local folders with the same basename at different paths', () => {
+    expect(projectId('', '/home/me/app')).not.toBe(projectId('', '/tmp/app'))
+  })
+
+  it('keys a repo by its remote regardless of clone location', () => {
+    // same repo cloned to two different dirs is the same logical project
+    expect(projectId('owner/app', '/a/app')).toBe(projectId('owner/app', '/b/app'))
+  })
+
+  it('normalizes a trailing .git and slash on the repo', () => {
+    expect(projectId('owner/app.git', '/a/app')).toBe(projectId('owner/app', '/a/app'))
+  })
+
+  it('produces a proj- prefixed id', () => {
+    expect(projectId('owner/app', '/a/app')).toMatch(/^proj-[0-9a-f]+$/)
   })
 })
 

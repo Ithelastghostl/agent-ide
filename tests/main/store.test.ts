@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Store } from '../../src/main/store'
+import { projectId } from '../../src/main/projects'
 
 function freshStore(): Store {
   return new Store(':memory:')
@@ -94,5 +95,35 @@ describe('Store', () => {
     expect(out).toMatch(/L1999\n$/)
     expect(out).not.toContain('L0\n')
     expect(out.startsWith('L')).toBe(true)
+  })
+
+  // B7: legacy rows use the old kebab-of-basename id (proj-app). migrateProjectIds
+  // recomputes the durable hash id from (repo, localPath) and cascades the change
+  // to sessions.projectId, so nothing is orphaned.
+  it('B7: migrateProjectIds rewrites legacy ids and cascades to sessions', () => {
+    // simulate two legacy projects that had COLLIDED under the old scheme but were
+    // saved before the collision (or in separate installs); here just two distinct
+    // legacy rows to prove cascade + new-id computation.
+    store.saveProject({ id: 'proj-app', name: 'app', repo: 'owner1/app', localPath: '/a/app', hasDevcontainer: false })
+    store.saveSession({ id: 's1', projectId: 'proj-app', provider: 'claude', model: 'm', objective: 'o', status: 'idle', createdAt: 1, updatedAt: 1 })
+
+    store.migrateProjectIds()
+
+    const expectedId = projectId('owner1/app', '/a/app')
+    const projects = store.listProjects()
+    expect(projects).toHaveLength(1)
+    expect(projects[0].id).toBe(expectedId)
+    expect(projects[0].name).toBe('app') // display name unchanged
+    // the session now points at the new id (no orphan)
+    expect(store.getSessions(expectedId)).toHaveLength(1)
+    expect(store.getSessions('proj-app')).toHaveLength(0)
+  })
+
+  it('B7: migrateProjectIds is idempotent (already-migrated rows untouched)', () => {
+    const id = projectId('owner/app', '/x/app')
+    store.saveProject({ id, name: 'app', repo: 'owner/app', localPath: '/x/app', hasDevcontainer: false })
+    store.migrateProjectIds()
+    store.migrateProjectIds()
+    expect(store.listProjects().map((p) => p.id)).toEqual([id])
   })
 })

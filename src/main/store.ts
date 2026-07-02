@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { mkdirSync } from 'node:fs'
 import type { Project, Session, SessionStatus } from '@shared/types'
+import { projectId as durableProjectId } from './projects'
 
 export function defaultDbPath(): string {
   // AGENT_IDE_DB lets tests point at a throwaway DB instead of the user's real
@@ -43,6 +44,31 @@ export class Store {
       -- so (session_id, ts) covers the ORDER BY ts, rowid query without listing it.
       CREATE INDEX IF NOT EXISTS idx_transcripts_session ON transcripts(session_id, ts);
     `)
+    this.migrateProjectIds() // B7: upgrade legacy kebab ids to durable hash ids
+  }
+
+  /** B7: recompute each project's id as the durable hash of its (repo, localPath)
+   *  identity and cascade the change to sessions.projectId, so legacy kebab ids
+   *  (which collided on basename) are upgraded in place with no orphaned sessions.
+   *  Idempotent: rows already at their durable id are left untouched. Skips a
+   *  rename if the target id somehow already exists (avoids a PK clash). */
+  migrateProjectIds(): void {
+    const rows = this.db
+      .prepare(`SELECT id, repo, localPath FROM projects`)
+      .all() as { id: string; repo: string; localPath: string }[]
+    const migrate = this.db.transaction((items: typeof rows) => {
+      const exists = this.db.prepare(`SELECT 1 FROM projects WHERE id = ?`)
+      const moveSessions = this.db.prepare(`UPDATE sessions SET projectId = ? WHERE projectId = ?`)
+      const moveProject = this.db.prepare(`UPDATE projects SET id = ? WHERE id = ?`)
+      for (const r of items) {
+        const want = durableProjectId(r.repo ?? '', r.localPath ?? '')
+        if (want === r.id) continue
+        if (exists.get(want)) continue // don't clobber an existing durable row
+        moveSessions.run(want, r.id)
+        moveProject.run(want, r.id)
+      }
+    })
+    migrate(rows)
   }
 
   saveProject(p: Project): void {

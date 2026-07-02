@@ -1,12 +1,31 @@
-import { existsSync } from 'node:fs'
-import { join, basename } from 'node:path'
+import { existsSync, realpathSync } from 'node:fs'
+import { join, basename, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import { createHash } from 'node:crypto'
 import type { Project } from '@shared/types'
 import { cloneRepo, cloneUrl, repoNameFromUrl } from './github'
 
-/** Stable-ish project id from a name (kebab). */
-export function projectId(name: string): string {
-  return `proj-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`
+/** Canonical identity of a project: its remote (preferred) or, for a local-only
+ *  folder, its absolute path. B7: two repos that share a basename (owner1/app vs
+ *  owner2/app) — or a repo vs a local folder both named `app` — must NOT map to
+ *  the same id, so we key on full identity, not the display name. A remote is
+ *  location-independent (same repo cloned twice = one project); a local folder is
+ *  keyed by its real path. */
+export function projectKey(repo: string, localPath: string): string {
+  if (repo && repo.trim()) {
+    const norm = repo.trim().toLowerCase().replace(/\.git$/, '').replace(/\/+$/, '')
+    return `repo:${norm}`
+  }
+  let p = resolve(localPath)
+  try { p = realpathSync.native(p) } catch { /* path may not exist yet — use resolved */ }
+  return `path:${p}`
+}
+
+/** Durable project id: a hash of the project's canonical identity (B7). Stable
+ *  across clone location and app restarts; collision-free for distinct projects. */
+export function projectId(repo: string, localPath: string): string {
+  const key = projectKey(repo, localPath)
+  return `proj-${createHash('sha256').update(key).digest('hex').slice(0, 16)}`
 }
 
 /** Root under which all projects are cloned. */
@@ -36,7 +55,7 @@ export function detectDevcontainer(localPath: string): boolean {
 /** Build a Project record for a repo cloned at localPath. */
 export function projectFromRepo(repo: string, localPath: string): Project {
   return {
-    id: projectId(repoShortName(repo)),
+    id: projectId(repo, localPath),
     name: repoShortName(repo),
     repo,
     localPath,
@@ -48,7 +67,7 @@ export function projectFromRepo(repo: string, localPath: string): Project {
 export function projectFromPath(localPath: string): Project {
   const name = basename(localPath.replace(/\/+$/, '')) || 'project'
   return {
-    id: projectId(name),
+    id: projectId('', localPath),
     name,
     repo: '',
     localPath,
@@ -78,5 +97,5 @@ export async function addProjectFromUrl(url: string, parentDir: string): Promise
   if (!existsSync(localPath)) {
     await cloneUrl(url, localPath)
   }
-  return { id: projectId(name), name, repo: url, localPath, hasDevcontainer: detectDevcontainer(localPath) }
+  return { id: projectId(url, localPath), name, repo: url, localPath, hasDevcontainer: detectDevcontainer(localPath) }
 }
