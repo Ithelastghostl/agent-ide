@@ -6,6 +6,8 @@ declare module '*.css'
 // The preload bridge surface available on window.
 interface AgentIDEBridge {
   ping(): Promise<string>
+  clipboardWrite(text: string): Promise<void>
+  clipboardRead(): Promise<string>
   openExternal(url: string, sessionId?: string): Promise<boolean>
   modelsAll(): Promise<Record<string, { id: string; label: string; tier: string }[]>>
   sessionLaunch(req: {
@@ -13,10 +15,14 @@ interface AgentIDEBridge {
   }): Promise<import('@shared/types').Session>
   sessionRename(id: string, name: string): Promise<void>
   sessionArchive(id: string): Promise<void>
+  sessionDelete(id: string): Promise<void>
   terminalOpen(req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<import('@shared/types').Session>
   containerStart(projectId: string, workspace: string, importConfig: boolean): Promise<string>
   containerStatus(projectId: string, workspace: string): Promise<'running' | 'stopped' | 'none'>
-  onContainerStatus(cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void): void
+  containerStop(projectId: string, workspace: string): Promise<'stopped' | 'none'>
+  onContainerStatus(cb: (p: { projectId: string; state: 'none' | 'stopped' | 'starting' | 'running' | 'error' }) => void): void
+  serviceHealth(): Promise<Record<import('@shared/types').ServiceName, import('@shared/types').ServiceStatus>>
+  serviceLogin(service: import('@shared/types').ServiceName, cwd: string): Promise<string>
   providerHealth(provider: string, projectId: string, cwd: string): Promise<'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'>
   providerLogin(provider: string, projectId: string, cwd: string): Promise<string>
   providerInstall(provider: string, projectId: string, cwd: string): Promise<'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'>
@@ -35,6 +41,7 @@ interface AgentIDEBridge {
   ptyKill(id: string): void
   onPtyData(cb: (p: { id: string; data: string }) => void): () => void
   onSessionExit(cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void): void
+  onSessionModelRejected(cb: (p: { id: string; model: string; message: string }) => void): void
   transcriptGet(id: string): Promise<string>
   sessionsAll(): Promise<import('@shared/types').Session[]>
   sessionResume(s: import('@shared/types').Session, cwd: string, useContainer: boolean): Promise<import('@shared/types').Session>

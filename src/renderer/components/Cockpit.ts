@@ -19,6 +19,8 @@ export interface CockpitProps {
   showContainerButton?: boolean
   containerState?: 'none' | 'stopped' | 'starting' | 'running' | 'error'
   onStartContainer?: () => void
+  /** Stop a running container (reversible). Shown when containerState==='running'. */
+  onStopContainer?: () => void
 }
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -116,23 +118,31 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   div.className = 'cp-div'
   el.appendChild(div)
 
-  // F14: Start-container button (devcontainer projects only)
+  // F14: Start-container button (devcontainer projects only). When running, the
+  // control becomes a (reversible) Stop button so the container can be torn down.
   if (p.showContainerButton) {
     const cbar = document.createElement('div')
     cbar.className = 'container-bar'
     const st = p.containerState ?? 'none'
     const btn = document.createElement('button')
-    btn.className = 'container-btn ' + st
-    const labels: Record<string, string> = {
-      none: '▶ Build & start container',
-      stopped: '▶ Restart container',
-      starting: '◐ Starting…',
-      running: '● Container running',
-      error: '⚠ Start failed — retry'
+    if (st === 'running') {
+      // Running → show a Stop action (the only state whose click stops, not starts).
+      btn.className = 'container-btn running stop'
+      btn.textContent = '⏹ Stop container'
+      btn.disabled = false
+      btn.onclick = () => p.onStopContainer?.()
+    } else {
+      btn.className = 'container-btn ' + st
+      const labels: Record<string, string> = {
+        none: '▶ Build & start container',
+        stopped: '▶ Restart container',
+        starting: '◐ Starting…',
+        error: '⚠ Start failed — retry'
+      }
+      btn.textContent = labels[st]
+      btn.disabled = st === 'starting'
+      btn.onclick = () => p.onStartContainer?.()
     }
-    btn.textContent = labels[st]
-    btn.disabled = st === 'starting' || st === 'running'
-    btn.onclick = () => p.onStartContainer?.()
     cbar.appendChild(btn)
     el.appendChild(cbar)
   }

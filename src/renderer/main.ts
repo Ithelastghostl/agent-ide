@@ -8,9 +8,11 @@ import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
-import { AllSessions } from './components/AllSessions'
-import { modelsFor } from './models'
+import { AllSessions, type BoardMode } from './components/AllSessions'
+import { StatusBar } from './components/StatusBar'
+import { modelsFor, hydrateModels } from './models'
 import { showMenu, promptText, chooseOption } from './ui'
+import type { ServiceName, ServiceStatus } from '@shared/types'
 
 const root = document.getElementById('app')!
 const state: AppState = initialState()
@@ -23,10 +25,40 @@ const health: Partial<Record<Provider, ProviderHealth>> = {}
 const runInContainer = new Map<string, boolean>()
 // Container state per project (F14).
 const containerState = new Map<string, 'none' | 'stopped' | 'starting' | 'running' | 'error'>()
+// Home board view: live sessions (default) or archived (for cleanup/delete).
+let boardMode: BoardMode = 'live'
 window.agentIDE.onContainerStatus?.(({ projectId, state: s }) => {
   containerState.set(projectId, s)
   render()
 })
+
+// F16: external-service connectivity (status bar). Probed on startup + on demand.
+let serviceStatus: Partial<Record<ServiceName, ServiceStatus>> = {}
+let serviceChecking = false
+function probeServices() {
+  serviceChecking = true
+  render()
+  window.agentIDE.serviceHealth()
+    .then((s) => { serviceStatus = s })
+    .catch(() => { /* leave as-is */ })
+    .finally(() => { serviceChecking = false; render() })
+}
+// Re-check a single service (after a connect, or on clicking an online chip).
+function recheckService(_service: ServiceName) { probeServices() }
+// Open a login terminal for a service, then re-check shortly after.
+function connectService(service: ServiceName) {
+  const cwd = currentProject()?.localPath ?? ''
+  window.agentIDE.serviceLogin(service, cwd).then((id) => {
+    // Surface the login as a terminal session so the user can complete the flow.
+    const now = Date.now()
+    const sess: Session = { id, projectId: state.currentProjectId ?? '', provider: 'codex', model: 'login', objective: `${service} login`, status: 'running', createdAt: now, updatedAt: now }
+    launchedSessions.add(id)
+    state.sessions.push(sess)
+    state.activeSessionId = id
+    state.view = 'cockpit'
+    render()
+  }).catch((err) => console.error('service login failed', err))
+}
 
 // F4: a session's pty exited. History is always kept; a crash flags reconnect.
 window.agentIDE.onSessionExit(({ id, reason }) => {
@@ -38,6 +70,24 @@ window.agentIDE.onSessionExit(({ id, reason }) => {
     s.status = 'archived'
   }
   render()
+})
+
+// The provider rejected the session's model (Codex model not on a ChatGPT-account
+// plan). Codex stays at its prompt, so there's no crash — surface it and offer to
+// pick another model. The 400 line can repeat in the stream; only prompt once.
+const modelRejectedOnce = new Set<string>()
+window.agentIDE.onSessionModelRejected(async ({ id, model }) => {
+  if (modelRejectedOnce.has(id)) return
+  modelRejectedOnce.add(id)
+  const s = state.sessions.find((x) => x.id === id)
+  if (!s) return
+  const choice = await chooseOption<'pick'>(
+    'Model not available',
+    [{ label: 'Pick another model', value: 'pick', primary: true }],
+    undefined,
+    `“${model || s.model}” isn't available on your plan for ${s.provider}. Choose a different model to continue this session.`
+  )
+  if (choice?.value === 'pick') { modelRejectedOnce.delete(id); await changeModelFlow(s) }
 })
 
 // Cache one terminal element per session so re-renders don't respawn the pty.
@@ -440,6 +490,39 @@ async function startContainer() {
   }
 }
 
+// Stop the project's running container (reversible). Warns first if any of this
+// project's sessions are running inside it — stopping kills their ptys (they flip
+// to reconnectable, history kept). On confirm, docker stops it; the button then
+// shows "Restart container".
+async function stopContainer() {
+  const proj = currentProject()
+  if (!proj) return
+  // Sessions live in THIS project's container only when it's in container mode.
+  const inContainer = runInContainer.get(proj.id) ?? false
+  const running = inContainer
+    ? state.sessions.filter((s) => s.projectId === proj.id && s.status === 'running' && !reconnect.has(s.id))
+    : []
+  if (running.length > 0) {
+    const ok = await chooseOption<'stop'>(
+      `Stop “${proj.name}”'s container?`,
+      [{ label: 'Stop anyway', value: 'stop', primary: true }],
+      undefined,
+      `${running.length} running session${running.length > 1 ? 's' : ''} will disconnect (history is kept; reconnect after restart).`
+    )
+    if (!ok) return
+  }
+  const prev = containerState.get(proj.id)
+  containerState.set(proj.id, 'stopped') // optimistic; main confirms via container:status
+  render()
+  try {
+    await window.agentIDE.containerStop(proj.id, proj.localPath)
+  } catch (err) {
+    console.error('stop container failed', err)
+    containerState.set(proj.id, prev ?? 'running')
+    render()
+  }
+}
+
 // F13: open a plain shell session instantly (Terminal tab). Uses the project's
 // remembered run-context (host/container); defaults to host if not yet chosen.
 let termCount = 0
@@ -573,6 +656,30 @@ async function changeModelFlow(session: Session) {
   }
 }
 
+// Permanently delete an archived session from the home board's Archived view.
+// Confirms first (irreversible from the app), then removes it from the store +
+// its on-disk history (moved to Bin/ per never-rm), and drops it from state.
+async function deleteArchivedSession(session: Session) {
+  const ok = await chooseOption<'delete'>(
+    `Delete “${session.objective}”?`,
+    [{ label: 'Delete', value: 'delete', primary: true }],
+    undefined,
+    "Removes this chat and its history permanently. This can't be undone."
+  )
+  if (!ok) return
+  try {
+    await window.agentIDE.sessionDelete(session.id)
+    const i = state.sessions.findIndex((s) => s.id === session.id)
+    if (i >= 0) state.sessions.splice(i, 1)
+    disposeTerminal(session.id)
+    reconnect.delete(session.id)
+    if (state.activeSessionId === session.id) state.activeSessionId = null
+    render()
+  } catch (err) {
+    console.error('delete session failed', err)
+  }
+}
+
 // F6/F7: three-dot session menu — reconnect (if crashed), rename, change model, close+archive.
 function openSessionMenu(session: Session, x: number, y: number) {
   const items = []
@@ -646,11 +753,14 @@ function render() {
     const board = AllSessions({
       projects: state.projects,
       sessions: state.sessions,
+      mode: boardMode,
+      onSetMode: (m) => { boardMode = m; render() },
       onOpen: (projectId, sessionId) => {
         setCurrentProject(projectId)
         state.activeSessionId = sessionId
         render()
-      }
+      },
+      onDelete: deleteArchivedSession
     })
     // F1: prominent "Open project" CTA at the top of the board
     const cta = document.createElement('button')
@@ -660,6 +770,7 @@ function render() {
     board.insertBefore(cta, board.querySelector('.sub')!.nextSibling)
     body.appendChild(board)
     root.appendChild(body)
+    appendStatusBar()
     return
   }
 
@@ -722,11 +833,23 @@ function render() {
       onOpenTerminal: openTerminal,
       showContainerButton: proj.hasDevcontainer,
       containerState: containerState.get(proj.id) ?? 'none',
-      onStartContainer: startContainer
+      onStartContainer: startContainer,
+      onStopContainer: stopContainer
     })
   )
 
   root.appendChild(body)
+  appendStatusBar()
+}
+
+// F16: the bottom status bar, appended after the main body on every render.
+function appendStatusBar() {
+  root.appendChild(StatusBar({
+    status: serviceStatus,
+    checking: serviceChecking,
+    onRecheck: recheckService,
+    onConnect: connectService
+  }))
 }
 
 // F1: hydrate persisted projects/sessions from the store at boot.
@@ -734,7 +857,8 @@ async function boot() {
   try {
     const [projects, sessions] = await Promise.all([
       window.agentIDE.projectsList(),
-      window.agentIDE.sessionsAll()
+      window.agentIDE.sessionsAll(),
+      hydrateModels() // fill the model picker from main (Codex list is live)
     ])
     state.projects = projects
     state.sessions = sessions
@@ -747,6 +871,7 @@ async function boot() {
     console.error('boot hydrate failed', err)
   }
   render()
+  probeServices() // F16: test external-service connectivity on startup (async)
 }
 
 boot()

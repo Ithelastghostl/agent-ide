@@ -45,11 +45,13 @@ export function showMenu(x: number, y: number, items: MenuItem[]): void {
 export interface ChoiceOption<T> { label: string; value: T; primary?: boolean; hint?: string }
 
 /** In-app choice modal with buttons + an optional checkbox. Resolves to the
- *  chosen value (and checkbox state), or null if cancelled. */
+ *  chosen value (and checkbox state), or null if cancelled. An optional
+ *  `description` renders as explanatory text under the title (e.g. a warning). */
 export function chooseOption<T>(
   title: string,
   options: ChoiceOption<T>[],
-  checkbox?: { label: string; checked?: boolean }
+  checkbox?: { label: string; checked?: boolean },
+  description?: string
 ): Promise<{ value: T; checked: boolean } | null> {
   return new Promise((resolve) => {
     const wrap = document.createElement('div')
@@ -61,6 +63,13 @@ export function chooseOption<T>(
     const h3 = document.createElement('h3')
     h3.textContent = title
     modal.appendChild(h3)
+
+    if (description) {
+      const desc = document.createElement('p')
+      desc.className = 'modal-desc'
+      desc.textContent = description
+      modal.appendChild(desc)
+    }
 
     let checked = checkbox?.checked ?? false
     if (checkbox) {

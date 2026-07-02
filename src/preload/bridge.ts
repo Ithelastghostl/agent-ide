@@ -5,6 +5,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('agentIDE', {
   ping: () => ipcRenderer.invoke('ping'),
 
+  // Terminal copy/paste via the OS clipboard in main (the renderer's
+  // navigator.clipboard silently no-ops without focus/activation).
+  clipboardWrite: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
+  clipboardRead: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
+
   // Open a URL in the host's default browser (host-side; works from containers).
   // Pass the originating sessionId so main can forward a container localhost port
   // out to the host before opening (OAuth callbacks, in-container dev servers).
@@ -15,13 +20,19 @@ contextBridge.exposeInMainWorld('agentIDE', {
   sessionLaunch: (req: unknown) => ipcRenderer.invoke('session:launch', req),
   sessionRename: (id: string, name: string) => ipcRenderer.invoke('session:rename', id, name),
   sessionArchive: (id: string) => ipcRenderer.invoke('session:archive', id),
+  sessionDelete: (id: string) => ipcRenderer.invoke('session:delete', id),
   terminalOpen: (req: unknown) => ipcRenderer.invoke('terminal:open', req),
 
   // container lifecycle (F14)
   containerStart: (projectId: string, workspace: string, importConfig: boolean) => ipcRenderer.invoke('container:start', projectId, workspace, importConfig),
   containerStatus: (projectId: string, workspace: string) => ipcRenderer.invoke('container:status', projectId, workspace),
-  onContainerStatus: (cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void) =>
+  containerStop: (projectId: string, workspace: string) => ipcRenderer.invoke('container:stop', projectId, workspace),
+  onContainerStatus: (cb: (p: { projectId: string; state: 'none' | 'stopped' | 'starting' | 'running' | 'error' }) => void) =>
     ipcRenderer.on('container:status', (_e, p) => cb(p)),
+
+  // external-service connectivity (status bar, F16)
+  serviceHealth: () => ipcRenderer.invoke('service:health'),
+  serviceLogin: (service: string, cwd: string) => ipcRenderer.invoke('service:login', service, cwd),
 
   // provider connection (F8/F9/F10)
   providerHealth: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:health', provider, projectId, cwd),
@@ -54,6 +65,12 @@ contextBridge.exposeInMainWorld('agentIDE', {
   },
   onSessionExit: (cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void) =>
     ipcRenderer.on('session:exit', (_e, p) => cb(p)),
+
+  // The chosen model was rejected by the provider (e.g. a Codex model not
+  // available on a ChatGPT-account login). The session stays alive at its prompt;
+  // the UI offers to pick another model.
+  onSessionModelRejected: (cb: (p: { id: string; model: string; message: string }) => void) =>
+    ipcRenderer.on('session:model-rejected', (_e, p) => cb(p)),
 
   // Replay saved terminal output for a session (chat history) on mount.
   transcriptGet: (id: string): Promise<string> => ipcRenderer.invoke('transcript:get', id),

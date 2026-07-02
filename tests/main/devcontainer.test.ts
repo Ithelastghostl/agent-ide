@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, codexConfigMount, geminiConfigMount, parseRemoteUser, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
+import { containerExecArgv, devcontainerUpArgv, parseContainerId, parseRemoteWorkspaceFolder, defaultWorkspaceFolder, devcontainerBin, claudeConfigMount, codexConfigMount, geminiConfigMount, parseRemoteUser, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
 
 describe('findContainerArgv', () => {
   it('filters running containers by the devcontainer local_folder label', () => {
@@ -106,6 +106,29 @@ describe('parseContainerId', () => {
   })
 })
 
+describe('parseRemoteWorkspaceFolder', () => {
+  it('extracts remoteWorkspaceFolder from devcontainer up JSON', () => {
+    const out = '{"outcome":"success","containerId":"abc","remoteWorkspaceFolder":"/workspaces/app"}'
+    expect(parseRemoteWorkspaceFolder(out)).toBe('/workspaces/app')
+  })
+  it('finds it among log noise', () => {
+    const out = 'building...\n{"outcome":"success","containerId":"x","remoteWorkspaceFolder":"/workspaces/my-repo"}\n'
+    expect(parseRemoteWorkspaceFolder(out)).toBe('/workspaces/my-repo')
+  })
+  it('returns null when absent (older CLI) so caller can fall back', () => {
+    expect(parseRemoteWorkspaceFolder('{"containerId":"x"}')).toBeNull()
+  })
+})
+
+describe('defaultWorkspaceFolder', () => {
+  it('maps a host workspace to /workspaces/<name> (devcontainer convention)', () => {
+    expect(defaultWorkspaceFolder('/home/me/Projects/ai-agents-dashboard')).toBe('/workspaces/ai-agents-dashboard')
+  })
+  it('tolerates a trailing slash', () => {
+    expect(defaultWorkspaceFolder('/home/me/app/')).toBe('/workspaces/app')
+  })
+})
+
 describe('containerExecArgv', () => {
   it('builds `docker exec -it <id> <cmd> <args...>`', () => {
     expect(containerExecArgv('abc123', 'claude', ['--model', 'claude-opus-4-8'])).toEqual([
@@ -140,6 +163,14 @@ describe('containerExecArgv', () => {
   it('runs as a specific user via -u (non-root, so auto-approve flags work)', () => {
     expect(containerExecArgv('abc123', 'claude', ['--dangerously-skip-permissions'], { user: 'node' })).toEqual([
       'exec', '-it', '-u', 'node', 'abc123', 'claude', '--dangerously-skip-permissions'
+    ])
+  })
+
+  // The exact shape sessions now use: exec as the remoteUser AND in the project's
+  // workspace folder, so the agent starts inside the repo, not the image WORKDIR.
+  it('combines -u and -w (the session-launch invocation)', () => {
+    expect(containerExecArgv('abc', 'claude', ['--model', 'opus'], { user: 'node', cwd: '/workspaces/app' })).toEqual([
+      'exec', '-it', '-u', 'node', '-w', '/workspaces/app', 'abc', 'claude', '--model', 'opus'
     ])
   })
 })

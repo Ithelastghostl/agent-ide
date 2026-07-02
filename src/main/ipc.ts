@@ -1,18 +1,19 @@
-import { app, ipcMain, dialog, shell, type BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, shell, clipboard, type BrowserWindow } from 'electron'
 import { readdirSync, existsSync, readFileSync, writeFileSync, statSync, appendFileSync } from 'node:fs'
 import { join, resolve, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 import { PtyManager, type SpawnOpts } from './ptyManager'
 import { launchArgv } from './providers'
-import { allModels } from './models'
+import { allModels, isKnownModel, defaultModel } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory } from './github'
-import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, codexConfigMount, geminiConfigMount, findRunningContainer, findContainerPresence, startContainerById, resolveContainerUser } from './devcontainer'
+import { upDevcontainer, containerExecArgv, hasDevcontainerCli, claudeConfigMount, codexConfigMount, geminiConfigMount, findRunningContainer, findContainerPresence, startContainerById, stopContainerById, resolveContainerUser, resolveWorkspaceFolder } from './devcontainer'
 import { probeHealth, loginArgv, installInContainer } from './providerHealth'
+import { probeAllServices, loginArgv as serviceLoginArgv } from './serviceHealth'
 import { PortForwarder, ContainerPortWatcher, loopbackPort } from './portForwarder'
-import { historyFile, buildPrimer } from './history'
+import { historyFile, buildPrimer, removeHistory } from './history'
 import { Store } from './store'
-import { isProvider, type Provider, type Session } from '@shared/types'
+import { isProvider, SERVICES, type Provider, type Session, type ServiceName } from '@shared/types'
 
 export interface FileNode {
   name: string
@@ -79,18 +80,23 @@ function newSessionId(): string {
 // One container per project, brought up lazily and reused across its sessions.
 // The map is a cache; Docker is the source of truth (survives app restarts).
 const containerByProject = new Map<string, string>()
-async function ensureContainer(projectId: string, workspace: string, importConfig = false): Promise<string> {
+
+/** A project's container plus the in-container workspace folder sessions exec in
+ *  (the `-w` for docker exec — without it sessions land in the image WORKDIR). */
+interface ContainerHandle { id: string; workspaceFolder: string }
+
+async function ensureContainer(projectId: string, workspace: string, importConfig = false): Promise<ContainerHandle> {
   // Docker is the source of truth (Codex P2 — no stale cache fast-path):
   // running -> reuse; stopped -> start it (don't rebuild); none -> build.
   const presence = await findContainerPresence(workspace)
   if (presence.state === 'running') {
     containerByProject.set(projectId, presence.id)
-    return presence.id
+    return { id: presence.id, workspaceFolder: await resolveWorkspaceFolder(presence.id, workspace) }
   }
   if (presence.state === 'stopped') {
     await startContainerById(presence.id)
     containerByProject.set(projectId, presence.id)
-    return presence.id
+    return { id: presence.id, workspaceFolder: await resolveWorkspaceFolder(presence.id, workspace) }
   }
   // Make the host's provider logins visible inside the container (read-only), so
   // containerized sessions are pre-authenticated and never need an in-container
@@ -104,9 +110,9 @@ async function ensureContainer(projectId: string, workspace: string, importConfi
   if (existsSync(join(home, '.codex'))) mounts.push(codexConfigMount(home))
   if (existsSync(join(home, '.gemini'))) mounts.push(geminiConfigMount(home))
   if (importConfig && existsSync(join(home, '.claude'))) mounts.push(claudeConfigMount(home))
-  const { containerId } = await upDevcontainer(workspace, mounts)
+  const { containerId, workspaceFolder } = await upDevcontainer(workspace, mounts)
   containerByProject.set(projectId, containerId)
-  return containerId
+  return { id: containerId, workspaceFolder }
 }
 
 /** Authoritative running-container id for a project. Docker is the source of
@@ -181,6 +187,26 @@ async function containerForSession(store: Store | undefined, sessionId: string):
  *  no-op writes and return empty reads so the UI still works. */
 export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store): void {
   ipcMain.handle('ping', () => 'pong')
+
+  // Terminal copy/paste goes through the OS clipboard here in main, NOT the
+  // renderer's navigator.clipboard: the async web clipboard needs document focus
+  // + transient user activation, which the xterm keydown path can't guarantee, so
+  // writes silently no-op (Ctrl+Shift+C "does nothing"). Electron's clipboard is
+  // synchronous and has no such requirement.
+  ipcMain.handle('clipboard:write', (_e, text: string) => { clipboard.writeText(text) })
+  ipcMain.handle('clipboard:read', () => clipboard.readText())
+
+  // Codex prints a 400 and STAYS at its prompt (it doesn't exit) when the chosen
+  // model isn't allowed for a ChatGPT-account login — so there's no crash to
+  // catch. Scan the session's output for that specific error and tell the
+  // renderer, which then offers the model picker. Gated on the error marker so we
+  // don't parse every chunk. `sessionModel` lets the event name the bad model.
+  const sessionModel = new Map<string, string>()
+  const detectModelRejection = (id: string, data: string): void => {
+    if (!data.includes('invalid_request_error')) return
+    if (!/not supported when using Codex with a ChatGPT account/.test(data)) return
+    win.webContents.send('session:model-rejected', { id, model: sessionModel.get(id) ?? '', message: data.trim() })
+  }
 
   // Open a URL in the host's default browser. Runs host-side, so it works even
   // when the originating session lives inside a container (which has no browser
@@ -303,6 +329,16 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     store?.archiveSession(id)
   })
 
+  // Permanently delete a session (from the home board's Archived view). Removes
+  // the DB row + its transcript and moves the on-disk history file to a Bin/
+  // (never-rm policy). Kills any lingering pty first (defensive — archived
+  // sessions normally have none). Irreversible from the app; the renderer confirms.
+  ipcMain.handle('session:delete', (_e, id: string) => {
+    mgr.kill(id)
+    store?.deleteSession(id)
+    removeHistory(id)
+  })
+
   // F13: open a plain shell session (no agent) in the project's context.
   ipcMain.handle('terminal:open', async (_e, req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<Session> => {
     const id = `term-${newSessionId()}`
@@ -312,12 +348,13 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     if (req.useContainer) {
       // Don't silently downgrade to a host shell (Codex P2): bring the container
       // up if needed so the terminal really runs inside it. Exec as the non-root
-      // remoteUser so the shell matches what agent sessions use.
-      const containerId = await ensureContainer(req.projectId, req.cwd)
+      // remoteUser so the shell matches what agent sessions use, and in the
+      // project's workspace folder (-w) so it opens in the repo, not the image
+      // WORKDIR (which is often `/`).
+      const { id: containerId, workspaceFolder } = await ensureContainer(req.projectId, req.cwd)
       const user = await resolveContainerUser(containerId)
       shell = 'docker'
-      args = containerExecArgv(containerId, 'bash', [], { user: user ?? undefined })
-      cwd = req.cwd
+      args = containerExecArgv(containerId, 'bash', [], { user: user ?? undefined, cwd: workspaceFolder })
     }
     const now = Date.now()
     const session: Session = {
@@ -341,7 +378,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     }
     win.webContents.send('container:status', { projectId, state: 'starting' })
     try {
-      const containerId = await ensureContainer(projectId, workspace, importConfig)
+      const { id: containerId } = await ensureContainer(projectId, workspace, importConfig)
       win.webContents.send('container:status', { projectId, state: 'running' })
       return containerId
     } catch (err) {
@@ -355,6 +392,28 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     return (await findContainerPresence(workspace)).state
   })
 
+  // Stop (not remove) the project's running container — reversible, preserves its
+  // state, so the next start is a fast restart rather than a rebuild. `docker stop`
+  // terminates any `docker exec` sessions running inside it: each session's pty
+  // exits 'crashed' → flips to idle + reconnectable (history retained) and its port
+  // watcher is torn down via the normal exit handler. We also drop the cached id
+  // so a subsequent launch re-resolves Docker truth. The renderer warns the user
+  // about live sessions before calling this. Returns the new state for the button.
+  ipcMain.handle('container:stop', async (_e, projectId: string, workspace: string): Promise<'stopped' | 'none'> => {
+    const id = await findRunningContainer(workspace)
+    if (!id) {
+      // Nothing running — report the real current state so the UI stays accurate.
+      containerByProject.delete(projectId)
+      const state = (await findContainerPresence(workspace)).state
+      win.webContents.send('container:status', { projectId, state })
+      return state === 'none' ? 'none' : 'stopped'
+    }
+    await stopContainerById(id)
+    containerByProject.delete(projectId)
+    win.webContents.send('container:status', { projectId, state: 'stopped' })
+    return 'stopped'
+  })
+
   // F8: provider connection health, in the project's context (host or container).
   ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string, cwd: string) => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
@@ -363,7 +422,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   })
 
   // F10: run an interactive CLI login as a terminal session, in project context.
-  ipcMain.handle('provider:login', async (_e, provider: Provider, projectId: string, _cwd: string): Promise<string> => {
+  ipcMain.handle('provider:login', async (_e, provider: Provider, _projectId: string, cwd: string): Promise<string> => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
     const id = `login-${provider}-${newSessionId()}`
     const { cmd, args } = loginArgv(provider)
@@ -379,7 +438,27 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     const shell = cmd
     const spawnArgs = args
     mgr.spawn(
-      { id, shell, args: spawnArgs, cwd, env: {} },
+      { id, shell, args: spawnArgs, cwd: cwd || homedir(), env: {} },
+      (data) => win.webContents.send('pty:data', { id, data }),
+      ({ reason }) => win.webContents.send('session:exit', { id, reason })
+    )
+    return id
+  })
+
+  // F16: external-service connectivity for the status bar (vercel/supabase/
+  // github/resend). Probe all in parallel (timeboxed — these CLIs can hang).
+  ipcMain.handle('service:health', () => probeAllServices())
+
+  // F16: connect a service — open a HOST terminal session running its login
+  // command (interactive browser/device flow), like provider:login. Returns the
+  // session id so the renderer can surface it as the active terminal. cwd is the
+  // open project's path (or home) just to give the shell a sensible directory.
+  ipcMain.handle('service:login', (_e, service: ServiceName, cwd: string): string => {
+    if (!SERVICES.includes(service)) throw new Error(`bad service: ${service}`)
+    const id = `login-${service}-${newSessionId()}`
+    const { cmd, args } = serviceLoginArgv(service)
+    mgr.spawn(
+      { id, shell: cmd, args, cwd: cwd || homedir(), env: {} },
       (data) => win.webContents.send('pty:data', { id, data }),
       ({ reason }) => win.webContents.send('session:exit', { id, reason })
     )
@@ -434,14 +513,16 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
         throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
       }
       win.webContents.send('session:status', { id, message: 'starting container…' })
-      const containerId = await ensureContainer(req.projectId, req.cwd, req.importConfig)
+      const { id: containerId, workspaceFolder } = await ensureContainer(req.projectId, req.cwd, req.importConfig)
       // run inside the container as its non-root remoteUser; docker exec carries
       // the provider argv. Root would break auto-approve (claude
-      // --dangerously-skip-permissions refuses to run as root).
+      // --dangerously-skip-permissions refuses to run as root). -w puts the agent
+      // in the project's workspace folder (/workspaces/<repo>) — without it the
+      // exec lands in the image's default WORKDIR (often `/`), so agents were
+      // starting at the root directory instead of inside the project.
       const user = await resolveContainerUser(containerId)
       shell = 'docker'
-      spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined })
-      cwd = req.cwd // docker process runs on host; -w handled by image default
+      spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined, cwd: workspaceFolder })
       watchContainer = containerId
     }
 
@@ -458,12 +539,14 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
     }
     // Spawn FIRST; only persist once the pty actually started (Codex P2 — a
     // failed spawn must not leave a persisted "running" ghost session).
+    sessionModel.set(id, req.model)
     try {
       mgr.spawn(
         { id, shell, args: spawnArgs, cwd, env: {} },
         (data) => {
           win.webContents.send('pty:data', { id, data })
           recordOutput(store, id, data)
+          detectModelRejection(id, data)
         },
         ({ reason }) => {
           // History always retained (item 7). Clean close -> archived; crash ->
@@ -495,8 +578,18 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
   // "change model" reuse this exact path to move the conversation to another engine.
   ipcMain.handle('session:resume', async (_e, s: Session, cwd: string, useContainer: boolean, modelOverride?: { provider: Provider; model: string }): Promise<Session> => {
     const provider = modelOverride?.provider ?? s.provider
-    const model = modelOverride?.model ?? s.model
+    let model = modelOverride?.model ?? s.model
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+    // A session saved before the provider's model line rotated (e.g. gpt-5-codex,
+    // now retired) would relaunch a dead id and 400. If the stored model is no
+    // longer launchable, fall back to the provider's current default so the
+    // resume succeeds instead of dropping the user at a rejected prompt.
+    if (!isKnownModel(provider, model)) {
+      const fallback = defaultModel(provider)
+      console.warn(`[resume] stale model ${model} for ${provider} → ${fallback}`)
+      model = fallback
+    }
+    sessionModel.set(s.id, model)
     // Fresh interactive launch (NOT resumeArgv). autoApprove == in a container.
     const { cmd, args } = launchArgv({ provider, model, autoApprove: useContainer })
     let shell = cmd
@@ -506,8 +599,9 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       const containerId = await resolveContainerId(s.projectId, cwd)
       if (!containerId) throw new Error('cannot reconnect: the project container is not running')
       const user = await resolveContainerUser(containerId)
+      const workspaceFolder = await resolveWorkspaceFolder(containerId, cwd)
       shell = 'docker'
-      spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined })
+      spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined, cwd: workspaceFolder })
       watchContainer = containerId
     }
     mgr.spawn(
@@ -515,6 +609,7 @@ export function registerIpc(mgr: PtyManager, win: BrowserWindow, store?: Store):
       (data) => {
         win.webContents.send('pty:data', { id: s.id, data })
         recordOutput(store, s.id, data)
+        detectModelRejection(s.id, data)
       },
       ({ reason }) => {
         stopPortWatch(s.id)

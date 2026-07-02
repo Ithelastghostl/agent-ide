@@ -114,13 +114,14 @@ describe('Cockpit', () => {
     expect(started).toBe(true)
   })
 
-  it('labels the container button by state: none=Build, stopped=Restart, running (F14)', () => {
+  it('labels the container button by state: none=Build, stopped=Restart, running=Stop (F14)', () => {
     const mk = (s: 'none' | 'stopped' | 'running') =>
       (Cockpit({ sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {}, showContainerButton: true, containerState: s })
         .querySelector('.container-btn') as HTMLButtonElement)
     expect(mk('none').textContent).toContain('Build')
     expect(mk('stopped').textContent).toContain('Restart')
-    expect(mk('running').textContent).toContain('running')
+    // Running now offers a (reversible) Stop action instead of a dead 'running' label.
+    expect(mk('running').textContent).toContain('Stop')
     expect(mk('stopped').disabled).toBe(false) // a stopped container can be restarted
   })
 
@@ -129,14 +130,17 @@ describe('Cockpit', () => {
     expect(el.querySelector('.container-btn')).toBeNull()
   })
 
-  it('disables the container button while running (F14)', () => {
+  it('running container button is an enabled Stop action that fires onStopContainer (F14)', () => {
+    let stopped = false
     const el = Cockpit({
       sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {},
-      showContainerButton: true, containerState: 'running'
+      showContainerButton: true, containerState: 'running', onStopContainer: () => { stopped = true }
     })
     const btn = el.querySelector('.container-btn') as HTMLButtonElement
-    expect(btn.disabled).toBe(true)
-    expect(btn.textContent).toContain('running')
+    expect(btn.disabled).toBe(false) // running is now clickable (to stop), not disabled
+    expect(btn.textContent).toContain('Stop')
+    btn.click()
+    expect(stopped).toBe(true)
   })
 
   it('marks a session needing reconnect and tags it (F4)', () => {

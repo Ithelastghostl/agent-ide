@@ -18,6 +18,10 @@ export function resolveCwd(cwd: string): string {
   } catch {
     /* fall through */
   }
+  // A non-empty cwd that doesn't resolve is a stale/missing project path. Warn
+  // rather than silently dropping the session into $HOME — that silent fallback
+  // is exactly what masks a host session starting in the wrong directory.
+  if (cwd) console.warn(`[pty] cwd "${cwd}" not found — falling back to home (${homedir()})`)
   return homedir()
 }
 

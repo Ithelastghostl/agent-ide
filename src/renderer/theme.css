@@ -55,4 +55,6 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-#app { height: 100vh; }
+/* Column layout so the status bar (F16) sits pinned at the bottom and the main
+   body fills the rest. */
+#app { height: 100vh; display: flex; flex-direction: column; }

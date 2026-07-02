@@ -1,7 +1,32 @@
 /* Variant-A cockpit styles — ported from the chosen mockup
    (.superpowers/brainstorm/.../cockpit.html), Talentchain-themed. */
 
-.ide-body { display: flex; height: 100vh; }
+.ide-body { display: flex; flex: 1; min-height: 0; }
+
+/* F16: bottom service status bar */
+.statusbar {
+  flex: none; height: 26px; display: flex; align-items: center; gap: 10px;
+  padding: 0 12px; background: var(--bg-page); border-top: 1px solid var(--border);
+  font-size: 11px; overflow-x: auto; white-space: nowrap;
+}
+.sb-label { color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; font-size: 9px; flex: none; }
+.sb-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg-surface); cursor: pointer; flex: none; transition: .12s;
+}
+.sb-chip:hover { border-color: var(--accent); }
+.sb-chip .sb-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex: none; }
+.sb-chip .sb-name { color: var(--text-secondary); }
+.sb-chip .sb-state { color: var(--text-muted); font-size: 10px; }
+/* states */
+.sb-chip.online .sb-dot { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.sb-chip.online .sb-state { color: var(--success); }
+.sb-chip.not-logged-in .sb-dot,
+.sb-chip.not-installed .sb-dot { background: var(--warning); }
+.sb-chip.not-logged-in .sb-state,
+.sb-chip.not-installed .sb-state { color: var(--warning); }
+.sb-chip.checking .sb-dot { background: var(--text-muted); animation: sb-pulse 1s ease-in-out infinite; }
+@keyframes sb-pulse { 0%,100% { opacity: .3 } 50% { opacity: 1 } }
 
 /* project rail (far-left, VS Code activity-bar style) */
 .projrail {
@@ -150,6 +175,9 @@
 .container-btn.starting { color: var(--accent-muted); cursor: default; }
 .container-btn.error { color: var(--warning); border-color: rgba(252,187,0,.3); }
 .container-btn:disabled { opacity: .9; }
+/* Running state shows a (reversible) Stop action — clickable, muted until hover. */
+.container-btn.running.stop { color: var(--text-secondary); border-color: var(--border); cursor: pointer; }
+.container-btn.running.stop:hover { color: var(--warning); border-color: rgba(252,187,0,.35); background: var(--accent-bg10); }
 
 .sessions { flex: 1; overflow: auto; padding: 4px 14px 10px; }
 .provgrp { margin-bottom: 6px; }
@@ -217,6 +245,7 @@
   padding: 9px 11px; color: var(--text-primary); font-size: 13px; outline: none;
 }
 .prompt-input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-border); }
+.modal-desc { margin: 0; padding: 2px 18px 6px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .check-row { display: flex; align-items: center; gap: 9px; padding: 6px 18px 14px; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
 .check-row input { accent-color: var(--accent); }
 .provrow .prov-dots { font-size: 13px; letter-spacing: 1px; }
@@ -271,3 +300,14 @@
 .as-row .nm { flex: 1; color: var(--text-primary); font-size: 12.5px; }
 .as-row .mdl { font-size: 9px; color: var(--text-muted); background: var(--bg-page); border: 1px solid var(--border); padding: 2px 6px; border-radius: 5px; }
 .as-row .stt { font-size: 9px; color: var(--text-muted); }
+/* Archived rows aren't clickable-to-open; the delete action is the point. */
+.as-row.arch { cursor: default; opacity: .82; }
+.as-row.arch:hover { border-color: var(--border); }
+.as-row .as-del { flex: none; font-size: 13px; cursor: pointer; padding: 0 2px; opacity: .6; border-radius: 5px; }
+.as-row .as-del:hover { opacity: 1; }
+/* Live | Archived segmented toggle. */
+.as-toggle { display: inline-flex; gap: 0; margin: 0 0 14px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.as-seg { padding: 5px 14px; font-size: 12px; font-weight: 600; background: var(--bg-surface); color: var(--text-secondary); border: none; cursor: pointer; }
+.as-seg:hover { color: #fff; }
+.as-seg.on { background: var(--accent-bg10); color: #fff; }
+.as-empty { color: var(--text-muted); font-size: 12.5px; padding: 8px 2px; }

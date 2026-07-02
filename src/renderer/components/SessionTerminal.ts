@@ -75,7 +75,10 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
 
   async function copyText(text: string): Promise<boolean> {
     if (!text) return false
-    try { await navigator.clipboard.writeText(text) } catch { /* clipboard blocked */ }
+    // Via main's OS clipboard, NOT navigator.clipboard: the async web clipboard
+    // needs document focus + user activation, which xterm's keydown path can't
+    // guarantee, so Ctrl+Shift+C silently no-oped. See clipboard:write in main.
+    try { await window.agentIDE.clipboardWrite(text) } catch { /* clipboard unavailable */ }
     return true
   }
   async function copySelection(): Promise<boolean> {
@@ -108,7 +111,7 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
   }
   async function paste(): Promise<void> {
     try {
-      const text = await navigator.clipboard.readText()
+      const text = await window.agentIDE.clipboardRead()
       // Route through xterm's paste() — NOT raw ptyWrite. paste() wraps the text
       // in bracketed-paste markers (ESC[200~ … ESC[201~) when the running program
       // has enabled bracketed paste (the agent CLIs do). Sending it raw made the

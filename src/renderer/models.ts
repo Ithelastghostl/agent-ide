@@ -1,29 +1,22 @@
 import type { Provider, Model } from '@shared/types'
 
-/** Full per-provider model lists for the picker (D3). Mirrors src/main/models.ts;
- *  in L3 the renderer fetches these from main over IPC instead of hardcoding. */
-const M: Record<Provider, Model[]> = {
-  codex: [
-    // ChatGPT-subscription Codex supports the gpt-5-codex* family only. Plain
-    // 'gpt-5' is API-key-only and Codex rejects it under a ChatGPT account
-    // ("The 'gpt-5' model is not supported when using Codex with a ChatGPT
-    // account"), so it's intentionally excluded — sessions are subscription-only.
-    { id: 'gpt-5-codex-mini', label: 'gpt-5-codex-mini', tier: 'fast' },
-    { id: 'gpt-5-codex', label: 'gpt-5-codex', tier: 'balanced' },
-    { id: 'gpt-5-codex-max', label: 'gpt-5-codex-max', tier: 'max' }
-  ],
-  claude: [
-    { id: 'claude-haiku-4-5', label: 'claude-haiku-4.5', tier: 'fast' },
-    { id: 'claude-sonnet-4-6', label: 'claude-sonnet-4.6', tier: 'balanced' },
-    { id: 'claude-opus-4-8', label: 'claude-opus-4.8', tier: 'max' }
-  ],
-  gemini: [
-    { id: 'gemini-2.5-flash', label: 'gemini-2.5-flash', tier: 'fast' },
-    { id: 'gemini-2.5-pro', label: 'gemini-2.5-pro', tier: 'balanced' },
-    { id: 'gemini-2.5-deep-think', label: 'gemini-2.5-deep-think', tier: 'max' }
-  ]
+/** Per-provider model lists for the picker (D3). The source of truth is the main
+ *  process (src/main/models.ts) — Codex is resolved live from the CLI's model
+ *  cache there, so this file must NOT hardcode a copy (they drift). hydrateModels()
+ *  fills this at boot over the models:all IPC; modelsFor() stays synchronous so
+ *  the picker call sites don't change. Empty until hydrated. */
+let M: Record<Provider, Model[]> = { codex: [], claude: [], gemini: [] }
+
+/** Fetch the model lists from main once at startup. Best-effort: on failure the
+ *  lists stay empty and the picker simply shows nothing rather than a stale set. */
+export async function hydrateModels(): Promise<void> {
+  try {
+    M = (await window.agentIDE.modelsAll()) as Record<Provider, Model[]>
+  } catch (err) {
+    console.error('model hydrate failed', err)
+  }
 }
 
 export function modelsFor(p: Provider): Model[] {
-  return M[p]
+  return M[p] ?? []
 }

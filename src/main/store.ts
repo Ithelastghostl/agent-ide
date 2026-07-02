@@ -76,6 +76,17 @@ export class Store {
     this.db.prepare(`UPDATE sessions SET status = ? WHERE id = ?`).run(status, id)
   }
 
+  /** Permanently delete a session and its stored transcript (one transaction so a
+   *  partial failure can't leave orphaned transcript rows). The on-disk history
+   *  file is handled separately by the caller (see history.removeHistory). */
+  deleteSession(id: string): void {
+    const tx = this.db.transaction((sid: string) => {
+      this.db.prepare(`DELETE FROM transcripts WHERE session_id = ?`).run(sid)
+      this.db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sid)
+    })
+    tx(id)
+  }
+
   renameSession(id: string, name: string): void {
     this.db.prepare(`UPDATE sessions SET objective = ? WHERE id = ?`).run(name, id)
   }
