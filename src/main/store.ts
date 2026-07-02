@@ -179,10 +179,4 @@ export class Store {
     const nl = tail.indexOf('\n')
     return nl >= 0 ? tail.slice(nl + 1) : tail
   }
-
-  /** Flush pending writes and close the database (app shutdown). */
-  close(): void {
-    this.flush()
-    this.db.close()
-  }
 }
