@@ -83,6 +83,46 @@ export class PtyManager {
     this.procs.get(id)?.write(data)
   }
 
+  /** B12: write `data` (a history primer) to a session once its terminal looks
+   *  ready, instead of on a blind fixed delay. Readiness heuristic: after the
+   *  first output, wait for `quietMs` of no further output (the TUI finished its
+   *  initial render), with a `maxWaitMs` hard cap so it always fires. The deferred
+   *  write is tied to the pty's CURRENT generation and is dropped if the session
+   *  is killed or replaced before it fires — so a primer never lands in a dead pty
+   *  or the wrong (new) session, and never interleaves mid-initial-render. */
+  primeWhenReady(id: string, data: string, opts: { quietMs?: number; maxWaitMs?: number } = {}): void {
+    const proc = this.procs.get(id)
+    if (!proc) return
+    const myGen = this.gen.get(id)
+    const quietMs = opts.quietMs ?? 400
+    const maxWaitMs = opts.maxWaitMs ?? 3000
+    let quietTimer: ReturnType<typeof setTimeout> | null = null
+    let done = false
+
+    const dataSub = proc.onData(() => {
+      if (done) return
+      if (quietTimer) clearTimeout(quietTimer)
+      quietTimer = setTimeout(fire, quietMs) // reset the quiet window on each burst
+    })
+    const hardCap = setTimeout(fire, maxWaitMs)
+
+    function cleanup(): void {
+      done = true
+      if (quietTimer) clearTimeout(quietTimer)
+      clearTimeout(hardCap)
+      try { dataSub.dispose() } catch { /* already disposed */ }
+    }
+
+    const self = this
+    function fire(): void {
+      if (done) return
+      cleanup()
+      // Only write if this exact generation is still the live one and not killed.
+      if (self.gen.get(id) !== myGen || self.killed.has(id) || !self.procs.has(id)) return
+      try { self.procs.get(id)?.write(data) } catch { /* pty gone */ }
+    }
+  }
+
   resize(id: string, cols: number, rows: number): void {
     this.procs.get(id)?.resize(cols, rows)
   }

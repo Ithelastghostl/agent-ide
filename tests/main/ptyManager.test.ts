@@ -99,6 +99,48 @@ describe('PtyManager', () => {
     expect(reason).toBe('crashed')
   })
 
+  // B12 (Low): the primer used to be typed in on a blind fixed 1200ms timer,
+  // which could fire after the session was killed/replaced (into a dead or NEW
+  // pty) or land before the TUI was ready. primeWhenReady ties the deferred write
+  // to the current generation and gates on a quiet-after-first-output heuristic.
+  it('B12: primeWhenReady writes the primer to a live session once it settles', async () => {
+    const mgr = new PtyManager()
+    const chunks: string[] = []
+    mgr.spawn(
+      { id: 'p', shell: 'bash', args: [], cwd: process.cwd(), env: {} },
+      (d) => chunks.push(d)
+    )
+    mgr.primeWhenReady('p', 'echo PRIMED', { quietMs: 150, maxWaitMs: 2000 })
+    await new Promise((r) => setTimeout(r, 900))
+    expect(chunks.join('')).toContain('PRIMED')
+    mgr.kill('p')
+  })
+
+  it('B12: primeWhenReady does NOT write if the session is killed before it fires', async () => {
+    const mgr = new PtyManager()
+    const chunks: string[] = []
+    mgr.spawn(
+      { id: 'p2', shell: 'bash', args: [], cwd: process.cwd(), env: {} },
+      (d) => chunks.push(d)
+    )
+    mgr.primeWhenReady('p2', 'echo SHOULD_NOT_APPEAR', { quietMs: 300, maxWaitMs: 3000 })
+    mgr.kill('p2') // killed immediately, before the quiet window elapses
+    await new Promise((r) => setTimeout(r, 700))
+    expect(chunks.join('')).not.toContain('SHOULD_NOT_APPEAR')
+  })
+
+  it('B12: primeWhenReady for an old generation does not write into the replacement', async () => {
+    const mgr = new PtyManager()
+    const out: string[] = []
+    mgr.spawn({ id: 'g', shell: 'bash', args: ['-c', 'sleep 3'], cwd: process.cwd(), env: {} }, () => {})
+    // schedule a primer for gen1, then immediately replace with gen2
+    mgr.primeWhenReady('g', 'echo STALE_PRIMER', { quietMs: 200, maxWaitMs: 3000 })
+    mgr.spawn({ id: 'g', shell: 'bash', args: [], cwd: process.cwd(), env: {} }, (d) => out.push(d))
+    await new Promise((r) => setTimeout(r, 800))
+    expect(out.join('')).not.toContain('STALE_PRIMER') // gen1's primer must not hit gen2
+    mgr.kill('g')
+  })
+
   // B3 (High): a replaced (old) proc's async onExit could fire the caller's
   // onExit for the *new* same-id session — archiving/idling a live session. Fix:
   // per-session generation token; the old proc's exit is ignored because its

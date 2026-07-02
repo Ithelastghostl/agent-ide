@@ -246,13 +246,15 @@ function recordOutput(store: Store | undefined, sessionId: string, data: string)
 /** After a fresh engine starts for an existing session (reconnect or model swap),
  *  seed it with the session's prior history so it continues with context. The
  *  IDE owns this history (cleaned terminal text) — independent of any provider
- *  CLI's own resume. Typed in after a short delay so the TUI is ready for input;
- *  a trailing newline submits it. No-op when there's no prior history. */
+ *  CLI's own resume. B12: the primer is typed in once the terminal settles (not on
+ *  a blind fixed delay) and is tied to the session's current pty generation, so it
+ *  never lands in a killed/replaced session or interleaves the initial render. A
+ *  trailing newline submits it. No-op when there's no prior history. */
 function seedPrimer(mgr: PtyManager, store: Store | undefined, sessionId: string): void {
   const transcript = store?.getTranscript(sessionId) ?? ''
   const primer = buildPrimer(transcript)
   if (!primer) return
-  setTimeout(() => { try { mgr.write(sessionId, primer + '\n') } catch { /* pty gone */ } }, 1200)
+  mgr.primeWhenReady(sessionId, primer + '\n')
 }
 
 /** Resolve the running container a session belongs to, if any. Looks the session
