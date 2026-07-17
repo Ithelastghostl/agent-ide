@@ -293,3 +293,17 @@
 .as-row .task-chip.analysis { color: var(--text-muted); }
 .as-row .task-status { font-size: 9px; color: var(--text-muted); text-transform: capitalize; opacity: 0.85; }
 .as-row .task-status.finished { color: var(--accent); }
+
+/* Transient toast (flash) for non-blocking feedback. */
+.flash { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); font-size: 12px; padding: 8px 14px; border-radius: 9px; box-shadow: 0 10px 40px rgba(0,0,0,.7); z-index: 300; }
+
+/* Agent form (library 🤖 New agent). */
+.agent-form .agent-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 14px; font-size: 11px; color: var(--text-muted); }
+.agent-form .agent-field input, .agent-form .agent-field textarea { background: var(--bg-page); border: 1px solid var(--border); border-radius: 7px; color: var(--text-primary); font-size: 12px; padding: 7px 9px; font-family: inherit; resize: vertical; }
+.agent-form .agent-slug { margin: 0 14px; }
+.agent-form .agent-error { color: #ff7b72; font-size: 11.5px; margin: 4px 14px; min-height: 14px; }
+
+/* AllSessions: history sync action + per-step result line. */
+.as-actions { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; }
+.as-actions .hsync-result { font-size: 11px; color: var(--text-muted); }
+.as-actions .hsync-result.err { color: #ff7b72; }

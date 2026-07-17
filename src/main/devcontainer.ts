@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 
 const pexec = promisify(execFile)
 
@@ -21,29 +21,128 @@ export function devcontainerUpArgv(workspace: string, mounts: string[] = []): st
   return args
 }
 
-/** Standard devcontainer non-root home. Sessions exec as the remoteUser (commonly
- *  `node`, home /home/node), so provider creds must be mounted INTO THAT home —
- *  not /root — or the CLI (running as the remoteUser) won't find them. */
+/** Standard devcontainer non-root home — the FALLBACK when the container's
+ *  passwd can't be queried. The authoritative home comes from
+ *  resolveContainerHome() (getent in the container). */
 export const CONTAINER_HOME = '/home/node'
 
-/** Build a read-only bind-mount of a host cred dir (e.g. ~/.claude, ~/.codex,
- *  ~/.gemini) into the container user's home, so a containerized session inherits
- *  the host's existing login instead of re-running an OAuth loopback that's
- *  trapped in the container's network namespace. `containerHome` defaults to the
- *  conventional remoteUser home. */
-export function configMount(hostHome: string, dir: string, containerHome: string = CONTAINER_HOME): string {
-  return `type=bind,source=${hostHome}/${dir},target=${containerHome}/${dir},readonly`
+// ---- Credential seeding (R3-2) ---------------------------------------------
+// Host provider credentials are COPIED one-way into the container user's
+// writable home via `docker cp` on container start (the devcontainer CLI's
+// --mount rejects `readonly`, and a copy beats a mount anyway: nothing can
+// write back to the host, existing files are never overwritten, and containers
+// built BEFORE this feature get credentials too — no rebuild needed).
+
+export interface SeedFile {
+  hostPath: string
+  provider: 'codex' | 'gemini' | 'claude'
+  file: string
 }
 
-export const claudeConfigMount = (hostHome: string, containerHome?: string) => configMount(hostHome, '.claude', containerHome)
-export const codexConfigMount = (hostHome: string, containerHome?: string) => configMount(hostHome, '.codex', containerHome)
-export const geminiConfigMount = (hostHome: string, containerHome?: string) => configMount(hostHome, '.gemini', containerHome)
+/** The host credential/config files worth seeding, filtered to those that exist.
+ *  Small allowlists — NOT whole dot-dirs (~/.codex holds session DBs and caches;
+ *  ~/.claude can hold hundreds of MB of skills/sessions). `includeClaude` is the
+ *  importConfig opt-in. On macOS claude's OAuth lives in the Keychain, so its
+ *  .credentials.json usually doesn't exist — in-container /login covers it. */
+export function providerSeedFiles(
+  hostHome: string,
+  opts: { includeClaude: boolean },
+  exists: (p: string) => boolean = existsSync
+): SeedFile[] {
+  const spec: [SeedFile['provider'], string, string[]][] = [
+    ['codex', '.codex', ['auth.json', 'config.toml']],
+    ['gemini', '.gemini', ['oauth_creds.json', 'google_accounts.json', 'settings.json']]
+  ]
+  if (opts.includeClaude) spec.push(['claude', '.claude', ['.credentials.json', 'settings.json', 'CLAUDE.md']])
+  const files: SeedFile[] = []
+  for (const [provider, dir, names] of spec) {
+    for (const file of names) {
+      const hostPath = join(hostHome, dir, file)
+      if (exists(hostPath)) files.push({ hostPath, provider, file })
+    }
+  }
+  return files
+}
 
-/** Read-only bind-mount of the IDE's library folder (an absolute host path, e.g.
+/** In-container destination for one seed file. */
+export function seedTarget(home: string, f: SeedFile): string {
+  return `${home}/.${f.provider}/${f.file}`
+}
+
+/** Copy seed files into the container user's writable home. Idempotent:
+ *  container-local state always wins (a file already present is left alone, so
+ *  in-container logins and refreshed tokens are never clobbered). Ownership is
+ *  fixed to the session user; docker exec runs as root for the fs plumbing. */
+export async function seedCredentialsInContainer(
+  containerId: string,
+  user: string | null,
+  home: string,
+  files: SeedFile[]
+): Promise<void> {
+  for (const f of files) {
+    const dst = seedTarget(home, f)
+    const dir = dst.slice(0, dst.lastIndexOf('/'))
+    const { stdout } = await pexec('docker', ['exec', containerId, 'sh', '-c', `test -e ${dst} && echo EXISTS || echo MISSING`])
+    if (stdout.includes('EXISTS')) continue
+    await pexec('docker', ['exec', '-u', 'root', containerId, 'sh', '-c', `mkdir -p ${dir}`])
+    await pexec('docker', ['cp', f.hostPath, `${containerId}:${dst}`])
+    if (user) {
+      await pexec('docker', ['exec', '-u', 'root', containerId, 'sh', '-c', `chown -R ${user} ${dir} && chmod 600 ${dst}`])
+    }
+  }
+}
+
+// ---- Container exec context (R3-1) -----------------------------------------
+
+/** argv for `devcontainer read-configuration` (merged config incl. extends). */
+export function readConfigurationArgv(workspace: string): string[] {
+  return ['read-configuration', '--workspace-folder', workspace]
+}
+
+/** Extract the container-side workspace folder from read-configuration output;
+ *  falls back to the devcontainer CLI convention /workspaces/<basename>. */
+export function parseWorkspaceFolder(stdout: string, workspace: string): string {
+  for (const line of stdout.split('\n').reverse()) {
+    const m = line.match(/"workspaceFolder"\s*:\s*"([^"]+)"/)
+    if (m) return m[1]
+  }
+  return `/workspaces/${basename(workspace)}`
+}
+
+/** The container-side workspace folder for a workspace (via the CLI's merged
+ *  configuration; falls back to the /workspaces/<name> convention). */
+export async function containerWorkspaceFolder(workspace: string): Promise<string> {
+  try {
+    const { stdout } = await pexec(devcontainerBin(), readConfigurationArgv(workspace), { maxBuffer: 1024 * 1024 * 8 })
+    return parseWorkspaceFolder(stdout, workspace)
+  } catch {
+    return parseWorkspaceFolder('', workspace)
+  }
+}
+
+/** Authoritative home for a container user: the container's own passwd entry
+ *  (covers nonstandard homes), falling back to the /root / /home/<user> rule. */
+export async function resolveContainerHome(containerId: string, user: string | null): Promise<string> {
+  const fallback = !user ? CONTAINER_HOME : user === 'root' ? '/root' : `/home/${user}`
+  if (!user) return fallback
+  try {
+    const { stdout } = await pexec('docker', ['exec', containerId, 'sh', '-c',
+      `getent passwd ${user} | cut -d: -f6`])
+    const home = stdout.trim().split('\n')[0]?.trim()
+    return home || fallback
+  } catch {
+    return fallback
+  }
+}
+
+/** Bind-mount of the IDE's library folder (an absolute host path, e.g.
  *  ~/AgentIDE/library) into the container at <home>/.agent-ide/library, so a
- *  containerized session's CLI can read the library's skills/workflows. */
+ *  containerized session's CLI can read the library's skills/workflows/agents.
+ *  NOT read-only: the devcontainer CLI's --mount grammar rejects `readonly`
+ *  (only type/source/target/external) — an in-container agent can therefore
+ *  write the library; it is the user's own content, documented in RUNNING.md. */
 export function libraryConfigMount(libHostDir: string, containerHome: string = CONTAINER_HOME): string {
-  return `type=bind,source=${libHostDir},target=${containerHome}/.agent-ide/library,readonly`
+  return `type=bind,source=${libHostDir},target=${containerHome}/.agent-ide/library`
 }
 
 /** Extract the containerId from `devcontainer up` JSON output (last JSON line). */
@@ -56,24 +155,27 @@ export function parseContainerId(stdout: string): string {
   throw new Error('devcontainer up: no containerId in output')
 }
 
-/** argv for `docker exec [-it] [-u user] [-w cwd] <id> <cmd> <args...>`.
+/** argv for `docker exec [-it] [-u user] [-w cwd] [-e K=V] <id> <cmd> <args...>`.
  *  `interactive` (default true) adds `-it` for pty/terminal sessions; pass
  *  false for non-TTY `execFile` calls (health/install) which would otherwise
  *  hang trying to allocate a TTY (Codex P2).
  *  `user` runs the command as that container user (e.g. the devcontainer's
  *  remoteUser, 'node'). Needed because agent CLIs refuse to run as root with
- *  auto-approve (claude --dangerously-skip-permissions errors under euid 0). */
+ *  auto-approve (claude --dangerously-skip-permissions errors under euid 0).
+ *  `env` sets container-side env vars — HOME in particular, since `-u` does NOT
+ *  set it and provider CLIs resolve credentials relative to it (R3-1). */
 export function containerExecArgv(
   containerId: string,
   cmd: string,
   args: string[],
-  opts: { cwd?: string; interactive?: boolean; user?: string } = {}
+  opts: { cwd?: string; interactive?: boolean; user?: string; env?: Record<string, string> } = {}
 ): string[] {
   const interactive = opts.interactive ?? true
   const base = ['exec']
   if (interactive) base.push('-it')
   if (opts.user) base.push('-u', opts.user)
   if (opts.cwd) base.push('-w', opts.cwd)
+  for (const [k, v] of Object.entries(opts.env ?? {})) base.push('-e', `${k}=${v}`)
   base.push(containerId, cmd, ...args)
   return base
 }

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, claudeConfigMount, codexConfigMount, geminiConfigMount, libraryConfigMount, parseRemoteUser, findContainerArgv, findAnyContainerArgv, parseContainerPresence } from '../../src/main/devcontainer'
+import {
+  containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, libraryConfigMount,
+  parseRemoteUser, findContainerArgv, findAnyContainerArgv, parseContainerPresence,
+  providerSeedFiles, seedTarget,
+  readConfigurationArgv, parseWorkspaceFolder
+} from '../../src/main/devcontainer'
 
 describe('findContainerArgv', () => {
   it('filters running containers by the devcontainer local_folder label', () => {
@@ -44,23 +49,56 @@ describe('devcontainerUpArgv with mounts (F12)', () => {
   })
 })
 
-describe('config mounts', () => {
-  // Mounted into the remoteUser's home (/home/node), NOT /root — sessions exec
-  // as the non-root remoteUser, so creds under /root would be invisible.
-  it('claudeConfigMount targets the container user home', () => {
-    expect(claudeConfigMount('/home/me')).toBe('type=bind,source=/home/me/.claude,target=/home/node/.claude,readonly')
+describe('credential seeding (R3-2)', () => {
+  // Host creds are docker-cp'd one-way into the container user's writable home
+  // — never mounted, so nothing writes back to the host, and in-container
+  // logins / token refreshes persist.
+  it('providerSeedFiles picks only existing credential files (allowlist, not whole dirs)', () => {
+    const present = new Set(['/home/me/.codex/auth.json', '/home/me/.gemini/oauth_creds.json'])
+    const files = providerSeedFiles('/home/me', { includeClaude: false }, (p) => present.has(p))
+    expect(files).toEqual([
+      { hostPath: '/home/me/.codex/auth.json', provider: 'codex', file: 'auth.json' },
+      { hostPath: '/home/me/.gemini/oauth_creds.json', provider: 'gemini', file: 'oauth_creds.json' }
+    ])
   })
-  it('codexConfigMount targets the container user home', () => {
-    expect(codexConfigMount('/home/me')).toBe('type=bind,source=/home/me/.codex,target=/home/node/.codex,readonly')
+  it('claude files seed only with the importConfig opt-in', () => {
+    const exists = () => true
+    const withoutClaude = providerSeedFiles('/h', { includeClaude: false }, exists)
+    expect(withoutClaude.some((f) => f.provider === 'claude')).toBe(false)
+    const withClaude = providerSeedFiles('/h', { includeClaude: true }, exists)
+    expect(withClaude.map((f) => f.file)).toContain('.credentials.json')
   })
-  it('geminiConfigMount targets the container user home', () => {
-    expect(geminiConfigMount('/home/me')).toBe('type=bind,source=/home/me/.gemini,target=/home/node/.gemini,readonly')
+  it('seedTarget places each file in the provider dot-dir of the resolved home', () => {
+    expect(seedTarget('/home/node', { hostPath: '/h/.codex/auth.json', provider: 'codex', file: 'auth.json' }))
+      .toBe('/home/node/.codex/auth.json')
+    expect(seedTarget('/root', { hostPath: '/h/.gemini/settings.json', provider: 'gemini', file: 'settings.json' }))
+      .toBe('/root/.gemini/settings.json')
   })
-  it('honors an explicit container home', () => {
-    expect(codexConfigMount('/home/me', '/home/vscode')).toBe('type=bind,source=/home/me/.codex,target=/home/vscode/.codex,readonly')
+  it('libraryConfigMount uses only the mount keys the devcontainer CLI accepts', () => {
+    const m = libraryConfigMount('/home/me/AgentIDE/library')
+    expect(m).toBe('type=bind,source=/home/me/AgentIDE/library,target=/home/node/.agent-ide/library')
+    expect(m).not.toContain('readonly') // rejected by the CLI's --mount grammar
   })
-  it('libraryConfigMount mounts an absolute library dir read-only into the container', () => {
-    expect(libraryConfigMount('/home/me/AgentIDE/library')).toBe('type=bind,source=/home/me/AgentIDE/library,target=/home/node/.agent-ide/library,readonly')
+})
+
+describe('container exec context (R3-1)', () => {
+  it('readConfigurationArgv asks the devcontainer CLI for the merged config', () => {
+    expect(readConfigurationArgv('/ws')).toEqual(['read-configuration', '--workspace-folder', '/ws'])
+  })
+  it('parseWorkspaceFolder extracts the container-side workspace folder', () => {
+    const out = 'log noise\n{"configuration":{},"workspace":{"workspaceFolder":"/workspaces/app"}}'
+    expect(parseWorkspaceFolder(out, '/home/me/app')).toBe('/workspaces/app')
+  })
+  it('parseWorkspaceFolder falls back to the /workspaces/<name> convention', () => {
+    expect(parseWorkspaceFolder('', '/home/me/my-app')).toBe('/workspaces/my-app')
+  })
+  it('containerExecArgv sets HOME via -e (docker exec -u does not)', () => {
+    expect(containerExecArgv('abc', 'codex', ['login', 'status'], {
+      interactive: false, user: 'node', cwd: '/workspaces/app', env: { HOME: '/home/node' }
+    })).toEqual([
+      'exec', '-u', 'node', '-w', '/workspaces/app', '-e', 'HOME=/home/node',
+      'abc', 'codex', 'login', 'status'
+    ])
   })
 })
 

@@ -1,6 +1,6 @@
 import * as pty from 'node-pty'
 import { existsSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, userInfo } from 'node:os'
 
 export interface SpawnOpts {
   id: string
@@ -19,6 +19,19 @@ export function resolveCwd(cwd: string): string {
     /* fall through */
   }
   return homedir()
+}
+
+/** The shell for HOST terminal sessions: the user's own shell, not a hardcoded
+ *  bash (macOS ships bash 3.2 and defaults to zsh). Container terminals keep
+ *  bash — containers are Linux. GUI launches may lack SHELL, so fall back to
+ *  the passwd entry, then a platform default. */
+export function hostShell(env: Record<string, string | undefined> = process.env): string {
+  if (env.SHELL) return env.SHELL
+  try {
+    const s = userInfo().shell
+    if (s) return s
+  } catch { /* no passwd entry available */ }
+  return process.platform === 'darwin' ? '/bin/zsh' : 'bash'
 }
 
 /** How a pty session ended: 'closed' = user/IDE killed it; 'crashed' = the

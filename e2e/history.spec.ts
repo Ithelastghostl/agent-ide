@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { electronArgs } from './launch'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -11,7 +12,7 @@ test('each session gets its own history file (no shared history)', async () => {
   mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-db-')), 'store.sqlite')
   const histDir = mkdtempSync(join(tmpdir(), 'agide-hist-'))
-  const app = await electron.launch({ args: [join(__dirname, '..'), '--no-sandbox', '--ozone-platform=x11'], env: { ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_HISTORY: histDir } })
+  const app = await electron.launch({ args: electronArgs(), env: { ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_HISTORY: histDir } })
   const win = await app.firstWindow()
   await win.waitForSelector('.projrail', { timeout: 15_000 })
   await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)

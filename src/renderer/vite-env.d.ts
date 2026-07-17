@@ -21,7 +21,7 @@ interface AgentIDEBridge {
   containerStart(projectId: string, workspace: string, importConfig: boolean): Promise<string>
   containerStatus(projectId: string, workspace: string): Promise<'running' | 'stopped' | 'none'>
   onContainerStatus(cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void): void
-  providerHealth(provider: string, projectId: string, cwd: string): Promise<'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'>
+  providerHealth(provider: string, projectId: string, cwd: string, useContainer?: boolean): Promise<'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'>
   providerLogin(provider: string, projectId: string, cwd: string): Promise<string>
   providerInstall(provider: string, projectId: string, cwd: string): Promise<'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'>
   githubRepos(): Promise<{ repo: string; name: string }[]>
@@ -39,11 +39,15 @@ interface AgentIDEBridge {
   ptyKill(id: string): void
   onPtyData(cb: (p: { id: string; data: string }) => void): () => void
   onSessionExit(cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void): void
+  onNotice(cb: (p: { message: string }) => void): void
   transcriptGet(id: string): Promise<string>
   libraryList(): Promise<import('@shared/types').LibraryContents>
   libraryRead(relPath: string): Promise<{ content?: string; error?: string }>
-  libraryStatus(): Promise<{ dir: string; isClone: boolean; counts: { prompts: number; skills: number; workflows: number } }>
+  libraryStatus(): Promise<{ dir: string; isClone: boolean; counts: { prompts: number; skills: number; workflows: number; agents: number } }>
   librarySync(repo?: string): Promise<{ ok?: true; error?: string }>
+  libraryAddAgent(input: import('@shared/types').AgentInput): Promise<{ relPath?: string; error?: string }>
+  historySync(timestamp: string): Promise<{ step: 'add' | 'commit' | 'push'; ok: boolean; skipped?: boolean; error?: string }[]>
+  ptyAlive(id: string): Promise<boolean>
   sessionsAll(): Promise<import('@shared/types').Session[]>
   sessionResume(s: import('@shared/types').Session, cwd: string, useContainer: boolean): Promise<import('@shared/types').Session>
   sessionChangeModel(s: import('@shared/types').Session, cwd: string, useContainer: boolean, provider: string, model: string): Promise<import('@shared/types').Session>

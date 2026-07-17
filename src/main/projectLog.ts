@@ -42,15 +42,15 @@ export function dateStamp(createdAt: number): string {
   return new Date(createdAt).toISOString().slice(0, 10)
 }
 
-/** Write a generated ticket's Markdown to tickets/<date>-<slug>.md (§4.3),
- *  confined to the project's tickets dir. Returns the written path, or null on
- *  failure. */
-export function writeTicketFile(projectId: string, title: string, bodyMd: string, createdAt: number): string | null {
+/** Write a generated ticket's Markdown to tickets/ticket-<sessionId>.md (§4.3),
+ *  confined to the project's tickets dir. The filename derives from the SESSION
+ *  only (fully deterministic — no date, no title), so any retry overwrites the
+ *  same file instead of orphaning variants. Returns the written path, or null
+ *  on failure. */
+export function writeTicketFile(projectId: string, sessionId: string, bodyMd: string): string | null {
   try {
     const dir = projectTicketsDir(projectId)
-    // dateStamp/slugify are inside the try: dateStamp throws on an invalid
-    // timestamp (RangeError), which must not escape as an unhandled throw.
-    const target = confinedPath(dir, `${dateStamp(createdAt)}-${slugify(title)}.md`)
+    const target = confinedPath(dir, `ticket-${slugify(sessionId)}.md`)
     if (!target) return null
     writeFileSync(target, bodyMd, 'utf8')
     return target

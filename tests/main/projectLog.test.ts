@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, symlinkSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, existsSync, readFileSync, symlinkSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../../src/main/store'
@@ -18,7 +18,7 @@ describe('projectLog raw export (M-LOG-a §4.3)', () => {
   }
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'agide-plog-'))
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'agide-plog-')))
     process.env.AGENT_IDE_PROJECTS = root
     store = new Store(':memory:')
   })
@@ -71,7 +71,7 @@ describe('projectLog raw export (M-LOG-a §4.3)', () => {
 // M-LOG-b (§4.3): tickets are written to log/tickets/<date>-<slug>.md.
 describe('ticket file writing (M-LOG-b)', () => {
   let root: string
-  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'agide-tkt-')); process.env.AGENT_IDE_PROJECTS = root })
+  beforeEach(() => { root = realpathSync(mkdtempSync(join(tmpdir(), 'agide-tkt-'))); process.env.AGENT_IDE_PROJECTS = root })
   afterEach(() => { delete process.env.AGENT_IDE_PROJECTS; rmSync(root, { recursive: true, force: true }) })
 
   it('slugify makes a safe filename slug', () => {
@@ -81,11 +81,13 @@ describe('ticket file writing (M-LOG-b)', () => {
   it('dateStamp formats yyyy-mm-dd (UTC)', () => {
     expect(dateStamp(Date.UTC(2026, 6, 2, 15, 30))).toBe('2026-07-02')
   })
-  it('writes tickets/<date>-<slug>.md and returns its path', () => {
-    const at = Date.UTC(2026, 6, 2)
-    const p = writeTicketFile('proj-abc', 'Fix widget race', '# Fix widget race\nbody', at)
-    expect(p).toBe(join(root, 'proj-abc', 'log', 'tickets', '2026-07-02-fix-widget-race.md'))
+  it('writes tickets/ticket-<sessionId>.md (deterministic — retries overwrite)', () => {
+    const p = writeTicketFile('proj-abc', 'sess-1-999', '# Fix widget race\nbody')
+    expect(p).toBe(join(root, 'proj-abc', 'log', 'tickets', 'ticket-sess-1-999.md'))
     expect(readFileSync(p!, 'utf8')).toContain('# Fix widget race')
+    const again = writeTicketFile('proj-abc', 'sess-1-999', '# updated')
+    expect(again).toBe(p) // same session → same file, no orphaned variants
+    expect(readFileSync(p!, 'utf8')).toContain('# updated')
   })
   it('projectTicketsDir creates the tickets dir', () => {
     const dir = projectTicketsDir('proj-q')
@@ -102,9 +104,9 @@ describe('ticket file writing (M-LOG-b)', () => {
     mkdirSync(outside, { recursive: true })
     const dir = projectTicketsDir('proj-evil')
     const outsideTarget = join(outside, 'stolen.md') // does NOT exist yet (dangling)
-    symlinkSync(outsideTarget, join(dir, '2026-07-02-evil.md')) // plant the trap
+    symlinkSync(outsideTarget, join(dir, 'ticket-evil.md')) // plant the trap
 
-    const p = writeTicketFile('proj-evil', 'evil', '# pwned', Date.UTC(2026, 6, 2))
+    const p = writeTicketFile('proj-evil', 'evil', '# pwned')
     expect(p).toBeNull()                 // refused
     expect(existsSync(outsideTarget)).toBe(false) // nothing written outside
   })

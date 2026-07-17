@@ -1,0 +1,6 @@
+{
+  "name": "agent-ide-smoke-fixture",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:24",
+  "postCreateCommand": "sudo npm install -g @openai/codex",
+  "remoteUser": "node"
+}

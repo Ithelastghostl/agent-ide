@@ -121,14 +121,17 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
   }
 
   // F5: Ctrl+Shift+C copies the selection (only if there is one — otherwise let
-  // the terminal receive Ctrl+C), Ctrl+Shift+V pastes.
+  // the terminal receive Ctrl+C), Ctrl+Shift+V pastes. On macOS the native
+  // Cmd+C/Cmd+V do the same (Cmd never reaches the shell, so no SIGINT clash).
+  const isMac = /Mac/.test(navigator.platform || navigator.userAgent)
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true
-    if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+    const copyCombo = (e.ctrlKey && e.shiftKey) || (isMac && e.metaKey && !e.ctrlKey && !e.shiftKey)
+    if (copyCombo && (e.key === 'C' || e.key === 'c')) {
       if (term.hasSelection()) { void copySelection(); return false }
       return true
     }
-    if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+    if (copyCombo && (e.key === 'V' || e.key === 'v')) {
       void paste(); return false
     }
     return true

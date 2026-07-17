@@ -1,7 +1,47 @@
 # Running & verifying Agent IDE
 
+Last updated: 2026-07-17 (macOS port).
+
+## macOS (primary since 2026-07-17)
+
+The app is fully supported on macOS (arm64, OrbStack for containers). The
+Linux-only `--ozone-platform=x11` flag is applied automatically per platform
+by `scripts/run-electron.js` / `e2e/launch.ts` — never pass it by hand.
+
+- **Launch from a terminal:** `npm run dev` (live reload) or `npm start`.
+- **Launch from Finder/Spotlight:** run once `bash scripts/install-macos-app.sh`
+  → installs `~/Applications/Nacho's IDE.app`. The bundle builds its own PATH
+  (homebrew, `~/.local/bin`, OrbStack) because Finder launches don't read your
+  shell dotfiles; failures alert and log to `~/Library/Logs/nachos-ide/launch.log`.
+- **Host terminals** use your `$SHELL` (zsh), not bash 3.2.
+- **Cmd+C / Cmd+V** copy/paste in terminals (Ctrl+Shift+C/V still work).
+- **Window close ≠ quit:** sessions keep running with the window closed; a
+  reopened window re-attaches to live ptys (no forced reconnect).
+- **Containers** run through OrbStack's docker. Host provider credentials are
+  copied (one-way, never overwriting) into the container user's writable home
+  on container start: codex `auth.json`/`config.toml`, gemini oauth/settings;
+  claude files only with "import config". Nothing writes back to the host.
+- **Claude in containers on macOS:** the host's claude OAuth lives in the
+  Keychain (no `.credentials.json` file), so it cannot be copied in. Run
+  `/login` inside the containerized session — the IDE port-forwards the OAuth
+  loopback callback; the login persists in the container.
+- **Library mount is writable** in containers (the devcontainer CLI's `--mount`
+  grammar has no readonly flag) — in-container agents can edit your library.
+- **Summarization (ticket generation)** runs a confined `claude -p` on the host
+  (all tools disabled, no settings/MCP, fresh empty cwd, no session
+  persistence), billed to your subscription login.
+- **Library agents:** the 🤖 Agents pill lists `agents/*.md` files (frontmatter
+  name/description + `# Instructions` / `# Data` / `# Context` layers); "New
+  agent" creates one. The library is local-first — syncing a repo into a
+  non-empty non-clone library folder is refused, never clobbered.
+- **Container smoke (needs Docker, pulls images):**
+  `npm rebuild node-pty && AGENT_IDE_CONTAINER_SMOKE=1 npx vitest run tests/integration --testTimeout=600000`
+  (containers created by it are stopped, not removed). Provider smoke (three
+  tiny billed turns): `npm rebuild node-pty && node scripts/provider-smoke.mjs`.
+  After either, `npm run rebuild:electron` restores the app's native ABI.
+
 ## TL;DR for the developer (you)
-This is a GUI Electron app for **your** Linux desktop. The build agent verifies
+This app also runs on a Linux desktop. The build agent verifies
 everything that can be checked **headlessly** (build, type-check, unit tests, and
 a node-level pty integration test). **Visual confirmation — that the window
 opens and the Variant-A cockpit renders — is done by you** running:

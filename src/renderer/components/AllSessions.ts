@@ -4,6 +4,8 @@ export interface AllSessionsProps {
   projects: Project[]
   sessions: Session[]
   onOpen: (projectId: string, sessionId: string) => void
+  /** B8: commit+push the IDE-owned history repo; resolves per-step results. */
+  onSyncHistory?: () => Promise<{ step: string; ok: boolean; skipped?: boolean; error?: string }[]>
 }
 
 /** ⌘ home: LIVE sessions across every project, grouped by project, newest first
@@ -25,6 +27,37 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
   sub.className = 'sub'
   sub.textContent = `${liveSessions.length} live across ${p.projects.length} projects`
   el.appendChild(sub)
+
+  if (p.onSyncHistory) {
+    const actions = document.createElement('div')
+    actions.className = 'as-actions'
+    const btn = document.createElement('button')
+    btn.className = 'hsync'
+    btn.textContent = 'Sync history'
+    const result = document.createElement('span')
+    result.className = 'hsync-result'
+    btn.onclick = async () => {
+      btn.disabled = true
+      result.className = 'hsync-result'
+      result.textContent = 'syncing…'
+      try {
+        const steps = await p.onSyncHistory!()
+        const bad = steps.find((s) => !s.ok)
+        if (bad) {
+          result.className = 'hsync-result err'
+          result.textContent = `${bad.step} failed: ${bad.error ?? 'unknown error'}`
+        } else {
+          result.textContent = steps.some((s) => s.skipped) ? 'already up to date' : 'history pushed'
+        }
+      } catch (err) {
+        result.className = 'hsync-result err'
+        result.textContent = (err as Error).message
+      }
+      btn.disabled = false
+    }
+    actions.append(btn, result)
+    el.appendChild(actions)
+  }
 
   for (const proj of p.projects) {
     const projSessions = liveSessions.filter((s) => s.projectId === proj.id)

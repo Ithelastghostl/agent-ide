@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseFrontmatter, parseWorkflowMeta, scanLibrary, readLibraryItem } from '../../src/main/library'
+import { parseFrontmatter, parseWorkflowMeta, scanLibrary, readLibraryItem, addAgent, agentSlug } from '../../src/main/library'
+import { readFileSync } from 'node:fs'
+import YAML from 'yaml'
 
 describe('parseFrontmatter', () => {
   it('parses simple key: value frontmatter and returns the body', () => {
@@ -77,7 +79,7 @@ describe('scanLibrary', () => {
   })
   it('returns empty arrays for a library with no category folders', () => {
     const empty = mkdtempSync(join(tmpdir(), 'agide-lib-empty-'))
-    expect(scanLibrary(empty)).toEqual({ prompts: [], skills: [], workflows: [] })
+    expect(scanLibrary(empty)).toEqual({ prompts: [], skills: [], workflows: [], agents: [] })
     rmSync(empty, { recursive: true, force: true })
   })
 })
@@ -118,5 +120,74 @@ describe('readLibraryItem confinement (L1, shares B1/B2 hardening)', () => {
     const res = readLibraryItem('escape/secret.txt')
     expect(res.content).toBeUndefined()
     expect(res.error).toBeTruthy()
+  })
+})
+
+// B2: the agents category — one .md file with JSON-quoted (valid YAML) meta and
+// layered body sections, created through addAgent with strict validation.
+describe('agents (B2)', () => {
+  let lib: string
+  beforeEach(() => { lib = mkdtempSync(join(tmpdir(), 'agide-lib-agents-')) })
+  afterEach(() => { rmSync(lib, { recursive: true, force: true }) })
+
+  it('agentSlug derives a filesystem slug', () => {
+    expect(agentSlug('Release Notes Writer')).toBe('release-notes-writer')
+    expect(agentSlug('  ⚡️ Fancy!! Agent  ')).toBe('fancy-agent')
+    expect(agentSlug('日本語')).toBe('') // no ascii alnum → invalid
+  })
+
+  it('addAgent writes agents/<slug>.md and scanLibrary reads it back verbatim', () => {
+    const input = {
+      name: 'Fix: the "auth" #1 agent',
+      description: 'Handles auth: bugs #fast, with "quotes" and \\backslashes\\',
+      instructions: 'Do the thing.\nCarefully.',
+      data: 'endpoint: https://api.example.com',
+      context: 'Used by the TalentChain project.'
+    }
+    const r = addAgent(input, lib)
+    expect(r.error).toBeUndefined()
+    expect(r.relPath).toBe('agents/fix-the-auth-1-agent.md')
+
+    const scanned = scanLibrary(lib).agents
+    expect(scanned).toHaveLength(1)
+    // Round-trip: name/description survive quotes, colons, '#', backslashes.
+    expect(scanned[0].name).toBe(input.name)
+    expect(scanned[0].description).toBe(input.description)
+
+    const text = readFileSync(join(lib, r.relPath!), 'utf8')
+    expect(text).toContain('# Instructions')
+    expect(text).toContain('Do the thing.')
+    expect(text).toContain('# Data')
+    expect(text).toContain('endpoint: https://api.example.com')
+    expect(text).toContain('# Context')
+
+    // The frontmatter must be VALID YAML for conforming parsers, not just ours.
+    const fmBlock = /^---\n([\s\S]*?)\n---\n/.exec(text)![1]
+    const parsed = YAML.parse(fmBlock) as { name: string; description: string }
+    expect(parsed.name).toBe(input.name)
+    expect(parsed.description).toBe(input.description)
+  })
+
+  it('refuses a duplicate slug (exclusive write, never overwrite)', () => {
+    expect(addAgent({ name: 'My Agent', description: '', instructions: 'v1', data: '', context: '' }, lib).relPath).toBeTruthy()
+    const dup = addAgent({ name: 'my   AGENT', description: '', instructions: 'v2', data: '', context: '' }, lib)
+    expect(dup.error).toMatch(/already exists/)
+    expect(readFileSync(join(lib, 'agents', 'my-agent.md'), 'utf8')).toContain('v1') // untouched
+  })
+
+  it('validates name, description, and layer sizes at the boundary', () => {
+    expect(addAgent({ name: '', description: '', instructions: '', data: '', context: '' }, lib).error).toMatch(/name/)
+    expect(addAgent({ name: '!!!', description: '', instructions: '', data: '', context: '' }, lib).error).toMatch(/letter or digit/)
+    expect(addAgent({ name: 'x'.repeat(81), description: '', instructions: '', data: '', context: '' }, lib).error).toMatch(/1–80/)
+    expect(addAgent({ name: 'ok', description: 'two\nlines', instructions: '', data: '', context: '' }, lib).error).toMatch(/single line/)
+    expect(addAgent({ name: 'ok', description: '', instructions: 'x'.repeat(64 * 1024 + 1), data: '', context: '' }, lib).error).toMatch(/exceeds/)
+  })
+
+  it('agents count toward the library scan without disturbing other categories', () => {
+    addAgent({ name: 'a1', description: 'first', instructions: '', data: '', context: '' }, lib)
+    addAgent({ name: 'a2', description: 'second', instructions: '', data: '', context: '' }, lib)
+    const all = scanLibrary(lib)
+    expect(all.agents.map((a) => a.name)).toEqual(['a1', 'a2'])
+    expect(all.prompts).toEqual([])
   })
 })

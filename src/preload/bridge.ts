@@ -30,8 +30,10 @@ contextBridge.exposeInMainWorld('agentIDE', {
   onContainerStatus: (cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void) =>
     ipcRenderer.on('container:status', (_e, p) => cb(p)),
 
-  // provider connection (F8/F9/F10)
-  providerHealth: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:health', provider, projectId, cwd),
+  // provider connection (F8/F9/F10). useContainer: explicit context wins in
+  // main; omit for auto-detection.
+  providerHealth: (provider: string, projectId: string, cwd: string, useContainer?: boolean) =>
+    ipcRenderer.invoke('provider:health', provider, projectId, cwd, useContainer),
   providerLogin: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:login', provider, projectId, cwd),
   providerInstall: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:install', provider, projectId, cwd),
 
@@ -63,15 +65,25 @@ contextBridge.exposeInMainWorld('agentIDE', {
   },
   onSessionExit: (cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void) =>
     ipcRenderer.on('session:exit', (_e, p) => cb(p)),
+  // App-level notices from main (e.g. a container missing credential mounts).
+  onNotice: (cb: (p: { message: string }) => void) =>
+    ipcRenderer.on('app:notice', (_e, p) => cb(p)),
 
   // Replay saved terminal output for a session (chat history) on mount.
   transcriptGet: (id: string): Promise<string> => ipcRenderer.invoke('transcript:get', id),
 
-  // Library (GitHub-backed Prompts/Skills/Workflows).
+  // Library (Prompts/Skills/Workflows/Agents; local-first, optionally a clone).
   libraryList: () => ipcRenderer.invoke('library:list'),
   libraryRead: (relPath: string) => ipcRenderer.invoke('library:read', relPath),
   libraryStatus: () => ipcRenderer.invoke('library:status'),
   librarySync: (repo?: string) => ipcRenderer.invoke('library:sync', repo),
+  libraryAddAgent: (input: unknown) => ipcRenderer.invoke('library:addAgent', input),
+
+  // Commit+push the IDE-owned history repo (B8); returns per-step results.
+  historySync: (timestamp: string) => ipcRenderer.invoke('history:sync', timestamp),
+
+  // Whether a live pty exists for a session (reattach instead of respawn).
+  ptyAlive: (id: string): Promise<boolean> => ipcRenderer.invoke('pty:alive', id),
 
   // sessions persistence / global board
   sessionsAll: () => ipcRenderer.invoke('sessions:all'),

@@ -179,4 +179,32 @@ describe('Store', () => {
     expect(store.getTickets('p1')).toHaveLength(1)
     expect(store.getTickets('p1')[0].title).toBe('V2')
   })
+
+  // B6: execution context persists with the session (host vs container).
+  it('B6: useContainer round-trips through the store as boolean | null', () => {
+    store.saveSession({ id: 'c1', projectId: 'p1', provider: 'codex', model: 'gpt-5-codex', objective: 'o', status: 'running', createdAt: 1, updatedAt: 1, useContainer: true })
+    store.saveSession({ id: 'c2', projectId: 'p1', provider: 'codex', model: 'gpt-5-codex', objective: 'o', status: 'running', createdAt: 2, updatedAt: 2, useContainer: false })
+    store.saveSession({ id: 'c3', projectId: 'p1', provider: 'codex', model: 'gpt-5-codex', objective: 'o', status: 'running', createdAt: 3, updatedAt: 3 })
+    const by = Object.fromEntries(store.getSessions('p1').map((s) => [s.id, s.useContainer]))
+    expect(by.c1).toBe(true)
+    expect(by.c2).toBe(false)
+    expect(by.c3).toBeNull() // grandfathered/unspecified stays null, not false
+  })
+
+  // R2-7: switching engines must persist the provider, not just the model.
+  it('R2-7: the session upsert updates provider on conflict', () => {
+    store.saveSession({ id: 'sw1', projectId: 'p1', provider: 'codex', model: 'gpt-5-codex', objective: 'o', status: 'running', createdAt: 1, updatedAt: 1 })
+    store.saveSession({ id: 'sw1', projectId: 'p1', provider: 'claude', model: 'claude-opus-4-8', objective: 'o', status: 'running', createdAt: 1, updatedAt: 2 })
+    const s = store.getSession('sw1')!
+    expect(s.provider).toBe('claude')
+    expect(s.model).toBe('claude-opus-4-8')
+  })
+
+  // R2-6: ticket row + 'ticketed' status move in ONE transaction.
+  it('R2-6: finalizeTicket persists the ticket and the status atomically', () => {
+    store.saveSession({ id: 'ft1', projectId: 'p1', provider: 'claude', model: 'claude-opus-4-8', objective: 'o', status: 'running', createdAt: 1, updatedAt: 1, taskKind: 'product', taskSubkind: 'bug', taskStatus: 'deployed' })
+    store.finalizeTicket({ id: 'ticket-ft1', sessionId: 'ft1', projectId: 'p1', subkind: 'bug', title: 'T', bodyMd: '#', fieldsJson: '{}', createdAt: 5 })
+    expect(store.getTicketBySession('ft1')?.id).toBe('ticket-ft1')
+    expect(store.getSession('ft1')?.taskStatus).toBe('ticketed')
+  })
 })

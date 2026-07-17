@@ -41,6 +41,10 @@ export interface Session {
   taskKind?: TaskKind | null
   taskSubkind?: TaskSubkind | null
   taskStatus?: TaskStatus | null
+  /** Execution context the session was launched in (host vs devcontainer).
+   *  Persisted so resume/health checks recover it after an app restart; null
+   *  for terminals, logins, and grandfathered rows. */
+  useContainer?: boolean | null
 }
 
 export interface Project {
@@ -79,10 +83,10 @@ export interface Ticket {
   createdAt: number
 }
 
-/** A library item — a Prompt, Skill, or Workflow read from the GitHub-backed
- *  library folder. `relPath` is the item's path relative to the library root
- *  (used for confined reads); `path` is the absolute path for display/debug. */
-export type LibraryCategory = 'prompts' | 'skills' | 'workflows'
+/** A library item — a Prompt, Skill, Workflow, or Agent read from the library
+ *  folder. `relPath` is the item's path relative to the library root (used for
+ *  confined reads); `path` is the absolute path for display/debug. */
+export type LibraryCategory = 'prompts' | 'skills' | 'workflows' | 'agents'
 
 export interface LibraryItem {
   category: LibraryCategory
@@ -96,4 +100,15 @@ export interface LibraryContents {
   prompts: LibraryItem[]
   skills: LibraryItem[]
   workflows: LibraryItem[]
+  agents: LibraryItem[]
+}
+
+/** Input for creating an agent in the library: frontmatter meta plus the three
+ *  layered body sections (any may be empty). One agent = one markdown file. */
+export interface AgentInput {
+  name: string
+  description: string
+  instructions: string
+  data: string
+  context: string
 }
