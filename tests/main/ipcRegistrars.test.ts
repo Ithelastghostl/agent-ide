@@ -77,11 +77,14 @@ describe('harness + search IPC (implemented)', () => {
 
 describe('stubbed stream registrars return not-implemented', () => {
   beforeEach(() => { handlers.clear() })
-  it('linear + deferred git snapshot/rollback stubs', async () => {
+  it('linear (implemented by S2) + deferred git snapshot/rollback stubs', async () => {
     const d = deps()
     registerLinearIpc(d); registerGitIpc(d)
-    expect(await invoke('linear:pull', 'p1')).toEqual({ error: 'not-implemented' })
+    // S2 implements linear:pull — an unlinked project reports "project not linked"
+    // (no longer the foundation not-implemented stub).
+    expect(await invoke('linear:pull', 'p1')).toEqual({ error: 'project not linked' })
     // Snapshot/rollback/undo (#9) stay deferred per the SNAPSHOT scope decision.
+    // (git:status/diff ARE implemented by S4 — covered in the git IPC block below.)
     expect(await invoke('snapshot:list', 'p1')).toEqual({ error: 'not-implemented' })
     expect(await invoke('git:rollbackPreview', 'snap')).toEqual({ error: 'not-implemented' })
     expect(await invoke('git:rollbackApply', 'tok')).toEqual({ error: 'not-implemented' })

@@ -7,6 +7,7 @@ import { SupervisionView, type OpenFile, type OpenReport, type ActiveTab } from 
 import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
 import { LibraryPanel } from './components/LibraryPanel'
+import { LinearPanel, type LinearStatus, type LinearBacklogRow, type WritebackPreview } from './components/LinearPanel'
 import { AgentForm } from './components/AgentForm'
 import type { LibraryCategory, LibraryContents, LibraryItem } from '@shared/types'
 import { RepoPicker } from './components/RepoPicker'
@@ -453,6 +454,56 @@ function openAgentForm() {
   form.id = 'picker-overlay'
   document.body.appendChild(form)
 }
+
+// S2: open the Linear integration panel for the current project. Link/pull/
+// write-back are wired to the frozen linear:* bridge; the panel renders all
+// Linear-sourced text via textContent only.
+async function openLinear() {
+  const proj = currentProject()
+  if (!proj) return
+  const status = (await window.agentIDE.linearStatus(proj.id).catch(() => ({ connected: false }))) as LinearStatus
+  const backlog = await window.agentIDE.backlogList(proj.id).catch(() => [])
+  const rows: LinearBacklogRow[] = (backlog as Array<{ id: string; title: string; source: string; remoteStatus?: string | null; linearUrl?: string | null }>)
+    .filter((i) => i.source === 'linear')
+    .map((i) => ({ id: i.id, title: i.title, remoteStatus: i.remoteStatus, linearUrl: i.linearUrl }))
+
+  const panel = LinearPanel({
+    status,
+    rows,
+    onLink: async () => {
+      const label = await promptText('Team or project label (optional)', proj.name)
+      const r = await window.agentIDE.linearLink(proj.id, { label: label ?? proj.name })
+      if ((r as { error?: string }).error) flash(`Linear link failed: ${(r as { error?: string }).error}`)
+      else { flash('Linear linked'); closeOverlay(); openLinear() }
+    },
+    onPull: async () => {
+      const r = await window.agentIDE.linearPull(proj.id) as { ok?: true; count?: number; error?: string }
+      if (r.error) flash(`Pull failed: ${r.error}`)
+      else { flash(`Pulled ${r.count ?? 0} issue(s)`); loadLibrary(); closeOverlay(); openLinear() }
+    },
+    onLogout: async (accountId) => {
+      const r = await window.agentIDE.linearLogout(accountId) as { ok?: true; error?: string }
+      if (r.error) flash(`Logout failed: ${r.error}`)
+      else { flash('Disconnected from Linear'); closeOverlay(); openLinear() }
+    },
+    onPreview: (itemId, action) =>
+      window.agentIDE.linearWriteback(itemId, { ...action, mode: 'preview', sessionId: state.activeSessionId ?? 'no-session' }) as Promise<WritebackPreview | { error: string }>,
+    onApply: (itemId, action) =>
+      window.agentIDE.linearWriteback(itemId, { ...action, mode: 'apply', sessionId: state.activeSessionId ?? 'no-session' }) as Promise<{ ok?: boolean; outcome?: string; error?: string }>,
+    onCancel: closeOverlay
+  })
+  panel.id = 'picker-overlay'
+  document.body.appendChild(panel)
+}
+
+// S2: Cmd/Ctrl+L opens the Linear panel for the current project.
+window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L') && currentProject()) {
+    e.preventDefault()
+    if (document.getElementById('picker-overlay')) return
+    void openLinear()
+  }
+})
 
 /** Write library text into a session. Multi-line bodies go ONLY to provider
  *  sessions (a plain shell would EXECUTE each line), wrapped in bracketed-paste
