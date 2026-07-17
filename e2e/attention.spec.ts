@@ -84,9 +84,19 @@ test('a quiet session ending on a question is flagged as needing input', async (
     return s.id
   }, { projectId, cwd: proj })
 
-  // Wait for the shim banner, then feed a question-like line as the last output.
+  // Wait for the shim banner AND for the launch harness primer (gate 1: every
+  // provider launch auto-submits the harness, which the shim echoes back) to
+  // settle, so the question we inject next is the LAST output line the monitor
+  // sees — not a trailing harness line. Poll until the transcript stops growing.
   await expect.poll(() => win.evaluate((id) => window.agentIDE.transcriptGet(id), sessionId), { timeout: 10_000 })
     .toContain('SHIM_PROVIDER_READY')
+  let prevLen = -1
+  await expect.poll(async () => {
+    const len = (await win.evaluate((id) => window.agentIDE.transcriptGet(id), sessionId)).length
+    const stable = len === prevLen
+    prevLen = len
+    return stable
+  }, { timeout: 10_000, intervals: [400] }).toBe(true)
   await win.evaluate((id) => window.agentIDE.ptyWrite(id, 'Do you want to proceed?\r'), sessionId)
 
   await expect.poll(

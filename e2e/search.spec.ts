@@ -97,7 +97,10 @@ test('⌘K finds a seeded transcript and backlog item, and Enter navigates', asy
   await win.locator('.search-row.backlog').first().click()
   await expect(win.locator('.search-overlay')).toHaveCount(0)
   await expect(win.locator('.backlog-view')).toBeVisible({ timeout: 10_000 })
-  await expect(win.locator('.backlog-focus')).toHaveAttribute('data-item-id', backlogItemId)
+  // S1's full Backlog view highlights the search-routed item (.bk-focused on the
+  // element carrying its data-id). (S7's placeholder .backlog-focus was superseded
+  // by S1's BacklogView during consolidation.)
+  await expect(win.locator(`.backlog-view [data-id="${backlogItemId}"].bk-focused`)).toBeVisible({ timeout: 10_000 })
 
   await app.close()
 })
