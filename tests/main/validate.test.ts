@@ -47,10 +47,12 @@ describe('asBool', () => {
 describe('isKnownModel (model membership)', () => {
   it('accepts a real model for its provider', () => {
     expect(isKnownModel('claude', 'claude-opus-4-8')).toBe(true)
-    expect(isKnownModel('codex', 'gpt-5-codex')).toBe(true)
+    expect(isKnownModel('claude', 'claude-fable-5')).toBe(true)
+    expect(isKnownModel('codex', 'gpt-5.6-sol')).toBe(true)
   })
   it('rejects a model that is not in the provider\'s registry', () => {
-    expect(isKnownModel('claude', 'gpt-5-codex')).toBe(false) // wrong provider
+    expect(isKnownModel('claude', 'gpt-5.6-sol')).toBe(false) // wrong provider
+    expect(isKnownModel('codex', 'gpt-5-codex')).toBe(false) // retired family
     expect(isKnownModel('claude', 'made-up-model')).toBe(false)
   })
 })
@@ -175,7 +177,7 @@ describe('validateResumeSession (B9: status transitions + membership)', () => {
     id: 'sess-1-123',
     projectId: 'proj-abc',
     provider: 'codex',
-    model: 'gpt-5-codex',
+    model: 'gpt-5.6-terra',
     objective: 'x',
     status: 'idle',
     createdAt: 1,
