@@ -1,5 +1,6 @@
 import './cockpit.css'
-import type { Provider, Project, Session, TaskKind, TaskSubkind, GitStatusSummary, GitDiff } from '@shared/types'
+import { isTerminalSession } from '@shared/types'
+import type { Provider, Project, Session, SessionStage, TaskKind, TaskSubkind, GitStatusSummary, GitDiff } from '@shared/types'
 import { initialState, liveCounts, liveSessionsFor, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit, type ProviderHealth } from './components/Cockpit'
@@ -17,6 +18,8 @@ import { SearchOverlay } from './components/SearchOverlay'
 import { BacklogView, type BacklogLayout } from './components/BacklogView'
 import { BacklogModal } from './components/BacklogModal'
 import type { BacklogItem, BacklogCreateInput, BacklogUpdateInput, BacklogManualStatus } from '@shared/types'
+import { runAdvanceFlow, nextStage, effectiveStageOf } from './components/StageChip'
+import { openHarnessEditor } from './components/HarnessEditor'
 import { modelsFor, loadModels } from './models'
 import { showMenu, promptText, chooseOption, flash } from './ui'
 
@@ -126,6 +129,14 @@ function activityBar(): HTMLElement {
     const d = document.createElement('div'); d.className = 'ic'; d.textContent = icon; el.appendChild(d)
   }
   const sp = document.createElement('div'); sp.className = 'sp'; el.appendChild(sp)
+  // S3: harness editor — the uniform Discussion→Playback→Fix protocol. Reachable
+  // from the settings cog (home + cockpit both render the activity bar).
+  const harness = document.createElement('div')
+  harness.className = 'ic'
+  harness.textContent = '📜'
+  harness.title = 'Edit session harness'
+  harness.onclick = () => { void openHarnessEditor({ get: () => window.agentIDE.harnessGet(), set: (t) => window.agentIDE.harnessSet(t) }) }
+  el.appendChild(harness)
   const cog = document.createElement('div'); cog.className = 'ic'; cog.textContent = '⚙'; el.appendChild(cog)
   return el
 }
@@ -1007,6 +1018,42 @@ async function changeModelFlow(session: Session) {
   }
 }
 
+// S3: advance a session's stage (adjacent-only: discussion→playback→fix) via the
+// declarative session:setStage. Advancing to fix on a RUNNING CONTAINER session
+// flips the spawn-baked approval mode, so the foundation relaunches the engine in
+// fix mode — we confirm first ("Playback approved → restart engine in fix mode").
+// Host sessions advance as pure labels (no confirm, no relaunch). Because the
+// reconcile runs asynchronously under the per-project gate, we re-fetch sessions
+// after the call so the chip reflects the applied effectiveStage.
+async function advanceStage(session: Session, to: SessionStage) {
+  try {
+    const res = await runAdvanceFlow(session, to, {
+      confirm: async (message) =>
+        !!(await chooseOption<'yes'>(message, [{ label: 'Restart in fix mode', value: 'yes', primary: true }])),
+      setStage: (id, stage) => window.agentIDE.sessionSetStage(id, stage)
+    })
+    if (res === null) return // user cancelled the fix-restart confirm
+    if (res.error) { flash(res.error); return }
+    await refreshSessions()
+  } catch (err) {
+    flash((err as Error).message)
+  }
+}
+
+/** Re-hydrate sessions from the store (after a declarative stage/model write the
+ *  reconcile settles asynchronously; this pulls the applied state back). */
+async function refreshSessions() {
+  try {
+    const sessions = await window.agentIDE.sessionsAll()
+    // Preserve local-only fields not on the persisted row would live here; the
+    // store is the source of truth for stage/status/spawned* so replace wholesale.
+    state.sessions = sessions
+    render()
+  } catch (err) {
+    console.error('refresh sessions failed', err)
+  }
+}
+
 // F6/F7: three-dot session menu — reconnect (if crashed), rename, change model, close+archive.
 function openSessionMenu(session: Session, x: number, y: number) {
   const items = []
@@ -1046,6 +1093,17 @@ function openSessionMenu(session: Session, x: number, y: number) {
         session.taskStatus = 'ticketed'; render()
       }
     })
+  }
+  // S3: adjacent-only stage advance from the session menu (mirrors the header
+  // control). Only for provider sessions that have a next stage.
+  if (!isTerminalSession(session.id) && session.model !== 'login') {
+    const to = nextStage(effectiveStageOf(session))
+    if (to) {
+      items.push({
+        label: `⏭ Advance to ${to.charAt(0).toUpperCase() + to.slice(1)}`,
+        onClick: () => { void advanceStage(session, to) }
+      })
+    }
   }
   items.push(
     {
@@ -1226,7 +1284,11 @@ function render() {
     onSelectTab: (tab) => { activeTab = tab; render() },
     onCloseFile: closeFile,
     onCloseReport: closeReport,
-    agentName: activeSession ? agentNameFor(activeSession) : null
+    agentName: activeSession ? agentNameFor(activeSession) : null,
+    // S3: only provider sessions carry a stage; terminals/logins don't.
+    onAdvanceStage: activeSession && !isTerminalSession(activeSession.id) && activeSession.model !== 'login'
+      ? (session, to) => { void advanceStage(session, to) }
+      : undefined
   }))
   body.appendChild(
     Cockpit({

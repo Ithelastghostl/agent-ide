@@ -1,4 +1,5 @@
-import type { Provider, Session } from '@shared/types'
+import type { Provider, Session, SessionStage } from '@shared/types'
+import { stageControl } from './StageChip'
 
 const PROVIDER_VAR: Record<Provider, string> = {
   codex: 'var(--codex)',
@@ -50,6 +51,9 @@ export interface SupervisionProps {
   /** S8: display name of the library agent this session launched from, if any —
    *  rendered as a chip in the session header. */
   agentName?: string | null
+  /** S3: advance the active session to the next adjacent stage (declarative
+   *  session:setStage). Omitted → the header shows a read-only stage chip. */
+  onAdvanceStage?: (session: Session, to: SessionStage) => void
 }
 
 /** Center pane: a tab strip (session + open files) over the active tab's content
@@ -163,6 +167,15 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
         agentChip.textContent = `🤖 ${p.agentName}`
         agentChip.title = 'Launched from a library agent'
         head.append(agentChip)
+      }
+      // S3: stage chip + guarded/auto indicator + adjacent-only advance button.
+      // Terminals have no stage; only show for provider sessions.
+      if (p.onAdvanceStage) {
+        const sess = p.session
+        head.appendChild(stageControl({
+          session: sess,
+          onAdvance: (to) => p.onAdvanceStage!(sess, to)
+        }))
       }
       superv.appendChild(head)
     }
