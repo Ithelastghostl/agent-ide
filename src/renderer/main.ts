@@ -17,14 +17,46 @@ import { AllSessions } from './components/AllSessions'
 import { SearchOverlay } from './components/SearchOverlay'
 import { BacklogView, type BacklogLayout } from './components/BacklogView'
 import { BacklogModal } from './components/BacklogModal'
-import type { BacklogItem, BacklogCreateInput, BacklogUpdateInput, BacklogManualStatus } from '@shared/types'
+import type { BacklogItem, BacklogCreateInput, BacklogUpdateInput, BacklogManualStatus, QueueItem } from '@shared/types'
 import { runAdvanceFlow, nextStage, effectiveStageOf } from './components/StageChip'
 import { openHarnessEditor } from './components/HarnessEditor'
+import { QueueDrawer } from './components/QueueDrawer'
+import { HandoffReview } from './components/HandoffReview'
 import { modelsFor, loadModels } from './models'
 import { showMenu, promptText, chooseOption, flash } from './ui'
 
 const root = document.getElementById('app')!
 const state: AppState = initialState()
+
+// ---- S6 orchestration: queue, split view, handoff-review state ----------------
+// Split view (S6): show two session panes side by side in the cockpit. The second
+// pane's session id and which pane is focused (writes/inserts target it).
+let splitOn = false
+let secondSessionId: string | null = null
+let focusedPane: 'primary' | 'second' = 'primary'
+// Pending-review counts per session (S6/S2), refreshed from main. sessionId →
+// {count, chars, inFix}. Drives the "Review & insert" affordance on each pane.
+const reviewPending = new Map<string, { count: number; chars: number; inFix: boolean }>()
+
+// Refresh a session's pending-review summary from main, then re-render.
+function refreshReview(sessionId: string, inFix = false): void {
+  window.agentIDE.reviewPending(sessionId).then((r) => {
+    if (r.totalChars > 0 && r.sections.length > 0) {
+      reviewPending.set(sessionId, { count: r.sections.length, chars: r.totalChars, inFix })
+    } else {
+      reviewPending.delete(sessionId)
+    }
+    render()
+  }).catch(() => { /* store unavailable */ })
+}
+
+// Main tells us when a session's pending-review set changes (handoff registered,
+// or review:insert cleared it).
+window.agentIDE.onReviewChanged?.(({ sessionId }) => refreshReview(sessionId))
+// Main tells us when a project's queue changed (advancement, enqueue, etc.).
+window.agentIDE.onQueueChanged?.(({ projectId }) => {
+  if (currentProject()?.id === projectId) render()
+})
 
 // Sessions whose process died (F4). Cleared when reconnected/relaunched.
 const reconnect = new Set<string>()
@@ -119,7 +151,7 @@ function activityBar(): HTMLElement {
   const el = document.createElement('div')
   el.className = 'activity'
   // Cockpit + Backlog are clickable top-level views (project-scoped); 🔍 opens
-  // the ⌘K search overlay. S1 adds the Backlog tab (📋); S7 the search glyph.
+  // the ⌘K search overlay (S7); ▷ opens the session queue drawer (S6).
   const cockpitTab = document.createElement('div')
   cockpitTab.className = 'ic' + (state.view === 'cockpit' ? ' on' : '')
   cockpitTab.textContent = '🗂'
@@ -141,9 +173,15 @@ function activityBar(): HTMLElement {
   searchTab.onclick = () => openSearch()
   el.appendChild(searchTab)
 
-  for (const [icon] of [['⑂'], ['▷']] as const) {
-    const d = document.createElement('div'); d.className = 'ic'; d.textContent = icon; el.appendChild(d)
-  }
+  const splitTab = document.createElement('div')
+  splitTab.className = 'ic'; splitTab.textContent = '⑂'; el.appendChild(splitTab)
+
+  const queueTab = document.createElement('div')
+  queueTab.className = 'ic queue-ic'
+  queueTab.textContent = '▷'
+  queueTab.title = 'Session queue'
+  queueTab.onclick = () => { if (currentProject()) void openQueueDrawer() }
+  el.appendChild(queueTab)
   const sp = document.createElement('div'); sp.className = 'sp'; el.appendChild(sp)
   // S3: harness editor — the uniform Discussion→Playback→Fix protocol. Reachable
   // from the settings cog (home + cockpit both render the activity bar).
@@ -1173,6 +1211,115 @@ function openSessionMenu(session: Session, x: number, y: number) {
   showMenu(x, y, items)
 }
 
+// ---- S6: queue drawer -------------------------------------------------------
+// Cache the current project's queue items; refreshed on open + on queue:changed.
+const queueItems = new Map<string, QueueItem[]>()
+const autoAdvanceByProject = new Map<string, boolean>()
+
+async function openQueueDrawer() {
+  const proj = currentProject()
+  if (!proj) return
+  const [items, auto] = await Promise.all([
+    window.agentIDE.queueList(proj.id),
+    window.agentIDE.queueGetAutoAdvance(proj.id)
+  ])
+  queueItems.set(proj.id, items)
+  autoAdvanceByProject.set(proj.id, auto)
+  mountQueueDrawer(proj.id)
+}
+
+function mountQueueDrawer(projectId: string) {
+  closeOverlay()
+  const proj = state.projects.find((p) => p.id === projectId)
+  if (!proj) return
+  const refresh = async () => {
+    queueItems.set(projectId, await window.agentIDE.queueList(projectId))
+    mountQueueDrawer(projectId)
+  }
+  const drawer = QueueDrawer({
+    projectName: proj.name,
+    items: queueItems.get(projectId) ?? [],
+    autoAdvance: autoAdvanceByProject.get(projectId) ?? false,
+    modelsFor,
+    onEnqueue: async (input) => {
+      const res = await window.agentIDE.queueEnqueue({ projectId, ...input })
+      if (!res.error) await refresh()
+      return res
+    },
+    onDelete: async (id) => { await window.agentIDE.queueDelete(id); await refresh() },
+    onReorder: async (orderedIds) => { await window.agentIDE.queueReorder(projectId, orderedIds); await refresh() },
+    onStartNext: async () => {
+      const r = await window.agentIDE.queueStartNext(projectId)
+      if (r.sessionId) {
+        // A queued session launched — hydrate it into the cockpit list.
+        const s = (await window.agentIDE.sessionsAll()).find((x) => x.id === r.sessionId)
+        if (s) { launchedSessions.add(s.id); if (!state.sessions.find((x) => x.id === s.id)) state.sessions.push(s); state.activeSessionId = s.id }
+      }
+      await refresh()
+    },
+    onToggleAutoAdvance: async (on) => {
+      await window.agentIDE.queueSetAutoAdvance(projectId, on)
+      autoAdvanceByProject.set(projectId, on)
+      await refresh()
+    },
+    onClose: () => { closeOverlay(); render() }
+  })
+  drawer.id = 'picker-overlay'
+  document.body.appendChild(drawer)
+}
+
+// ---- S6: split view + handoff ------------------------------------------------
+/** Toggle two-pane split view. On first enable, seed the second pane with another
+ *  live session in this project (if any) so both panes show a terminal. */
+function toggleSplit() {
+  splitOn = !splitOn
+  if (splitOn && !secondSessionId) {
+    const proj = currentProject()
+    const other = proj
+      ? liveSessionsFor(state.sessions, proj.id).find((s) => s.id !== state.activeSessionId && launchedSessions.has(s.id))
+      : undefined
+    secondSessionId = other?.id ?? null
+  }
+  render()
+}
+
+/** Hand the FOCUSED pane's session tail off to the OTHER pane as pending review
+ *  (never auto-submitted). Warns first if the target is in fix mode. */
+async function handoffFocused() {
+  if (!splitOn || !secondSessionId) return
+  const fromId = focusedPane === 'primary' ? state.activeSessionId : secondSessionId
+  const toId = focusedPane === 'primary' ? secondSessionId : state.activeSessionId
+  if (!fromId || !toId) return
+  const res = await window.agentIDE.sessionHandoff(fromId, toId)
+  if (res.error) { flash(`handoff failed: ${res.error}`); return }
+  // Record fix-mode so the target pane's affordance can show the warning banner.
+  refreshReview(toId, res.targetInFix === true)
+  flash('handoff registered for review — insert it from the target pane when ready')
+}
+
+/** Bracket-paste a session's pending review material into its pty (never
+ *  auto-submitted). */
+async function insertReview(sessionId: string) {
+  const res = await window.agentIDE.reviewInsert(sessionId)
+  if (res.error) { flash(`insert failed: ${res.error}`); return }
+  reviewPending.delete(sessionId)
+  render()
+}
+
+/** Build the "Review & insert" affordance for a session pane, or null if nothing
+ *  is pending for it. */
+function reviewElFor(sessionId: string | null): HTMLElement | null {
+  if (!sessionId) return null
+  const pend = reviewPending.get(sessionId)
+  if (!pend) return null
+  return HandoffReview({
+    count: pend.count,
+    totalChars: pend.chars,
+    inFix: pend.inFix,
+    onInsert: () => void insertReview(sessionId)
+  })
+}
+
 function render() {
   root.innerHTML = ''
   // Window drag strip: titleBarStyle 'hiddenInset' removes the native macOS
@@ -1303,6 +1450,15 @@ function render() {
   const diffEl = isRepo
     ? (activeTab.kind === 'diff' ? diffPaneFor(proj.id) : document.createElement('div'))
     : undefined
+
+  // S6 split view: resolve the SECOND pane's session + terminal. If the remembered
+  // second session is gone (archived/closed), drop it.
+  if (secondSessionId && !projectSessions.some((s) => s.id === secondSessionId)) secondSessionId = null
+  const secondSession = secondSessionId ? (projectSessions.find((s) => s.id === secondSessionId) ?? null) : null
+  const secondTerminalEl = secondSession && launchedSessions.has(secondSession.id)
+    ? terminalFor(secondSession.id)
+    : undefined
+
   body.appendChild(SupervisionView({
     session: activeSession,
     projectName: proj.name,
@@ -1313,6 +1469,18 @@ function render() {
     fileEl,
     reportEl,
     diffEl,
+    reviewEl: reviewElFor(activeSession?.id ?? null),
+    splitOn,
+    secondPane: splitOn ? {
+      session: secondSession,
+      terminalEl: secondTerminalEl,
+      reviewEl: reviewElFor(secondSession?.id ?? null),
+      focused: focusedPane === 'second',
+      onFocus: () => { focusedPane = 'second'; render() }
+    } : undefined,
+    onToggleSplit: toggleSplit,
+    onHandoff: () => void handoffFocused(),
+    onFocusPrimary: () => { focusedPane = 'primary'; render() },
     onSelectTab: (tab) => { activeTab = tab; render() },
     onCloseFile: closeFile,
     onCloseReport: closeReport,
