@@ -22,7 +22,17 @@ import { validateLaunchRequest, validateResumeSession, validateTaskTransition } 
 import { writeRawLog, writeTicketFile } from './projectLog'
 import { generateTicket, type HeadlessRunner } from './ticketService'
 import { notEnabledRunner } from './headlessRunner'
-import { isProvider, type Provider, type Session, type TaskKind, type TaskSubkind } from '@shared/types'
+import { LaunchService } from './launchService'
+import { registerBacklogIpc } from './ipc/backlog'
+import { registerQueueIpc } from './ipc/queue'
+import { registerSearchIpc } from './ipc/search'
+import { registerHarnessIpc } from './ipc/harness'
+import { registerReviewIpc } from './ipc/review'
+import { registerGitIpc } from './ipc/git'
+import { registerLinearIpc } from './ipc/linear'
+import { registerAttentionIpc } from './ipc/attention'
+import type { IpcDeps } from './ipc/deps'
+import { isProvider, type Provider, type Session, type TaskKind, type TaskSubkind, type SessionStage } from '@shared/types'
 
 export interface FileNode {
   name: string
@@ -317,6 +327,40 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   const { container, host, ports } = runtime
   ipcMain.handle('ping', () => 'pong')
 
+  // ---- v2 foundation: canonical launcher + feature IPC registrars ----------
+  const projectRoot = (id: string): string | undefined => store?.getProject(id)?.localPath
+  const launch = new LaunchService({
+    runtime, store: store!, e2eMode: process.env.AGENT_IDE_E2E === '1',
+    onData: (id, chunk) => { sendToRenderer('pty:data', { id, data: chunk }) },
+    onExit: (id, reason) => sendToRenderer('session:exit', { id, reason })
+  })
+  const ipcDeps: IpcDeps = { store, runtime, launch, projectRoot, send: sendToRenderer }
+  // All v2 registrars register their handlers unconditionally (no-store handlers
+  // return typed errors/empties, matching the degraded-mode contract).
+  registerBacklogIpc(ipcDeps)
+  registerQueueIpc(ipcDeps)
+  registerSearchIpc(ipcDeps)
+  registerReviewIpc(ipcDeps)
+  registerHarnessIpc(ipcDeps)
+  registerGitIpc(ipcDeps)
+  registerLinearIpc(ipcDeps)
+  registerAttentionIpc(ipcDeps)
+  if (store) {
+    // Reconcile queue + interrupted sessions on startup (R8/R34/R36).
+    try { launch.reconcileOnBoot() } catch (err) { console.error('[boot reconcile]', (err as Error).message) }
+  }
+
+  // Declarative stage/model writes (R27/R28): persist desired, request reconcile.
+  ipcMain.handle('session:setStage', (_e, id: unknown, stage: unknown) => {
+    if (typeof id !== 'string' || typeof stage !== 'string' || !store) return { error: 'invalid request' }
+    if (!['discussion', 'playback', 'fix'].includes(stage)) return { error: 'invalid stage' }
+    return launch.setDesiredStage(id, stage as SessionStage)
+  })
+  ipcMain.handle('session:setModel', (_e, id: unknown, provider: unknown, model: unknown) => {
+    if (typeof id !== 'string' || !isProvider(String(provider)) || typeof model !== 'string' || !store) return { error: 'invalid request' }
+    return launch.setDesiredModel(id, provider as Provider, model)
+  })
+
   // Open a URL in the host's default browser. Runs host-side, so it works even
   // when the originating session lives inside a container (which has no browser
   // or host display). URLs can come from untrusted CLI output — isSafeExternalUrl
@@ -397,7 +441,7 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
 
   // B1: the renderer names the project by id; main resolves the confined root
   // from its own Store (never a renderer-supplied filesystem path).
-  const projectRoot = (id: string): string | undefined => store?.getProject(id)?.localPath
+  // (projectRoot is declared once at the top of registerIpc for the v2 deps.)
 
   // Top level of a project's file tree. Confined by projectId: an unknown project
   // (or one whose root can't be resolved) yields an empty tree, never a host path.

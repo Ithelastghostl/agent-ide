@@ -91,5 +91,61 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // Move a session's conversation to a different engine: relaunches the same
   // session id under a new provider/model and seeds it with the prior history.
   sessionChangeModel: (s: unknown, cwd: string, useContainer: boolean, provider: string, model: string) =>
-    ipcRenderer.invoke('session:resume', s, cwd, useContainer, { provider, model })
+    ipcRenderer.invoke('session:resume', s, cwd, useContainer, { provider, model }),
+
+  // ============ v2 backlog-driven harness (predeclared for all streams) =====
+
+  // Backlog (S1). CRUD + session binding. Source authority enforced in main.
+  backlogList: (projectId: string) => ipcRenderer.invoke('backlog:list', projectId),
+  backlogCreate: (input: unknown) => ipcRenderer.invoke('backlog:create', input),
+  backlogUpdate: (input: unknown) => ipcRenderer.invoke('backlog:update', input),
+  backlogDelete: (id: string) => ipcRenderer.invoke('backlog:delete', id),
+  backlogForSession: (sessionId: string) => ipcRenderer.invoke('backlog:forSession', sessionId),
+  backlogUnbind: (sessionId: string, itemId: string) => ipcRenderer.invoke('backlog:unbind', sessionId, itemId),
+
+  // Queue (S6). CRUD + explicit advancement.
+  queueList: (projectId: string) => ipcRenderer.invoke('queue:list', projectId),
+  queueEnqueue: (item: unknown) => ipcRenderer.invoke('queue:enqueue', item),
+  queueDelete: (id: string) => ipcRenderer.invoke('queue:delete', id),
+  queueReorder: (projectId: string, orderedIds: string[]) => ipcRenderer.invoke('queue:reorder', projectId, orderedIds),
+  queueStartNext: (projectId: string) => ipcRenderer.invoke('queue:startNext', projectId),
+
+  // Harness (S3). Uniform CLAUDE.md-style protocol.
+  harnessGet: () => ipcRenderer.invoke('harness:get'),
+  harnessSet: (text: string) => ipcRenderer.invoke('harness:set', text),
+
+  // Session stage / model (S3). Declarative desired-state writes.
+  sessionSetStage: (id: string, stage: string) => ipcRenderer.invoke('session:setStage', id, stage),
+  sessionSetModel: (id: string, provider: string, model: string) => ipcRenderer.invoke('session:setModel', id, provider, model),
+
+  // Search (S7). Cross-session FTS.
+  searchQuery: (query: string, limit?: number) => ipcRenderer.invoke('search:query', query, limit),
+
+  // Pending review (S6/S2). Never auto-submitted; inserted only on user action.
+  reviewPending: (sessionId: string) => ipcRenderer.invoke('review:pending', sessionId),
+  reviewInsert: (sessionId: string) => ipcRenderer.invoke('review:insert', sessionId),
+  onReviewChanged: (cb: (p: { sessionId: string }) => void) => ipcRenderer.on('review:changed', (_e, p) => cb(p)),
+
+  // Git awareness + diff (S4). Read-only this run.
+  gitStatus: (projectId: string) => ipcRenderer.invoke('git:status', projectId),
+  gitDiff: (projectId: string, sessionId?: string) => ipcRenderer.invoke('git:diff', projectId, sessionId),
+  snapshotList: (projectId: string) => ipcRenderer.invoke('snapshot:list', projectId),
+  gitRollbackPreview: (snapshotId: string) => ipcRenderer.invoke('git:rollbackPreview', snapshotId),
+  gitRollbackApply: (previewToken: string) => ipcRenderer.invoke('git:rollbackApply', previewToken),
+
+  // Attention + cost (S5).
+  attentionState: () => ipcRenderer.invoke('attention:state'),
+  costForSession: (sessionId: string) => ipcRenderer.invoke('cost:forSession', sessionId),
+  onAttention: (cb: (p: { sessionId: string; state: 'input' | 'idle' | null }) => void) => ipcRenderer.on('session:attention', (_e, p) => cb(p)),
+  onCost: (cb: (p: { sessionId: string }) => void) => ipcRenderer.on('session:cost', (_e, p) => cb(p)),
+
+  // Split-view handoff (S6).
+  sessionHandoff: (fromId: string, toId: string) => ipcRenderer.invoke('session:handoff', fromId, toId),
+
+  // Linear (S2).
+  linearStatus: (projectId: string) => ipcRenderer.invoke('linear:status', projectId),
+  linearLink: (projectId: string, ref: unknown) => ipcRenderer.invoke('linear:link', projectId, ref),
+  linearPull: (projectId: string) => ipcRenderer.invoke('linear:pull', projectId),
+  linearWriteback: (itemId: string, action: unknown) => ipcRenderer.invoke('linear:writeback', itemId, action),
+  linearLogout: (accountId: string) => ipcRenderer.invoke('linear:logout', accountId)
 })
