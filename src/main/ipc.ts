@@ -23,7 +23,7 @@ import { writeRawLog, writeTicketFile } from './projectLog'
 import { generateTicket, type HeadlessRunner } from './ticketService'
 import { notEnabledRunner } from './headlessRunner'
 import { LaunchService } from './launchService'
-import { registerBacklogIpc } from './ipc/backlog'
+import { registerBacklogIpc, bindLaunchBacklog } from './ipc/backlog'
 import { registerQueueIpc } from './ipc/queue'
 import { registerSearchIpc } from './ipc/search'
 import { registerHarnessIpc } from './ipc/harness'
@@ -645,6 +645,8 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
       useContainer: req.useContainer === true
     }
     store?.saveSession(session)
+    // S1: a plain terminal can also carry a "Work on this" backlog selection.
+    if (store) bindLaunchBacklog(store, id, req.projectId, (req as { backlogItemIds?: unknown }).backlogItemIds)
     mgr.spawn(
       { id, shell, args, cwd, env: {} },
       (data) => { sendToRenderer('pty:data', { id, data }); recordOutput(store, id, data) },
@@ -816,6 +818,10 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
       throw new Error(`failed to start ${req.provider} session: ${(err as Error).message}`)
     }
     store?.saveSession(session)
+    // S1: bind any "Work on this" backlog selection to the new session. The field
+    // rides along the launch payload (bridge passes req through untouched); binding
+    // moves each item to sessionState 'in-session' (Store recompute).
+    if (store) bindLaunchBacklog(store, id, req.projectId, (raw as { backlogItemIds?: unknown }).backlogItemIds)
 
     // Auto-forward any localhost port the in-container agent opens (OAuth :1455,
     // dev servers, …) so the host browser can reach it — VS Code-style.
