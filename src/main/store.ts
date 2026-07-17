@@ -61,9 +61,11 @@ export class Store {
    *  Idempotent: rows already at their durable id are left untouched. Skips a
    *  rename if the target id somehow already exists (avoids a PK clash). */
   migrateProjectIds(): void {
-    const rows = this.db
-      .prepare(`SELECT id, repo, localPath FROM projects`)
-      .all() as { id: string; repo: string; localPath: string }[]
+    const rows = this.db.prepare(`SELECT id, repo, localPath FROM projects`).all() as {
+      id: string
+      repo: string
+      localPath: string
+    }[]
     const migrate = this.db.transaction((items: typeof rows) => {
       const exists = this.db.prepare(`SELECT 1 FROM projects WHERE id = ?`)
       const moveSessions = this.db.prepare(`UPDATE sessions SET projectId = ? WHERE projectId = ?`)
@@ -114,9 +116,9 @@ export class Store {
     const add = (name: string, ddl: string) => {
       if (!cols.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${ddl}`)
     }
-    add('taskKind', 'taskKind TEXT')       // 'product' | 'analysis' | NULL
+    add('taskKind', 'taskKind TEXT') // 'product' | 'analysis' | NULL
     add('taskSubkind', 'taskSubkind TEXT') // 'code' | 'feature' | 'bug' | NULL
-    add('taskStatus', 'taskStatus TEXT')   // 'open' | 'finished' | 'deployed' | 'ticketed' | NULL
+    add('taskStatus', 'taskStatus TEXT') // 'open' | 'finished' | 'deployed' | 'ticketed' | NULL
     add('useContainer', 'useContainer INTEGER') // 1 | 0 | NULL (pre-migration rows)
   }
 
@@ -236,11 +238,16 @@ export class Store {
    *  no-op when the buffer is empty) and safe to call from a timer, a read, or
    *  shutdown. */
   flush(): void {
-    if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null }
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = null
+    }
     if (this.pending.length === 0) return
     const batch = this.pending
     this.pending = []
-    const insert = this.db.prepare(`INSERT INTO transcripts (session_id,chunk,ts) VALUES (@session_id,@chunk,@ts)`)
+    const insert = this.db.prepare(
+      `INSERT INTO transcripts (session_id,chunk,ts) VALUES (@session_id,@chunk,@ts)`
+    )
     const writeAll = this.db.transaction((rows: typeof batch) => {
       for (const r of rows) insert.run(r)
     })

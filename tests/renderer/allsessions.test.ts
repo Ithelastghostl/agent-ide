@@ -8,10 +8,46 @@ const projects: Project[] = [
   { id: 'p2', name: 'sample-cli', repo: 'example/sample-cli', localPath: '/b', hasDevcontainer: false }
 ]
 const sessions: Session[] = [
-  { id: 's1', projectId: 'p1', provider: 'codex', model: 'gpt-5-codex', objective: 'Fix auth', status: 'running', createdAt: 1, updatedAt: 1 },
-  { id: 's2', projectId: 'p1', provider: 'claude', model: 'sonnet', objective: 'Tests', status: 'running', createdAt: 2, updatedAt: 2 },
-  { id: 's3', projectId: 'p2', provider: 'gemini', model: 'pro', objective: 'Parse', status: 'idle', createdAt: 3, updatedAt: 3 },
-  { id: 's4', projectId: 'p1', provider: 'claude', model: 'haiku', objective: 'Old archived', status: 'archived', createdAt: 0, updatedAt: 0 }
+  {
+    id: 's1',
+    projectId: 'p1',
+    provider: 'codex',
+    model: 'gpt-5-codex',
+    objective: 'Fix auth',
+    status: 'running',
+    createdAt: 1,
+    updatedAt: 1
+  },
+  {
+    id: 's2',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'sonnet',
+    objective: 'Tests',
+    status: 'running',
+    createdAt: 2,
+    updatedAt: 2
+  },
+  {
+    id: 's3',
+    projectId: 'p2',
+    provider: 'gemini',
+    model: 'pro',
+    objective: 'Parse',
+    status: 'idle',
+    createdAt: 3,
+    updatedAt: 3
+  },
+  {
+    id: 's4',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'haiku',
+    objective: 'Old archived',
+    status: 'archived',
+    createdAt: 0,
+    updatedAt: 0
+  }
 ]
 
 describe('AllSessions (NN4 global board)', () => {
@@ -26,7 +62,15 @@ describe('AllSessions (NN4 global board)', () => {
 
   it('orders sessions most-recent first within a project', () => {
     let opened: { projectId: string; sessionId: string } | null = null
-    const el = AllSessions({ projects, sessions, mode: 'live', onSetMode: () => {}, onOpen: (projectId, sessionId) => { opened = { projectId, sessionId } } })
+    const el = AllSessions({
+      projects,
+      sessions,
+      mode: 'live',
+      onSetMode: () => {},
+      onOpen: (projectId, sessionId) => {
+        opened = { projectId, sessionId }
+      }
+    })
     // Within p1, s2 (createdAt 2) is newer than s1 (createdAt 1) → s2 renders first.
     const firstRow = el.querySelector('.as-row') as HTMLElement
     firstRow.click()
@@ -39,8 +83,14 @@ describe('AllSessions — archived mode (view + delete)', () => {
   it('shows ONLY archived sessions, with a delete action and no open-on-click', () => {
     let opened = false
     const el = AllSessions({
-      projects, sessions, mode: 'archived',
-      onSetMode: () => {}, onOpen: () => { opened = true }, onDelete: () => {}
+      projects,
+      sessions,
+      mode: 'archived',
+      onSetMode: () => {},
+      onOpen: () => {
+        opened = true
+      },
+      onDelete: () => {}
     })
     // Only the archived s4 shows; the 3 live ones are excluded.
     expect(el.querySelectorAll('.as-row').length).toBe(1)
@@ -58,8 +108,16 @@ describe('AllSessions — archived mode (view + delete)', () => {
     let deleted: string | null = null
     let opened = false
     const el = AllSessions({
-      projects, sessions, mode: 'archived',
-      onSetMode: () => {}, onOpen: () => { opened = true }, onDelete: (s) => { deleted = s.id }
+      projects,
+      sessions,
+      mode: 'archived',
+      onSetMode: () => {},
+      onOpen: () => {
+        opened = true
+      },
+      onDelete: (s) => {
+        deleted = s.id
+      }
     })
     ;(el.querySelector('.as-del') as HTMLElement).click()
     expect(deleted).toBe('s4')
@@ -69,8 +127,11 @@ describe('AllSessions — archived mode (view + delete)', () => {
   it('the Live | Archived toggle reports a mode change', () => {
     const seen: string[] = []
     const el = AllSessions({
-      projects, sessions, mode: 'live',
-      onSetMode: (m) => seen.push(m), onOpen: () => {}
+      projects,
+      sessions,
+      mode: 'live',
+      onSetMode: (m) => seen.push(m),
+      onOpen: () => {}
     })
     const segs = el.querySelectorAll('.as-seg')
     expect(segs.length).toBe(2)
@@ -80,7 +141,13 @@ describe('AllSessions — archived mode (view + delete)', () => {
 
   it('shows an empty-state when there are no archived sessions', () => {
     const liveOnly = sessions.filter((s) => s.status !== 'archived')
-    const el = AllSessions({ projects, sessions: liveOnly, mode: 'archived', onSetMode: () => {}, onOpen: () => {} })
+    const el = AllSessions({
+      projects,
+      sessions: liveOnly,
+      mode: 'archived',
+      onSetMode: () => {},
+      onOpen: () => {}
+    })
     expect(el.querySelector('.as-empty')?.textContent).toContain('No archived')
     expect(el.querySelectorAll('.as-row').length).toBe(0)
   })

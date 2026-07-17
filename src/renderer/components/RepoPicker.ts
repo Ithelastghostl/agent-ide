@@ -8,7 +8,9 @@ export interface RepoPickerProps {
 export function RepoPicker(p: RepoPickerProps): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'modal-wrap show'
-  wrap.onclick = (e) => { if (e.target === wrap) p.onCancel() }
+  wrap.onclick = (e) => {
+    if (e.target === wrap) p.onCancel()
+  }
 
   const modal = document.createElement('div')
   modal.className = 'modal'

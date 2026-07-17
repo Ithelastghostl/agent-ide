@@ -19,7 +19,13 @@ const CODEX_FALLBACK: Model[] = [
 // The cache identifies a model by `slug` (there is no `id` field); `priority` is
 // INVERTED — a smaller number is the more prominent/frontier model (gpt-5.6-sol
 // == 1, gpt-5.4-mini == 23). We sort by it ascending so the frontier model is first.
-interface CachedModel { slug?: string; id?: string; display_name?: string; visibility?: string; priority?: number }
+interface CachedModel {
+  slug?: string
+  id?: string
+  display_name?: string
+  visibility?: string
+  priority?: number
+}
 
 /** Assign our three tiers over the priority-sorted list: first → max, last →
  *  fast, the rest → balanced. A '*-mini' is always 'fast' regardless of position. */
@@ -53,7 +59,9 @@ function readCodexModels(): Model[] {
       }))
       return codexCache
     }
-  } catch { /* no cache / unreadable — fall through to the static fallback */ }
+  } catch {
+    /* no cache / unreadable — fall through to the static fallback */
+  }
   codexCache = CODEX_FALLBACK
   return codexCache
 }

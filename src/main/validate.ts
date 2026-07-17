@@ -1,4 +1,11 @@
-import { isProvider, type Provider, type Session, type SessionStatus, type TaskKind, type TaskSubkind } from '@shared/types'
+import {
+  isProvider,
+  type Provider,
+  type Session,
+  type SessionStatus,
+  type TaskKind,
+  type TaskSubkind
+} from '@shared/types'
 import { modelsFor } from './models'
 import type { LaunchRequest } from './ipc' // type-only: no runtime cycle
 
@@ -11,7 +18,11 @@ import type { LaunchRequest } from './ipc' // type-only: no runtime cycle
 const MAX_LEN = 4096 // generous cap for ids/paths/objectives; rejects abuse, not real input
 const STATUSES: readonly SessionStatus[] = ['running', 'idle', 'archived']
 
-export function asString(v: unknown, field: string, opts: { max?: number; allowEmpty?: boolean } = {}): string {
+export function asString(
+  v: unknown,
+  field: string,
+  opts: { max?: number; allowEmpty?: boolean } = {}
+): string {
   if (typeof v !== 'string') throw new Error(`invalid ${field}: expected string`)
   if (!opts.allowEmpty && v.length === 0) throw new Error(`invalid ${field}: must not be empty`)
   if (v.length > (opts.max ?? MAX_LEN)) throw new Error(`invalid ${field}: too long`)
@@ -49,7 +60,7 @@ const TASK_SUBKINDS: readonly TaskSubkind[] = ['code', 'feature', 'bug']
 // M-LOG task lifecycle order (§4.1). A status may advance to itself or the next
 // state(s); it never moves backward. 'ticketed' is terminal.
 const TASK_ORDER = ['open', 'finished', 'deployed', 'ticketed'] as const
-type TaskStatusName = typeof TASK_ORDER[number]
+type TaskStatusName = (typeof TASK_ORDER)[number]
 
 /** Validate a task-status transition (§4.1): forward-only along
  *  open→finished→deployed→ticketed (self-transition allowed for idempotency).
@@ -58,7 +69,9 @@ export function validateTaskTransition(from: unknown, to: unknown): TaskStatusNa
   const iTo = TASK_ORDER.indexOf(to as TaskStatusName)
   if (iTo < 0) throw new Error(`invalid task status: ${String(to)}`)
   // `from` may be null/undefined for a freshly-seen session — treat as 'open'.
-  const fromName = (typeof from === 'string' && TASK_ORDER.includes(from as TaskStatusName) ? from : 'open') as TaskStatusName
+  const fromName = (
+    typeof from === 'string' && TASK_ORDER.includes(from as TaskStatusName) ? from : 'open'
+  ) as TaskStatusName
   const iFrom = TASK_ORDER.indexOf(fromName)
   if (iTo < iFrom) throw new Error(`invalid task transition: ${fromName} → ${String(to)} (backward)`)
   return to as TaskStatusName
@@ -68,7 +81,10 @@ export function validateTaskTransition(from: unknown, to: unknown): TaskStatusNa
  *  'product' kind must carry a subkind; 'analysis' must not. Returns the
  *  validated pair (both undefined only if the caller allows an unlabeled
  *  session — terminals, which don't go through this validator). */
-export function validateTaskLabel(kind: unknown, subkind: unknown): { taskKind: TaskKind; taskSubkind?: TaskSubkind } {
+export function validateTaskLabel(
+  kind: unknown,
+  subkind: unknown
+): { taskKind: TaskKind; taskSubkind?: TaskSubkind } {
   if (typeof kind !== 'string' || !TASK_KINDS.includes(kind as TaskKind)) {
     throw new Error('invalid taskKind: expected "product" or "analysis"')
   }
@@ -149,12 +165,20 @@ export function validateResumeSession(v: unknown): Session {
   // caused saveSession's UPSERT to NULL them, silently wiping a task's label +
   // lifecycle on every reconnect (SEC finding). Validate defensively; a session
   // may legitimately be unlabeled (terminals, grandfathered rows).
-  const taskKind = v.taskKind == null ? null
-    : (TASK_KINDS.includes(v.taskKind as TaskKind) ? (v.taskKind as TaskKind) : null)
-  const taskSubkind = v.taskSubkind == null ? null
-    : (TASK_SUBKINDS.includes(v.taskSubkind as TaskSubkind) ? (v.taskSubkind as TaskSubkind) : null)
-  const taskStatus: Session['taskStatus'] = v.taskStatus == null ? null
-    : (TASK_ORDER.includes(v.taskStatus as TaskStatusName) ? (v.taskStatus as TaskStatusName) : null)
+  const taskKind =
+    v.taskKind == null ? null : TASK_KINDS.includes(v.taskKind as TaskKind) ? (v.taskKind as TaskKind) : null
+  const taskSubkind =
+    v.taskSubkind == null
+      ? null
+      : TASK_SUBKINDS.includes(v.taskSubkind as TaskSubkind)
+        ? (v.taskSubkind as TaskSubkind)
+        : null
+  const taskStatus: Session['taskStatus'] =
+    v.taskStatus == null
+      ? null
+      : TASK_ORDER.includes(v.taskStatus as TaskStatusName)
+        ? (v.taskStatus as TaskStatusName)
+        : null
   return {
     id: asString(v.id, 'id'),
     projectId: asString(v.projectId, 'projectId'),

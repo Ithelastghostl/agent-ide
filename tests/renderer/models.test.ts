@@ -27,15 +27,17 @@ describe('renderer model registry (B13)', () => {
   })
 
   it('returns [] (not a crash) for a provider missing from the registry', async () => {
-    ;(globalThis as unknown as { window: { agentIDE: { modelsAll: () => Promise<unknown> } } }).window.agentIDE.modelsAll =
-      vi.fn().mockResolvedValue({ codex: [], claude: [], gemini: [] })
+    ;(
+      globalThis as unknown as { window: { agentIDE: { modelsAll: () => Promise<unknown> } } }
+    ).window.agentIDE.modelsAll = vi.fn().mockResolvedValue({ codex: [], claude: [], gemini: [] })
     await loadModels()
     expect(modelsFor('codex')).toEqual([])
   })
 
   it('leaves the cache usable if the IPC call fails', async () => {
-    ;(globalThis as unknown as { window: { agentIDE: { modelsAll: () => Promise<unknown> } } }).window.agentIDE.modelsAll =
-      vi.fn().mockRejectedValue(new Error('ipc down'))
+    ;(
+      globalThis as unknown as { window: { agentIDE: { modelsAll: () => Promise<unknown> } } }
+    ).window.agentIDE.modelsAll = vi.fn().mockRejectedValue(new Error('ipc down'))
     await expect(loadModels()).resolves.toBeUndefined() // does not throw
     expect(Array.isArray(modelsFor('claude'))).toBe(true)
   })

@@ -44,13 +44,22 @@ describe('codex model list from cache (AGENT_IDE_CODEX_CACHE seam)', () => {
   let dir: string
   // Reset the module registry each case so models.ts's in-memory codexCache
   // doesn't leak a prior fixture, then import fresh.
-  const fresh = async () => { vi.resetModules(); return import('../../src/main/models') }
+  const fresh = async () => {
+    vi.resetModules()
+    return import('../../src/main/models')
+  }
 
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'agide-models-')) })
-  afterEach(() => { rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs() })
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'agide-models-'))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+    vi.unstubAllEnvs()
+  })
 
   it('maps slug→id, excludes hidden, tiers by inverted priority', async () => {
-    const p = join(dir, 'cache.json'); writeFileSync(p, REAL_SHAPE)
+    const p = join(dir, 'cache.json')
+    writeFileSync(p, REAL_SHAPE)
     vi.stubEnv('AGENT_IDE_CODEX_CACHE', p)
     const { modelsFor: mf } = await fresh()
     const codex = mf('codex')
@@ -69,7 +78,8 @@ describe('codex model list from cache (AGENT_IDE_CODEX_CACHE seam)', () => {
   })
 
   it('isKnownModel/defaultModel reflect the resolved list', async () => {
-    const p = join(dir, 'cache.json'); writeFileSync(p, REAL_SHAPE)
+    const p = join(dir, 'cache.json')
+    writeFileSync(p, REAL_SHAPE)
     vi.stubEnv('AGENT_IDE_CODEX_CACHE', p)
     const { defaultModel } = await fresh()
     // isKnownModel lives in validate.ts (single owner); same fresh registry.

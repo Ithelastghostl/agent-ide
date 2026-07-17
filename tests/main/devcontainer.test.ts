@@ -1,16 +1,31 @@
 import { describe, it, expect } from 'vitest'
 import {
-  containerExecArgv, devcontainerUpArgv, parseContainerId, devcontainerBin, libraryConfigMount,
-  parseRemoteUser, findContainerArgv, findAnyContainerArgv, parseContainerPresence,
-  providerSeedFiles, seedTarget,
-  readConfigurationArgv, parseWorkspaceFolder, parseRemoteWorkspaceFolder, defaultWorkspaceFolder
+  containerExecArgv,
+  devcontainerUpArgv,
+  parseContainerId,
+  devcontainerBin,
+  libraryConfigMount,
+  parseRemoteUser,
+  findContainerArgv,
+  findAnyContainerArgv,
+  parseContainerPresence,
+  providerSeedFiles,
+  seedTarget,
+  readConfigurationArgv,
+  parseWorkspaceFolder,
+  parseRemoteWorkspaceFolder,
+  defaultWorkspaceFolder
 } from '../../src/main/devcontainer'
 
 describe('findContainerArgv', () => {
   it('filters running containers by the devcontainer local_folder label', () => {
     expect(findContainerArgv('/home/me/AgentIDE/app')).toEqual([
-      'ps', '--filter', 'label=devcontainer.local_folder=/home/me/AgentIDE/app',
-      '--format', '{{.ID}}', '--no-trunc'
+      'ps',
+      '--filter',
+      'label=devcontainer.local_folder=/home/me/AgentIDE/app',
+      '--format',
+      '{{.ID}}',
+      '--no-trunc'
     ])
   })
 })
@@ -18,8 +33,13 @@ describe('findContainerArgv', () => {
 describe('findAnyContainerArgv', () => {
   it('uses -a and includes state', () => {
     expect(findAnyContainerArgv('/ws')).toEqual([
-      'ps', '-a', '--filter', 'label=devcontainer.local_folder=/ws',
-      '--format', '{{.ID}} {{.State}}', '--no-trunc'
+      'ps',
+      '-a',
+      '--filter',
+      'label=devcontainer.local_folder=/ws',
+      '--format',
+      '{{.ID}} {{.State}}',
+      '--no-trunc'
     ])
   })
 })
@@ -40,8 +60,11 @@ describe('parseContainerPresence', () => {
 describe('devcontainerUpArgv with mounts (F12)', () => {
   it('appends --mount for each extra mount', () => {
     expect(devcontainerUpArgv('/ws', ['type=bind,source=/a,target=/b,readonly'])).toEqual([
-      'up', '--workspace-folder', '/ws',
-      '--mount', 'type=bind,source=/a,target=/b,readonly'
+      'up',
+      '--workspace-folder',
+      '/ws',
+      '--mount',
+      'type=bind,source=/a,target=/b,readonly'
     ])
   })
   it('no --mount when none given', () => {
@@ -69,10 +92,12 @@ describe('credential seeding (R3-2)', () => {
     expect(withClaude.map((f) => f.file)).toContain('.credentials.json')
   })
   it('seedTarget places each file in the provider dot-dir of the resolved home', () => {
-    expect(seedTarget('/home/node', { hostPath: '/h/.codex/auth.json', provider: 'codex', file: 'auth.json' }))
-      .toBe('/home/node/.codex/auth.json')
-    expect(seedTarget('/root', { hostPath: '/h/.gemini/settings.json', provider: 'gemini', file: 'settings.json' }))
-      .toBe('/root/.gemini/settings.json')
+    expect(
+      seedTarget('/home/node', { hostPath: '/h/.codex/auth.json', provider: 'codex', file: 'auth.json' })
+    ).toBe('/home/node/.codex/auth.json')
+    expect(
+      seedTarget('/root', { hostPath: '/h/.gemini/settings.json', provider: 'gemini', file: 'settings.json' })
+    ).toBe('/root/.gemini/settings.json')
   })
   it('libraryConfigMount uses only the mount keys the devcontainer CLI accepts', () => {
     const m = libraryConfigMount('/home/me/AgentIDE/library')
@@ -93,11 +118,25 @@ describe('container exec context (R3-1)', () => {
     expect(parseWorkspaceFolder('', '/home/me/my-app')).toBe('/workspaces/my-app')
   })
   it('containerExecArgv sets HOME via -e (docker exec -u does not)', () => {
-    expect(containerExecArgv('abc', 'codex', ['login', 'status'], {
-      interactive: false, user: 'node', cwd: '/workspaces/app', env: { HOME: '/home/node' }
-    })).toEqual([
-      'exec', '-u', 'node', '-w', '/workspaces/app', '-e', 'HOME=/home/node',
-      'abc', 'codex', 'login', 'status'
+    expect(
+      containerExecArgv('abc', 'codex', ['login', 'status'], {
+        interactive: false,
+        user: 'node',
+        cwd: '/workspaces/app',
+        env: { HOME: '/home/node' }
+      })
+    ).toEqual([
+      'exec',
+      '-u',
+      'node',
+      '-w',
+      '/workspaces/app',
+      '-e',
+      'HOME=/home/node',
+      'abc',
+      'codex',
+      'login',
+      'status'
     ])
   })
 })
@@ -153,7 +192,8 @@ describe('parseRemoteWorkspaceFolder', () => {
     expect(parseRemoteWorkspaceFolder(out)).toBe('/workspaces/app')
   })
   it('finds it among log noise', () => {
-    const out = 'building...\n{"outcome":"success","containerId":"x","remoteWorkspaceFolder":"/workspaces/my-repo"}\n'
+    const out =
+      'building...\n{"outcome":"success","containerId":"x","remoteWorkspaceFolder":"/workspaces/my-repo"}\n'
     expect(parseRemoteWorkspaceFolder(out)).toBe('/workspaces/my-repo')
   })
   it('returns null when absent (older CLI) so caller can fall back', () => {
@@ -163,7 +203,9 @@ describe('parseRemoteWorkspaceFolder', () => {
 
 describe('defaultWorkspaceFolder', () => {
   it('maps a host workspace to /workspaces/<name> (devcontainer convention)', () => {
-    expect(defaultWorkspaceFolder('/home/me/Projects/ai-agents-dashboard')).toBe('/workspaces/ai-agents-dashboard')
+    expect(defaultWorkspaceFolder('/home/me/Projects/ai-agents-dashboard')).toBe(
+      '/workspaces/ai-agents-dashboard'
+    )
   })
   it('tolerates a trailing slash', () => {
     expect(defaultWorkspaceFolder('/home/me/app/')).toBe('/workspaces/app')
@@ -183,35 +225,32 @@ describe('containerExecArgv', () => {
   })
 
   it('supports a working directory via -w', () => {
-    expect(containerExecArgv('abc123', 'gemini', ['-m', 'gemini-2.5-pro'], { cwd: '/workspaces/app' })).toEqual([
-      'exec',
-      '-it',
-      '-w',
-      '/workspaces/app',
-      'abc123',
-      'gemini',
-      '-m',
-      'gemini-2.5-pro'
-    ])
+    expect(
+      containerExecArgv('abc123', 'gemini', ['-m', 'gemini-2.5-pro'], { cwd: '/workspaces/app' })
+    ).toEqual(['exec', '-it', '-w', '/workspaces/app', 'abc123', 'gemini', '-m', 'gemini-2.5-pro'])
   })
 
   it('omits -it for non-interactive (non-TTY) calls (Codex P2)', () => {
     expect(containerExecArgv('abc123', 'codex', ['login', 'status'], { interactive: false })).toEqual([
-      'exec', 'abc123', 'codex', 'login', 'status'
+      'exec',
+      'abc123',
+      'codex',
+      'login',
+      'status'
     ])
   })
 
   it('runs as a specific user via -u (non-root, so auto-approve flags work)', () => {
-    expect(containerExecArgv('abc123', 'claude', ['--dangerously-skip-permissions'], { user: 'node' })).toEqual([
-      'exec', '-it', '-u', 'node', 'abc123', 'claude', '--dangerously-skip-permissions'
-    ])
+    expect(
+      containerExecArgv('abc123', 'claude', ['--dangerously-skip-permissions'], { user: 'node' })
+    ).toEqual(['exec', '-it', '-u', 'node', 'abc123', 'claude', '--dangerously-skip-permissions'])
   })
 
   // The exact shape sessions now use: exec as the remoteUser AND in the project's
   // workspace folder, so the agent starts inside the repo, not the image WORKDIR.
   it('combines -u and -w (the session-launch invocation)', () => {
-    expect(containerExecArgv('abc', 'claude', ['--model', 'opus'], { user: 'node', cwd: '/workspaces/app' })).toEqual([
-      'exec', '-it', '-u', 'node', '-w', '/workspaces/app', 'abc', 'claude', '--model', 'opus'
-    ])
+    expect(
+      containerExecArgv('abc', 'claude', ['--model', 'opus'], { user: 'node', cwd: '/workspaces/app' })
+    ).toEqual(['exec', '-it', '-u', 'node', '-w', '/workspaces/app', 'abc', 'claude', '--model', 'opus'])
   })
 })

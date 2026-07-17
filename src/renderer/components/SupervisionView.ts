@@ -21,9 +21,7 @@ export interface OpenReport {
 
 /** Which tab is active: the session terminal, a file editor, or a rendered report. */
 export type ActiveTab =
-  | { kind: 'session' }
-  | { kind: 'file'; path: string }
-  | { kind: 'report'; path: string }
+  { kind: 'session' } | { kind: 'file'; path: string } | { kind: 'report'; path: string }
 
 export interface SupervisionProps {
   session: Session | null
@@ -76,7 +74,10 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
     close.className = 'close'
     close.textContent = f.dirty ? '●' : '×'
     close.title = f.dirty ? 'Unsaved changes — click to close' : 'Close'
-    close.onclick = (e) => { e.stopPropagation(); p.onCloseFile(f.path) }
+    close.onclick = (e) => {
+      e.stopPropagation()
+      p.onCloseFile(f.path)
+    }
     tab.appendChild(close)
     tab.onclick = () => p.onSelectTab({ kind: 'file', path: f.path })
     tabs.appendChild(tab)
@@ -95,7 +96,10 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
     close.className = 'close'
     close.textContent = '×'
     close.title = 'Close'
-    close.onclick = (e) => { e.stopPropagation(); p.onCloseReport(r.path) }
+    close.onclick = (e) => {
+      e.stopPropagation()
+      p.onCloseReport(r.path)
+    }
     tab.appendChild(close)
     tab.onclick = () => p.onSelectTab({ kind: 'report', path: r.path })
     tabs.appendChild(tab)
@@ -141,9 +145,7 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
       host.style.fontFamily = 'Menlo, monospace'
       host.style.fontSize = '12px'
       host.style.padding = '14px 16px'
-      host.textContent = p.session
-        ? '› terminal mounts here (L2)…'
-        : '› select or launch a session'
+      host.textContent = p.session ? '› terminal mounts here (L2)…' : '› select or launch a session'
     }
     superv.appendChild(host)
   }

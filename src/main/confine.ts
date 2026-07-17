@@ -9,7 +9,12 @@ import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:pat
  *  OR a symlink (dangling or not). Uses lstatSync, which (unlike existsSync) does
  *  NOT follow the link, so a dangling symlink counts as "exists here". */
 function lexists(p: string): boolean {
-  try { lstatSync(p); return true } catch { return false }
+  try {
+    lstatSync(p)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** realpath of `p` if it exists, else the realpath of its deepest existing

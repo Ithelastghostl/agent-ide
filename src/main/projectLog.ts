@@ -33,7 +33,11 @@ export function projectTicketsDir(projectId: string): string {
 
 /** A filesystem-safe slug from a title (for the ticket filename). */
 export function slugify(title: string): string {
-  const s = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60)
+  const s = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 60)
   return s || 'ticket'
 }
 

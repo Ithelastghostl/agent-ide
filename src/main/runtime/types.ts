@@ -48,7 +48,12 @@ export interface ContainerRuntime {
   workspaceFolder(workspace: string): Promise<string>
   /** Copy host credentials into writable container state via docker cp (R3-2);
    *  idempotent, container-local files always win. */
-  seedCredentials(containerId: string, user: string | null, home: string, files: import('../devcontainer').SeedFile[]): Promise<void>
+  seedCredentials(
+    containerId: string,
+    user: string | null,
+    home: string,
+    files: import('../devcontainer').SeedFile[]
+  ): Promise<void>
 }
 
 /** Host-level provider operations (health probing + in-container install). Runs
@@ -71,7 +76,10 @@ export interface PortForwardService {
   release(containerId: string, port: number, owner: string): Promise<void>
   disposeAll(): Promise<void>
   /** A watcher that auto-forwards each newly-listening container port. */
-  watch(containerId: string, opts: { onForward?: (port: number) => void; owner?: string; intervalMs?: number }): PortWatchHandle
+  watch(
+    containerId: string,
+    opts: { onForward?: (port: number) => void; owner?: string; intervalMs?: number }
+  ): PortWatchHandle
 }
 
 /** The bundle of platform runtimes handed to the IPC layer. One concrete

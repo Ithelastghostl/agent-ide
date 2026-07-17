@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { createServer, connect, type Server } from 'node:net'
-import { loopbackPort, parseListeningPorts, PortForwarder, allocBridgePort } from '../../src/main/portForwarder'
+import {
+  loopbackPort,
+  parseListeningPorts,
+  PortForwarder,
+  allocBridgePort
+} from '../../src/main/portForwarder'
 
 describe('loopbackPort', () => {
   it('extracts the port from a localhost URL (OAuth callback)', () => {
@@ -89,7 +94,10 @@ describe('PortForwarder (B4 listen-gating, B5 refcount, B10 alloc)', () => {
     return new Promise((resolve, reject) => {
       const c = connect(port, '127.0.0.1', () => c.write(payload))
       let buf = ''
-      c.on('data', (d) => { buf += d.toString(); c.end() })
+      c.on('data', (d) => {
+        buf += d.toString()
+        c.end()
+      })
       c.on('end', () => resolve(buf))
       c.on('error', reject)
     })
@@ -164,7 +172,9 @@ describe('PortForwarder (B4 listen-gating, B5 refcount, B10 alloc)', () => {
     const bridges: number[] = []
     const fwd = new PortForwarder({
       containerIp: async () => '127.0.0.1',
-      dockerExec: async (_id, bridgePort) => { bridges.push(bridgePort) }
+      dockerExec: async (_id, bridgePort) => {
+        bridges.push(bridgePort)
+      }
     })
     fwd._dialPortForTest = echo.port
     // 1455 and 21455 collided to 41455 under 40000+port%20000

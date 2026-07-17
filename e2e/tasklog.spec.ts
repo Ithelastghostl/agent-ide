@@ -21,7 +21,9 @@ test('a product task persists its label and exports a raw log on finish', async 
   const app = await electron.launch({
     args: electronArgs(),
     env: {
-      ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_PROJECTS: projectsDir,
+      ...process.env,
+      AGENT_IDE_DB: dbPath,
+      AGENT_IDE_PROJECTS: projectsDir,
       AGENT_IDE_TICKET_CMD: JSON.stringify(['node', join(__dirname, 'fixtures', 'ticket-fail.js')])
     }
   })
@@ -34,17 +36,26 @@ test('a product task persists its label and exports a raw log on finish', async 
     return project.id
   }, proj)
 
-  const launched = await win.evaluate(async ({ projectId, cwd }) => {
-    try {
-      const s = await window.agentIDE.sessionLaunch({
-        projectId, provider: 'claude', model: 'claude-opus-4-8', objective: 'ship the widget',
-        cwd, useContainer: false, taskKind: 'product', taskSubkind: 'feature'
-      })
-      return { id: s.id, taskKind: s.taskKind, taskSubkind: s.taskSubkind, taskStatus: s.taskStatus }
-    } catch (e) {
-      return { error: String(e) }
-    }
-  }, { projectId, cwd: proj })
+  const launched = await win.evaluate(
+    async ({ projectId, cwd }) => {
+      try {
+        const s = await window.agentIDE.sessionLaunch({
+          projectId,
+          provider: 'claude',
+          model: 'claude-opus-4-8',
+          objective: 'ship the widget',
+          cwd,
+          useContainer: false,
+          taskKind: 'product',
+          taskSubkind: 'feature'
+        })
+        return { id: s.id, taskKind: s.taskKind, taskSubkind: s.taskSubkind, taskStatus: s.taskStatus }
+      } catch (e) {
+        return { error: String(e) }
+      }
+    },
+    { projectId, cwd: proj }
+  )
 
   // the session was created and carries its label (even if the CLI spawn had no
   // output, the row + label persist)
@@ -54,14 +65,24 @@ test('a product task persists its label and exports a raw log on finish', async 
   expect(launched.taskStatus).toBe('open')
 
   // an UNLABELED agent launch is rejected by the main-side validator (M-LOG-a)
-  const unlabeled = await win.evaluate(async ({ projectId, cwd }) => {
-    try {
-      await window.agentIDE.sessionLaunch({ projectId, provider: 'claude', model: 'claude-opus-4-8', objective: 'x', cwd, useContainer: false } as any)
-      return 'accepted'
-    } catch (e) {
-      return 'rejected'
-    }
-  }, { projectId, cwd: proj })
+  const unlabeled = await win.evaluate(
+    async ({ projectId, cwd }) => {
+      try {
+        await window.agentIDE.sessionLaunch({
+          projectId,
+          provider: 'claude',
+          model: 'claude-opus-4-8',
+          objective: 'x',
+          cwd,
+          useContainer: false
+        } as any)
+        return 'accepted'
+      } catch (e) {
+        return 'rejected'
+      }
+    },
+    { projectId, cwd: proj }
+  )
   expect(unlabeled).toBe('rejected')
 
   // mark finished → main writes the raw log entry for this product task
@@ -78,13 +99,15 @@ test('a product task persists its label and exports a raw log on finish', async 
   // session must STAY 'deployed' (not corrupted), with the error surfaced for
   // retry — never advanced to 'ticketed'.
   const ticket = await win.evaluate((id) => window.agentIDE.taskGenerateTicket(id), launched.id!)
-  expect(ticket.error).toBeTruthy()       // failing runner → clean failure
+  expect(ticket.error).toBeTruthy() // failing runner → clean failure
   expect(ticket.ok).toBeUndefined()
   const after = await win.evaluate(async (pid) => {
-    const s = (await window.agentIDE.sessionsAll()).find((x: any) => x.projectId === pid && x.taskKind === 'product')
+    const s = (await window.agentIDE.sessionsAll()).find(
+      (x: any) => x.projectId === pid && x.taskKind === 'product'
+    )
     return s?.taskStatus
   }, projectId)
-  expect(after).toBe('deployed')          // stayed deployed — retry available
+  expect(after).toBe('deployed') // stayed deployed — retry available
 
   await app.close()
 })
@@ -101,7 +124,9 @@ test('ticket generation succeeds end-to-end with a working runner', async () => 
   const app = await electron.launch({
     args: electronArgs(),
     env: {
-      ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_PROJECTS: projectsDir,
+      ...process.env,
+      AGENT_IDE_DB: dbPath,
+      AGENT_IDE_PROJECTS: projectsDir,
       AGENT_IDE_TICKET_CMD: JSON.stringify(['node', join(__dirname, 'fixtures', 'ticket-ok.js')])
     }
   })
@@ -109,13 +134,22 @@ test('ticket generation succeeds end-to-end with a working runner', async () => 
   await win.waitForSelector('.allsessions', { timeout: 15_000 })
 
   const projectId = await win.evaluate(async (p) => (await window.agentIDE.projectsAddLocal(p)).id, proj)
-  const launched = await win.evaluate(async ({ projectId, cwd }) => {
-    const s = await window.agentIDE.sessionLaunch({
-      projectId, provider: 'claude', model: 'claude-opus-4-8', objective: 'ship the widget',
-      cwd, useContainer: false, taskKind: 'product', taskSubkind: 'feature'
-    })
-    return { id: s.id }
-  }, { projectId, cwd: proj })
+  const launched = await win.evaluate(
+    async ({ projectId, cwd }) => {
+      const s = await window.agentIDE.sessionLaunch({
+        projectId,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        objective: 'ship the widget',
+        cwd,
+        useContainer: false,
+        taskKind: 'product',
+        taskSubkind: 'feature'
+      })
+      return { id: s.id }
+    },
+    { projectId, cwd: proj }
+  )
 
   await win.evaluate((id) => window.agentIDE.taskSetStatus(id, 'finished'), launched.id)
   const ticket = await win.evaluate((id) => window.agentIDE.taskGenerateTicket(id), launched.id)
@@ -126,7 +160,10 @@ test('ticket generation succeeds end-to-end with a working runner', async () => 
   expect(existsSync(ticket.ticketPath!)).toBe(true)
   expect(readFileSync(ticket.ticketPath!, 'utf8')).toContain('# Fixture ticket')
 
-  const after = await win.evaluate(async (id) => (await window.agentIDE.sessionsAll()).find((x: any) => x.id === id)?.taskStatus, launched.id)
+  const after = await win.evaluate(
+    async (id) => (await window.agentIDE.sessionsAll()).find((x: any) => x.id === id)?.taskStatus,
+    launched.id
+  )
   expect(after).toBe('ticketed')
 
   // Idempotent: a second call returns the existing ticket, no regeneration.

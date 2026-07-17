@@ -5,12 +5,25 @@ import { hostShell } from '../../src/main/ptyManager'
 // A5: shutdown must AWAIT relay/watcher teardown (bounded) before exiting —
 // a fire-and-forget stop() let Electron exit first and leak host relays.
 describe('createQuitCoordinator (A5)', () => {
-  const event = () => ({ prevented: false, preventDefault() { this.prevented = true } })
+  const event = () => ({
+    prevented: false,
+    preventDefault() {
+      this.prevented = true
+    }
+  })
 
   it('intercepts the first quit, awaits cleanup, then exits', async () => {
     let cleaned = false
     let exited = false
-    const handler = createQuitCoordinator(async () => { cleaned = true }, () => { exited = true }, 1000)
+    const handler = createQuitCoordinator(
+      async () => {
+        cleaned = true
+      },
+      () => {
+        exited = true
+      },
+      1000
+    )
     const e = event()
     handler(e)
     expect(e.prevented).toBe(true)
@@ -20,20 +33,41 @@ describe('createQuitCoordinator (A5)', () => {
 
   it('exits even when cleanup rejects', async () => {
     let exited = false
-    const handler = createQuitCoordinator(async () => { throw new Error('relay stuck') }, () => { exited = true }, 1000)
+    const handler = createQuitCoordinator(
+      async () => {
+        throw new Error('relay stuck')
+      },
+      () => {
+        exited = true
+      },
+      1000
+    )
     handler(event())
     await vi.waitFor(() => expect(exited).toBe(true))
   })
 
   it('exits after the timeout when cleanup hangs', async () => {
     let exited = false
-    const handler = createQuitCoordinator(() => new Promise(() => { /* never */ }), () => { exited = true }, 20)
+    const handler = createQuitCoordinator(
+      () =>
+        new Promise(() => {
+          /* never */
+        }),
+      () => {
+        exited = true
+      },
+      20
+    )
     handler(event())
     await vi.waitFor(() => expect(exited).toBe(true))
   })
 
   it('a second quit event passes through (no double preventDefault loop)', () => {
-    const handler = createQuitCoordinator(async () => {}, () => {}, 1000)
+    const handler = createQuitCoordinator(
+      async () => {},
+      () => {},
+      1000
+    )
     const first = event()
     const second = event()
     handler(first)

@@ -38,7 +38,9 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
     const b = document.createElement('button')
     b.className = 'as-seg' + (p.mode === m ? ' on' : '')
     b.textContent = m === 'live' ? 'Live' : 'Archived'
-    b.onclick = () => { if (p.mode !== m) p.onSetMode(m) }
+    b.onclick = () => {
+      if (p.mode !== m) p.onSetMode(m)
+    }
     seg.appendChild(b)
   }
   el.appendChild(seg)
@@ -138,7 +140,10 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
         del.className = 'as-del'
         del.textContent = '🗑'
         del.title = 'Delete permanently'
-        del.onclick = (e) => { e.stopPropagation(); p.onDelete!(s) }
+        del.onclick = (e) => {
+          e.stopPropagation()
+          p.onDelete!(s)
+        }
         row.appendChild(del)
       } else {
         row.onclick = () => p.onOpen(proj.id, s.id)

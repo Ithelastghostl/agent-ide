@@ -1,6 +1,11 @@
 import type { LibraryCategory, LibraryItem } from '@shared/types'
 
-const TITLE: Record<LibraryCategory, string> = { prompts: 'Prompts', skills: 'Skills', workflows: 'Workflows', agents: 'Agents' }
+const TITLE: Record<LibraryCategory, string> = {
+  prompts: 'Prompts',
+  skills: 'Skills',
+  workflows: 'Workflows',
+  agents: 'Agents'
+}
 const ICON: Record<LibraryCategory, string> = { prompts: '📌', skills: '🧠', workflows: '⚙', agents: '🤖' }
 
 export interface LibraryPanelProps {
@@ -22,7 +27,9 @@ export interface LibraryPanelProps {
 export function LibraryPanel(p: LibraryPanelProps): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'modal-wrap show'
-  wrap.onclick = (e) => { if (e.target === wrap) p.onCancel() }
+  wrap.onclick = (e) => {
+    if (e.target === wrap) p.onCancel()
+  }
 
   const modal = document.createElement('div')
   modal.className = 'modal'
@@ -34,9 +41,11 @@ export function LibraryPanel(p: LibraryPanelProps): HTMLElement {
   const sub = document.createElement('div')
   sub.className = 'sub'
   sub.textContent =
-    p.category === 'prompts' ? 'Click a prompt to insert it into the active session.'
-    : p.category === 'agents' ? 'An agent bundles instructions, data, and context. Use one in the active session, or create a new one.'
-    : `Pick a ${p.category === 'skills' ? 'skill' : 'workflow'} to insert its invocation into the active session.`
+    p.category === 'prompts'
+      ? 'Click a prompt to insert it into the active session.'
+      : p.category === 'agents'
+        ? 'An agent bundles instructions, data, and context. Use one in the active session, or create a new one.'
+        : `Pick a ${p.category === 'skills' ? 'skill' : 'workflow'} to insert its invocation into the active session.`
   modal.appendChild(sub)
 
   const search = document.createElement('input')
@@ -59,9 +68,10 @@ export function LibraryPanel(p: LibraryPanelProps): HTMLElement {
       (it) => !q || it.name.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)
     )
     if (matches.length === 0) {
-      empty.textContent = p.items.length === 0
-        ? `No ${TITLE[p.category].toLowerCase()} in the library yet. Sync the library to fetch them.`
-        : 'No matches.'
+      empty.textContent =
+        p.items.length === 0
+          ? `No ${TITLE[p.category].toLowerCase()} in the library yet. Sync the library to fetch them.`
+          : 'No matches.'
       scroll.appendChild(empty)
       return
     }
@@ -80,7 +90,10 @@ export function LibraryPanel(p: LibraryPanelProps): HTMLElement {
       action.textContent = p.category === 'prompts' ? 'Insert' : 'Use'
       action.disabled = !p.hasActiveSession
       action.title = p.hasActiveSession ? '' : 'Open or launch a session first'
-      action.onclick = (e) => { e.stopPropagation(); p.onUse(it) }
+      action.onclick = (e) => {
+        e.stopPropagation()
+        p.onUse(it)
+      }
       opt.append(ti, action)
       // Clicking the row (not just the button) also inserts, when enabled.
       if (p.hasActiveSession) opt.onclick = () => p.onUse(it)

@@ -4,7 +4,10 @@ import { SERVICES, type ServiceName, type ServiceStatus } from '@shared/types'
 
 const pexec = promisify(execFile)
 
-interface ArgvCmd { cmd: string; args: string[] }
+interface ArgvCmd {
+  cmd: string
+  args: string[]
+}
 
 /** The actual binary name on PATH for each service (the service id isn't always
  *  the command — GitHub's CLI is `gh`). */
@@ -29,10 +32,14 @@ export function presenceArgv(service: ServiceName): ArgvCmd {
  *  when not logged in. */
 export function authStatusArgv(service: ServiceName): ArgvCmd {
   switch (service) {
-    case 'vercel': return { cmd: 'vercel', args: ['whoami'] }
-    case 'supabase': return { cmd: 'supabase', args: ['projects', 'list'] }
-    case 'github': return { cmd: 'gh', args: ['auth', 'status'] }
-    case 'resend': return { cmd: 'resend', args: ['whoami'] }
+    case 'vercel':
+      return { cmd: 'vercel', args: ['whoami'] }
+    case 'supabase':
+      return { cmd: 'supabase', args: ['projects', 'list'] }
+    case 'github':
+      return { cmd: 'gh', args: ['auth', 'status'] }
+    case 'resend':
+      return { cmd: 'resend', args: ['whoami'] }
   }
 }
 
@@ -40,10 +47,14 @@ export function authStatusArgv(service: ServiceName): ArgvCmd {
  *  device flow), not via execFile. */
 export function loginArgv(service: ServiceName): ArgvCmd {
   switch (service) {
-    case 'vercel': return { cmd: 'vercel', args: ['login'] }
-    case 'supabase': return { cmd: 'supabase', args: ['login'] }
-    case 'github': return { cmd: 'gh', args: ['auth', 'login'] }
-    case 'resend': return { cmd: 'resend', args: ['login'] }
+    case 'vercel':
+      return { cmd: 'vercel', args: ['login'] }
+    case 'supabase':
+      return { cmd: 'supabase', args: ['login'] }
+    case 'github':
+      return { cmd: 'gh', args: ['auth', 'login'] }
+    case 'resend':
+      return { cmd: 'resend', args: ['login'] }
   }
 }
 
@@ -69,7 +80,9 @@ export async function probeService(service: ServiceName, timeoutMs = 6000): Prom
     const pa = presenceArgv(service)
     await runWithTimeout(pa.cmd, pa.args, timeoutMs)
     present = true
-  } catch { present = false }
+  } catch {
+    present = false
+  }
   if (!present) return 'not-installed'
 
   let authOk: boolean | null = null
@@ -77,14 +90,14 @@ export async function probeService(service: ServiceName, timeoutMs = 6000): Prom
     const sa = authStatusArgv(service)
     await runWithTimeout(sa.cmd, sa.args, timeoutMs)
     authOk = true
-  } catch { authOk = false }
+  } catch {
+    authOk = false
+  }
   return classifyServiceHealth({ present, authOk })
 }
 
 /** Probe every tracked service in parallel. Returns a status map. */
 export async function probeAllServices(timeoutMs = 6000): Promise<Record<ServiceName, ServiceStatus>> {
-  const entries = await Promise.all(
-    SERVICES.map(async (s) => [s, await probeService(s, timeoutMs)] as const)
-  )
+  const entries = await Promise.all(SERVICES.map(async (s) => [s, await probeService(s, timeoutMs)] as const))
   return Object.fromEntries(entries) as Record<ServiceName, ServiceStatus>
 }

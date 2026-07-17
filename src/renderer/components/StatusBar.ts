@@ -10,11 +10,16 @@ const LABEL: Record<ServiceName, string> = {
 /** Short status text + dot class per state. */
 function statusText(s: ServiceStatus | undefined): string {
   switch (s) {
-    case 'online': return 'online'
-    case 'not-logged-in': return 'offline'
-    case 'not-installed': return 'not installed'
-    case 'unknown': return '?'
-    default: return 'checking…'
+    case 'online':
+      return 'online'
+    case 'not-logged-in':
+      return 'offline'
+    case 'not-installed':
+      return 'not installed'
+    case 'unknown':
+      return '?'
+    default:
+      return 'checking…'
   }
 }
 
@@ -44,11 +49,12 @@ export function StatusBar(p: StatusBarProps): HTMLElement {
     const st = p.status[service]
     const chip = document.createElement('span')
     chip.className = 'sb-chip ' + (st ?? 'checking')
-    chip.title = st === 'online'
-      ? `${LABEL[service]} connected — click to re-check`
-      : st === undefined
-        ? `Checking ${LABEL[service]}…`
-        : `${LABEL[service]} ${statusText(st)} — click to connect`
+    chip.title =
+      st === 'online'
+        ? `${LABEL[service]} connected — click to re-check`
+        : st === undefined
+          ? `Checking ${LABEL[service]}…`
+          : `${LABEL[service]} ${statusText(st)} — click to connect`
 
     const dot = document.createElement('span')
     dot.className = 'sb-dot'

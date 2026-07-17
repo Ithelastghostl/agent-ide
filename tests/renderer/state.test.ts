@@ -3,10 +3,46 @@ import { liveSessionsFor, liveCounts } from '../../src/renderer/state'
 import type { Session } from '@shared/types'
 
 const sessions: Session[] = [
-  { id: 'a', projectId: 'p1', provider: 'codex', model: 'm', objective: 'a', status: 'running', createdAt: 0, updatedAt: 0 },
-  { id: 'b', projectId: 'p1', provider: 'claude', model: 'm', objective: 'b', status: 'archived', createdAt: 0, updatedAt: 0 },
-  { id: 'c', projectId: 'p1', provider: 'gemini', model: 'm', objective: 'c', status: 'idle', createdAt: 0, updatedAt: 0 },
-  { id: 'd', projectId: 'p2', provider: 'codex', model: 'm', objective: 'd', status: 'running', createdAt: 0, updatedAt: 0 }
+  {
+    id: 'a',
+    projectId: 'p1',
+    provider: 'codex',
+    model: 'm',
+    objective: 'a',
+    status: 'running',
+    createdAt: 0,
+    updatedAt: 0
+  },
+  {
+    id: 'b',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'm',
+    objective: 'b',
+    status: 'archived',
+    createdAt: 0,
+    updatedAt: 0
+  },
+  {
+    id: 'c',
+    projectId: 'p1',
+    provider: 'gemini',
+    model: 'm',
+    objective: 'c',
+    status: 'idle',
+    createdAt: 0,
+    updatedAt: 0
+  },
+  {
+    id: 'd',
+    projectId: 'p2',
+    provider: 'codex',
+    model: 'm',
+    objective: 'd',
+    status: 'running',
+    createdAt: 0,
+    updatedAt: 0
+  }
 ]
 
 describe('liveSessionsFor (Close + Archive regression)', () => {

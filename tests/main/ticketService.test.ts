@@ -1,19 +1,37 @@
 import { describe, it, expect } from 'vitest'
 import {
-  generateTicket, chunkTranscript, extractJson, renderTicketMd, ticketPrompt
+  generateTicket,
+  chunkTranscript,
+  extractJson,
+  renderTicketMd,
+  ticketPrompt
 } from '../../src/main/ticketService'
 import type { Session, TicketFields } from '@shared/types'
 
 const session: Session = {
-  id: 's1', projectId: 'p1', provider: 'claude', model: 'claude-opus-4-8',
-  objective: 'fix the widget race', status: 'running', createdAt: 1, updatedAt: 2,
-  taskKind: 'product', taskSubkind: 'bug', taskStatus: 'deployed'
+  id: 's1',
+  projectId: 'p1',
+  provider: 'claude',
+  model: 'claude-opus-4-8',
+  objective: 'fix the widget race',
+  status: 'running',
+  createdAt: 1,
+  updatedAt: 2,
+  taskKind: 'product',
+  taskSubkind: 'bug',
+  taskStatus: 'deployed'
 }
 
 const validTicketJson = JSON.stringify({
-  title: 'Fix widget race', subkind: 'bug', problem: 'raced on shutdown', solution: 'added a lock',
-  files_touched: ['widget.ts'], key_decisions: ['use a mutex'], follow_ups: ['add a stress test'],
-  test_status: 'unit green', deploy_ref: 'abc123'
+  title: 'Fix widget race',
+  subkind: 'bug',
+  problem: 'raced on shutdown',
+  solution: 'added a lock',
+  files_touched: ['widget.ts'],
+  key_decisions: ['use a mutex'],
+  follow_ups: ['add a stress test'],
+  test_status: 'unit green',
+  deploy_ref: 'abc123'
 })
 
 describe('chunkTranscript (§4.4 map-reduce)', () => {
@@ -78,7 +96,10 @@ describe('renderTicketMd', () => {
 describe('generateTicket (§4.4)', () => {
   it('produces a validated ticket from a single pass', async () => {
     const calls: string[] = []
-    const run = async (p: string) => { calls.push(p); return validTicketJson }
+    const run = async (p: string) => {
+      calls.push(p)
+      return validTicketJson
+    }
     const { fields, bodyMd } = await generateTicket(run, session, 'short transcript')
     expect(fields.title).toBe('Fix widget race')
     expect(bodyMd).toContain('# Fix widget race')
@@ -90,7 +111,10 @@ describe('generateTicket (§4.4)', () => {
     const big = Array.from({ length: 40 }, (_, i) => `line ${i} ${'x'.repeat(30)}`).join('\n')
     let ticketCall = ''
     const run = async (p: string) => {
-      if (p.includes('BEGIN NOTES')) { ticketCall = p; return validTicketJson } // final pass
+      if (p.includes('BEGIN NOTES')) {
+        ticketCall = p
+        return validTicketJson
+      } // final pass
       return `notes for a chunk` // map pass
     }
     const { fields } = await generateTicket(run, session, big, { maxChars: 100 })

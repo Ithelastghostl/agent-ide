@@ -1,5 +1,5 @@
 export const PROVIDERS = ['codex', 'claude', 'gemini'] as const
-export type Provider = typeof PROVIDERS[number]
+export type Provider = (typeof PROVIDERS)[number]
 
 export function isProvider(x: string): x is Provider {
   return (PROVIDERS as readonly string[]).includes(x)
@@ -115,7 +115,7 @@ export interface AgentInput {
 
 /** External-service CLIs whose connectivity the status bar tracks. */
 export const SERVICES = ['vercel', 'supabase', 'github', 'resend'] as const
-export type ServiceName = typeof SERVICES[number]
+export type ServiceName = (typeof SERVICES)[number]
 
 /** A service's connectivity: online (installed + authenticated), needs login
  *  (installed but not authed), not installed, or unknown/errored. */

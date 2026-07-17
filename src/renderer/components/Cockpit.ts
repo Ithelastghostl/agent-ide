@@ -1,4 +1,10 @@
-import { PROVIDERS, isTerminalSession, type Provider, type Session, type LibraryCategory } from '@shared/types'
+import {
+  PROVIDERS,
+  isTerminalSession,
+  type Provider,
+  type Session,
+  type LibraryCategory
+} from '@shared/types'
 
 export type ProviderHealth = 'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'
 
@@ -187,13 +193,28 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     const live = document.createElement('span')
     const anyDown = provSessions.some((s) => reconnect.has(s.id))
     const anyLive = provSessions.some((s) => s.status === 'running' && !reconnect.has(s.id))
-    let txt = '', down = false
-    if (h === 'healthy') { txt = '● live'; down = false }
-    else if (h === 'not-logged-in') { txt = '● login needed'; down = true }
-    else if (h === 'not-installed') { txt = '● not installed'; down = true }
-    else if (h === 'unknown') { txt = '● ?'; down = false }
-    else if (provSessions.length) { txt = anyDown && !anyLive ? '● reconnect' : '● live'; down = anyDown && !anyLive }
-    if (txt) { live.className = 'live' + (down ? ' down' : ''); live.textContent = txt }
+    let txt = '',
+      down = false
+    if (h === 'healthy') {
+      txt = '● live'
+      down = false
+    } else if (h === 'not-logged-in') {
+      txt = '● login needed'
+      down = true
+    } else if (h === 'not-installed') {
+      txt = '● not installed'
+      down = true
+    } else if (h === 'unknown') {
+      txt = '● ?'
+      down = false
+    } else if (provSessions.length) {
+      txt = anyDown && !anyLive ? '● reconnect' : '● live'
+      down = anyDown && !anyLive
+    }
+    if (txt) {
+      live.className = 'live' + (down ? ' down' : '')
+      live.textContent = txt
+    }
     const grow = document.createElement('span')
     grow.className = 'grow'
     const add = document.createElement('span')
@@ -214,7 +235,9 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     group.appendChild(row)
 
     for (const s of provSessions) {
-      group.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu))
+      group.appendChild(
+        sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu)
+      )
     }
     list.appendChild(group)
   }
@@ -237,7 +260,9 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   trow.append(tdot, document.createTextNode('Terminal'), tgrow, tadd)
   tgroup.appendChild(trow)
   for (const s of termSessions) {
-    tgroup.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu))
+    tgroup.appendChild(
+      sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu)
+    )
   }
   list.appendChild(tgroup)
 

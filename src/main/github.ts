@@ -26,7 +26,14 @@ export function buildHistorySyncCommands(timestamp: string): [string, string[]][
 
 /** List the authenticated user's GitHub repos via the gh CLI. */
 export async function listRepos(limit = 100): Promise<Repo[]> {
-  const { stdout } = await pexec('gh', ['repo', 'list', '--json', 'nameWithOwner,name', '--limit', String(limit)])
+  const { stdout } = await pexec('gh', [
+    'repo',
+    'list',
+    '--json',
+    'nameWithOwner,name',
+    '--limit',
+    String(limit)
+  ])
   return parseRepoList(stdout)
 }
 

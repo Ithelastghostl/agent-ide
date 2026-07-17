@@ -41,8 +41,26 @@ describe('ProjectRail', () => {
 
 describe('Cockpit', () => {
   const sessions: Session[] = [
-    { id: 's1', projectId: '1', provider: 'codex', model: 'gpt-5-codex', objective: 'Fix auth', status: 'running', createdAt: 0, updatedAt: 0 },
-    { id: 's2', projectId: '1', provider: 'claude', model: 'claude-sonnet-4-6', objective: 'Tests', status: 'idle', createdAt: 0, updatedAt: 0 }
+    {
+      id: 's1',
+      projectId: '1',
+      provider: 'codex',
+      model: 'gpt-5-codex',
+      objective: 'Fix auth',
+      status: 'running',
+      createdAt: 0,
+      updatedAt: 0
+    },
+    {
+      id: 's2',
+      projectId: '1',
+      provider: 'claude',
+      model: 'claude-sonnet-4-6',
+      objective: 'Tests',
+      status: 'idle',
+      createdAt: 0,
+      updatedAt: 0
+    }
   ]
 
   it('groups sessions by provider and renders a card each', () => {
@@ -55,7 +73,14 @@ describe('Cockpit', () => {
 
   it('fires onLaunch with the provider when a launch button is clicked', () => {
     let launched = ''
-    const el = Cockpit({ sessions, activeSessionId: 's1', onLaunch: (p) => { launched = p }, onSelectSession: () => {} })
+    const el = Cockpit({
+      sessions,
+      activeSessionId: 's1',
+      onLaunch: (p) => {
+        launched = p
+      },
+      onSelectSession: () => {}
+    })
     const btn = el.querySelector('.launch button.codex') as HTMLButtonElement
     btn.click()
     expect(launched).toBe('codex')
@@ -64,9 +89,13 @@ describe('Cockpit', () => {
   it('shows a ⋯ menu button per card and fires onSessionMenu (F6)', () => {
     let opened: string | null = null
     const el = Cockpit({
-      sessions, activeSessionId: 's1',
-      onLaunch: () => {}, onSelectSession: () => {},
-      onSessionMenu: (s) => { opened = s.id }
+      sessions,
+      activeSessionId: 's1',
+      onLaunch: () => {},
+      onSelectSession: () => {},
+      onSessionMenu: (s) => {
+        opened = s.id
+      }
     })
     const dots = el.querySelectorAll('.scard .dots')
     expect(dots.length).toBe(2)
@@ -77,8 +106,13 @@ describe('Cockpit', () => {
   it('renders a Terminal row and fires onOpenTerminal (F13)', () => {
     let opened = false
     const el = Cockpit({
-      sessions, activeSessionId: 's1',
-      onLaunch: () => {}, onSelectSession: () => {}, onOpenTerminal: () => { opened = true }
+      sessions,
+      activeSessionId: 's1',
+      onLaunch: () => {},
+      onSelectSession: () => {},
+      onOpenTerminal: () => {
+        opened = true
+      }
     })
     const trow = el.querySelector('.provrow.terminal')
     expect(trow).toBeTruthy()
@@ -90,9 +124,23 @@ describe('Cockpit', () => {
   it('terminal sessions appear under Terminal, not a provider group (F13)', () => {
     const withTerm: Session[] = [
       ...sessions,
-      { id: 'term-1-x', projectId: '1', provider: 'codex', model: 'shell', objective: 'terminal', status: 'running', createdAt: 0, updatedAt: 0 }
+      {
+        id: 'term-1-x',
+        projectId: '1',
+        provider: 'codex',
+        model: 'shell',
+        objective: 'terminal',
+        status: 'running',
+        createdAt: 0,
+        updatedAt: 0
+      }
     ]
-    const el = Cockpit({ sessions: withTerm, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {} })
+    const el = Cockpit({
+      sessions: withTerm,
+      activeSessionId: 's1',
+      onLaunch: () => {},
+      onSelectSession: () => {}
+    })
     // codex group should NOT contain the terminal session card
     const codexCards = el.querySelectorAll('.provrow.codex ~ .scard, .provgrp .provrow.codex')
     // simplest assertion: the terminal group holds exactly the term card
@@ -104,8 +152,15 @@ describe('Cockpit', () => {
   it('shows the container button for devcontainer projects and fires it (F14)', () => {
     let started = false
     const el = Cockpit({
-      sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {},
-      showContainerButton: true, containerState: 'none', onStartContainer: () => { started = true }
+      sessions,
+      activeSessionId: 's1',
+      onLaunch: () => {},
+      onSelectSession: () => {},
+      showContainerButton: true,
+      containerState: 'none',
+      onStartContainer: () => {
+        started = true
+      }
     })
     const btn = el.querySelector('.container-btn') as HTMLButtonElement
     expect(btn).toBeTruthy()
@@ -116,8 +171,14 @@ describe('Cockpit', () => {
 
   it('labels the container button by state: none=Build, stopped=Restart, running=Stop (F14)', () => {
     const mk = (s: 'none' | 'stopped' | 'running') =>
-      (Cockpit({ sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {}, showContainerButton: true, containerState: s })
-        .querySelector('.container-btn') as HTMLButtonElement)
+      Cockpit({
+        sessions,
+        activeSessionId: 's1',
+        onLaunch: () => {},
+        onSelectSession: () => {},
+        showContainerButton: true,
+        containerState: s
+      }).querySelector('.container-btn') as HTMLButtonElement
     expect(mk('none').textContent).toContain('Build')
     expect(mk('stopped').textContent).toContain('Restart')
     // Running now offers a (reversible) Stop action instead of a dead 'running' label.
@@ -133,8 +194,15 @@ describe('Cockpit', () => {
   it('running container button is an enabled Stop action that fires onStopContainer (F14)', () => {
     let stopped = false
     const el = Cockpit({
-      sessions, activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {},
-      showContainerButton: true, containerState: 'running', onStopContainer: () => { stopped = true }
+      sessions,
+      activeSessionId: 's1',
+      onLaunch: () => {},
+      onSelectSession: () => {},
+      showContainerButton: true,
+      containerState: 'running',
+      onStopContainer: () => {
+        stopped = true
+      }
     })
     const btn = el.querySelector('.container-btn') as HTMLButtonElement
     expect(btn.disabled).toBe(false) // running is now clickable (to stop), not disabled
@@ -145,9 +213,12 @@ describe('Cockpit', () => {
 
   it('marks a session needing reconnect and tags it (F4)', () => {
     const el = Cockpit({
-      sessions, activeSessionId: 's1',
+      sessions,
+      activeSessionId: 's1',
       reconnect: new Set(['s1']),
-      onLaunch: () => {}, onSelectSession: () => {}, onSessionMenu: () => {}
+      onLaunch: () => {},
+      onSelectSession: () => {},
+      onSessionMenu: () => {}
     })
     const card = el.querySelector('.scard.reconnect')
     expect(card).toBeTruthy()

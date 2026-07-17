@@ -10,7 +10,8 @@ import { join } from 'path'
 // bracketed paste (the agent CLIs) interleaved the paste with their own redraws.
 test('paste arrives wrapped in bracketed-paste markers (not garbled)', async () => {
   const proj = mkdtempSync(join(tmpdir(), 'agide-proj-'))
-  mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
+  mkdirSync(join(proj, 'src'))
+  writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-db-')), 'store.sqlite')
   const histDir = mkdtempSync(join(tmpdir(), 'agide-hist-'))
   const app = await electron.launch({
@@ -18,10 +19,17 @@ test('paste arrives wrapped in bracketed-paste markers (not garbled)', async () 
     env: { ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_HISTORY: histDir }
   })
   const win = await app.firstWindow()
-  await app.context().grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {})
+  await app
+    .context()
+    .grantPermissions(['clipboard-read', 'clipboard-write'])
+    .catch(() => {})
   await win.waitForSelector('.projrail', { timeout: 15_000 })
-  await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
-  await expect.poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 10_000 }).toBeGreaterThan(0)
+  await win.evaluate(async (p) => {
+    await window.agentIDE.projectsAddLocal(p)
+  }, proj)
+  await expect
+    .poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 10_000 })
+    .toBeGreaterThan(0)
   await win.reload()
   await win.locator('.projrail .pj').first().click({ timeout: 20_000 })
 
@@ -70,17 +78,25 @@ test('paste arrives wrapped in bracketed-paste markers (not garbled)', async () 
 // routes copy through main's clipboard (clipboard:write); assert the round-trip.
 test('Ctrl+Shift+C copies the terminal selection to the clipboard', async () => {
   const proj = mkdtempSync(join(tmpdir(), 'agide-proj-'))
-  mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
+  mkdirSync(join(proj, 'src'))
+  writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-db-')), 'store.sqlite')
   const app = await electron.launch({
     args: [join(__dirname, '..'), '--no-sandbox'],
     env: { ...process.env, AGENT_IDE_DB: dbPath }
   })
   const win = await app.firstWindow()
-  await app.context().grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {})
+  await app
+    .context()
+    .grantPermissions(['clipboard-read', 'clipboard-write'])
+    .catch(() => {})
   await win.waitForSelector('.projrail', { timeout: 15_000 })
-  await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
-  await expect.poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 10_000 }).toBeGreaterThan(0)
+  await win.evaluate(async (p) => {
+    await window.agentIDE.projectsAddLocal(p)
+  }, proj)
+  await expect
+    .poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 10_000 })
+    .toBeGreaterThan(0)
   await win.reload()
   await win.locator('.projrail .pj').first().click({ timeout: 20_000 })
   await win.locator('.provrow.terminal .add').click({ timeout: 20_000 })
@@ -93,10 +109,18 @@ test('Ctrl+Shift+C copies the terminal selection to the clipboard', async () => 
     const t = (await window.agentIDE.sessionsAll()).filter((s: any) => s.id.startsWith('term-')).pop()
     if (t) window.agentIDE.ptyWrite(t.id, `printf '${m}\\n'\n`)
   }, MARK)
-  await expect.poll(async () => win.evaluate((needle) => {
-    const rows = Array.from(document.querySelectorAll('.terminal-host .xterm-rows > div')) as HTMLElement[]
-    return rows.some((r) => (r.textContent || '').includes(needle))
-  }, MARK), { timeout: 8_000 }).toBe(true)
+  await expect
+    .poll(
+      async () =>
+        win.evaluate((needle) => {
+          const rows = Array.from(
+            document.querySelectorAll('.terminal-host .xterm-rows > div')
+          ) as HTMLElement[]
+          return rows.some((r) => (r.textContent || '').includes(needle))
+        }, MARK),
+      { timeout: 8_000 }
+    )
+    .toBe(true)
 
   // Drag-select the marker row with a real mouse sequence so xterm records a selection.
   const box = await win.evaluate((needle) => {
@@ -119,7 +143,8 @@ test('Ctrl+Shift+C copies the terminal selection to the clipboard', async () => 
   await win.keyboard.press('Control+Shift+C')
 
   // The clipboard (read via main) now contains the marker.
-  await expect.poll(async () => win.evaluate(() => window.agentIDE.clipboardRead()), { timeout: 5_000 })
+  await expect
+    .poll(async () => win.evaluate(() => window.agentIDE.clipboardRead()), { timeout: 5_000 })
     .toContain(MARK)
 
   await app.close()

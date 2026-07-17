@@ -21,7 +21,11 @@ export function showMenu(x: number, y: number, items: MenuItem[]): void {
     const el = document.createElement('div')
     el.className = 'ctx-item' + (it.danger ? ' danger' : '') + (it.disabled ? ' disabled' : '')
     el.textContent = it.label
-    if (!it.disabled) el.onclick = () => { menu.remove(); it.onClick() }
+    if (!it.disabled)
+      el.onclick = () => {
+        menu.remove()
+        it.onClick()
+      }
     menu.appendChild(el)
   }
   document.body.appendChild(menu)
@@ -42,7 +46,12 @@ export function showMenu(x: number, y: number, items: MenuItem[]): void {
   setTimeout(() => document.addEventListener('mousedown', close), 0)
 }
 
-export interface ChoiceOption<T> { label: string; value: T; primary?: boolean; hint?: string }
+export interface ChoiceOption<T> {
+  label: string
+  value: T
+  primary?: boolean
+  hint?: string
+}
 
 /** In-app choice modal with buttons + an optional checkbox. Resolves to the
  *  chosen value (and checkbox state), or null if cancelled. An optional
@@ -78,7 +87,9 @@ export function chooseOption<T>(
       const box = document.createElement('input')
       box.type = 'checkbox'
       box.checked = checked
-      box.onchange = () => { checked = box.checked }
+      box.onchange = () => {
+        checked = box.checked
+      }
       const span = document.createElement('span')
       span.textContent = checkbox.label
       row.append(box, span)
@@ -87,7 +98,10 @@ export function chooseOption<T>(
 
     const foot = document.createElement('div')
     foot.className = 'foot'
-    const done = (v: T | null) => { wrap.remove(); resolve(v === null ? null : { value: v, checked }) }
+    const done = (v: T | null) => {
+      wrap.remove()
+      resolve(v === null ? null : { value: v, checked })
+    }
     const cancel = document.createElement('button')
     cancel.textContent = 'Cancel'
     cancel.onclick = () => done(null)
@@ -102,7 +116,9 @@ export function chooseOption<T>(
     }
     modal.appendChild(foot)
     wrap.appendChild(modal)
-    wrap.onclick = (e) => { if (e.target === wrap) done(null) }
+    wrap.onclick = (e) => {
+      if (e.target === wrap) done(null)
+    }
     document.body.appendChild(wrap)
   })
 }
@@ -142,10 +158,15 @@ export function promptText(title: string, placeholder = ''): Promise<string | nu
     wrap.appendChild(modal)
     document.body.appendChild(wrap)
 
-    const done = (val: string | null) => { wrap.remove(); resolve(val) }
+    const done = (val: string | null) => {
+      wrap.remove()
+      resolve(val)
+    }
     cancel.onclick = () => done(null)
     ok.onclick = () => done(input.value.trim())
-    wrap.onclick = (e) => { if (e.target === wrap) done(null) }
+    wrap.onclick = (e) => {
+      if (e.target === wrap) done(null)
+    }
     input.onkeydown = (e) => {
       if (e.key === 'Enter') done(input.value.trim())
       if (e.key === 'Escape') done(null)

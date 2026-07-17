@@ -70,7 +70,7 @@ function createWindow(): void {
     const appUrl = process.env.ELECTRON_RENDERER_URL
     if (appUrl && url.startsWith(appUrl)) return
     event.preventDefault() // never navigate the app frame away
-    safeOpenExternal(url)  // hand off iff safe (no-op otherwise)
+    safeOpenExternal(url) // hand off iff safe (no-op otherwise)
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {

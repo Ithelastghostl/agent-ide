@@ -43,7 +43,8 @@ export function Explorer(p: ExplorerProps): HTMLElement {
     for (const node of nodes) {
       const path = parentPath ? `${parentPath}/${node.name}` : node.name
       const row = document.createElement('div')
-      row.className = 'ex-i' + (depth === 0 ? ' f' : '') + (!node.dir && path === p.activePath ? ' active' : '')
+      row.className =
+        'ex-i' + (depth === 0 ? ' f' : '') + (!node.dir && path === p.activePath ? ' active' : '')
       row.style.paddingLeft = `${10 + depth * 14}px`
 
       const twisty = document.createElement('span')

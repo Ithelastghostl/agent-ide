@@ -9,15 +9,23 @@ import { join } from 'path'
 // resolve to "online"; the rest are offline/not-installed here.
 test('status bar shows service connectivity and opens a login terminal on click', async () => {
   const proj = mkdtempSync(join(tmpdir(), 'agide-proj-'))
-  mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
+  mkdirSync(join(proj, 'src'))
+  writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-db-')), 'store.sqlite')
-  const app = await electron.launch({ args: [join(__dirname, '..'), '--no-sandbox'], env: { ...process.env, AGENT_IDE_DB: dbPath } })
+  const app = await electron.launch({
+    args: [join(__dirname, '..'), '--no-sandbox'],
+    env: { ...process.env, AGENT_IDE_DB: dbPath }
+  })
   const win = await app.firstWindow()
   await win.waitForSelector('.statusbar', { timeout: 20_000 })
 
   // Open a project so the cockpit (and a clicked login terminal) can render.
-  await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
-  await expect.poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 15_000 }).toBeGreaterThan(0)
+  await win.evaluate(async (p) => {
+    await window.agentIDE.projectsAddLocal(p)
+  }, proj)
+  await expect
+    .poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 15_000 })
+    .toBeGreaterThan(0)
   await win.reload()
   await win.locator('.projrail .pj').first().click({ timeout: 20_000 })
   await win.waitForSelector('.statusbar', { timeout: 10_000 })
