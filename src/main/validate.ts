@@ -117,13 +117,26 @@ export function validateTicketFields(v: unknown): import('@shared/types').Ticket
 
 /** Validate a session:launch payload. `isKnownProject` enforces project ownership
  *  — main resolves the confined root by projectId (B1), so an unknown project is
- *  refused here too. M-LOG-a: an agent launch must carry a valid task label. */
-export function validateLaunchRequest(v: unknown, isKnownProject: (id: string) => boolean): LaunchRequest {
+ *  refused here too. M-LOG-a: an agent launch must carry a valid task label.
+ *  S8/R7: `isKnownAgent` enforces that an agent preset relPath resolves inside the
+ *  library (confinedPath) AND is a registered agent (scanLibrary membership) —
+ *  absolute paths, traversal, and non-agent files are rejected before any read. */
+export function validateLaunchRequest(
+  v: unknown,
+  isKnownProject: (id: string) => boolean,
+  isKnownAgent: (relPath: string) => boolean = () => false
+): LaunchRequest {
   if (!isRecord(v)) throw new Error('invalid launch request: expected object')
   const provider = asProvider(v.provider)
   const projectId = asString(v.projectId, 'projectId')
   if (!isKnownProject(projectId)) throw new Error(`invalid projectId: unknown project`)
   const { taskKind, taskSubkind } = validateTaskLabel(v.taskKind, v.taskSubkind)
+  let agentRelPath: string | null = null
+  if (v.agentRelPath !== undefined && v.agentRelPath !== null) {
+    const rel = asString(v.agentRelPath, 'agentRelPath')
+    if (!isKnownAgent(rel)) throw new Error('invalid agentRelPath: not a registered library agent')
+    agentRelPath = rel
+  }
   return {
     projectId,
     provider,
@@ -133,7 +146,8 @@ export function validateLaunchRequest(v: unknown, isKnownProject: (id: string) =
     useContainer: asBool(v.useContainer, 'useContainer'),
     importConfig: v.importConfig === undefined ? undefined : asBool(v.importConfig, 'importConfig'),
     taskKind,
-    taskSubkind
+    taskSubkind,
+    agentRelPath
   }
 }
 

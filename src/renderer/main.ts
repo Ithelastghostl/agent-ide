@@ -91,6 +91,17 @@ function currentProject(): Project | null {
   return state.projects.find((p) => p.id === state.currentProjectId) ?? null
 }
 
+// S8: resolve a session's agent preset (session.agentRelPath) to a display name
+// for its chip, from the loaded library. Falls back to the file basename so a
+// chip still renders if the agent was removed from the library after launch.
+function agentNameFor(session: Session): string | null {
+  const rel = session.agentRelPath
+  if (!rel) return null
+  const match = library?.agents.find((a) => a.relPath === rel)
+  if (match) return match.name
+  return rel.replace(/^agents\//, '').replace(/\.md$/, '')
+}
+
 // File tree per project, loaded lazily from the real filesystem.
 const trees = new Map<string, FileNode[]>()
 function loadTree(projectId: string) {
@@ -389,11 +400,59 @@ function openLibrary(category: LibraryCategory) {
     items,
     hasActiveSession: activeLivePtyId() !== null,
     onUse: (item) => { void useLibraryItem(item); closeOverlay() },
+    // S8: launch a new session preset from an agent item.
+    onLaunchAgent: category === 'agents' ? (item) => { closeOverlay(); void launchAgentFlow(item) } : undefined,
     onAdd: category === 'agents' ? () => { closeOverlay(); openAgentForm() } : undefined,
     onCancel: closeOverlay
   })
   panel.id = 'picker-overlay'
   document.body.appendChild(panel)
+}
+
+// S8: launch a session FROM a library agent. Opens the model picker prefilled
+// with the agent's description as the objective (editable) and a switchable
+// provider; on confirm, launches with the agent's relPath so main primes the
+// agent body after the harness section and persists it for the session chip.
+async function launchAgentFlow(agent: LibraryItem) {
+  const proj = currentProject()
+  if (!proj) return
+  const ctx = await resolveRunContext(proj) // F11/F12
+  if (ctx === null) return // cancelled
+  const label = await chooseTaskLabel() // M-LOG-a
+  if (label === null) return // cancelled
+  const picker = ModelPicker({
+    provider: 'claude',
+    models: modelsFor('claude'),
+    modelsForProvider: (prov) => modelsFor(prov),
+    agentName: agent.name,
+    objective: agent.description || agent.name,
+    onLaunch: async (prov, modelId, objective) => {
+      closeOverlay()
+      try {
+        const session = await window.agentIDE.sessionLaunch({
+          projectId: proj.id,
+          provider: prov,
+          model: modelId,
+          objective: objective || agent.name,
+          cwd: proj.localPath,
+          useContainer: ctx.useContainer,
+          importConfig: ctx.importConfig,
+          taskKind: label.taskKind,
+          taskSubkind: label.taskSubkind,
+          agentRelPath: agent.relPath
+        })
+        launchedSessions.add(session.id)
+        state.sessions.push(session)
+        state.activeSessionId = session.id
+        state.view = 'cockpit'
+        render()
+      } catch (err) { console.error('agent-preset launch failed', err) }
+    },
+    onPick: () => { /* unused: onLaunch takes precedence */ },
+    onCancel: closeOverlay
+  })
+  picker.id = 'picker-overlay'
+  document.body.appendChild(picker)
 }
 
 // B2: create a library agent via the modal form; refresh pills on success.
@@ -863,7 +922,8 @@ function render() {
     reportEl,
     onSelectTab: (tab) => { activeTab = tab; render() },
     onCloseFile: closeFile,
-    onCloseReport: closeReport
+    onCloseReport: closeReport,
+    agentName: activeSession ? agentNameFor(activeSession) : null
   }))
   body.appendChild(
     Cockpit({
@@ -882,7 +942,8 @@ function render() {
       onOpenTerminal: openTerminal,
       showContainerButton: proj.hasDevcontainer,
       containerState: containerState.get(proj.id) ?? 'none',
-      onStartContainer: startContainer
+      onStartContainer: startContainer,
+      agentNameFor
     })
   )
 
