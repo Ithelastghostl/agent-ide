@@ -7,9 +7,8 @@ export interface AppState {
   currentProjectId: string | null
   activeSessionId: string | null
   view: 'cockpit' | 'home' | 'backlog'
-  /** Backlog item to focus when view === 'backlog' (S7 ⌘K navigation seam). The
-   *  Backlog view proper is built in S1; this holds the routed target so it can
-   *  open focused on the item. */
+  /** Backlog item to focus when view === 'backlog' (S7 ⌘K navigation seam);
+   *  the full Backlog view (S1) reads it to open focused on the routed item. */
   backlogFocus?: string | null
 }
 
