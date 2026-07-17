@@ -47,16 +47,11 @@ test('attention + cost IPC contracts answer through the real bridge', async () =
 })
 
 // End-to-end badge behaviour: drive a session, let it go quiet on a question-like
-// line, and assert the session is flagged 'input' after the quiet window.
-//
-// SKIPPED (test.fixme) pending a foundation fix: in the current frozen
-// foundation, ipc.ts spawns every session (session:launch / terminal:open /
-// session:resume) via mgr.spawn with a LOCAL recordOutput() that does NOT emit on
-// the sessionEvents 'output' bus; launchService.record() (the only bus emitter)
-// is never on the live launch path. So no output reaches the monitor at runtime.
-// The monitor is proven correct by unit tests (tests/main/attention.test.ts) that
-// feed the bus directly. Once ipc.ts routes output to the bus, remove `.fixme`.
-test.fixme('a quiet session ending on a question is flagged as needing input', async () => {
+// line, and assert the session is flagged 'input' after the (short, injected)
+// quiet window — surfaced on both the main attention:state and the renderer badge
+// event. ipc.ts recordOutput now emits on the sessionEvents 'output' bus, so the
+// monitor receives real output end-to-end.
+test('a quiet session ending on a question is flagged as needing input', async () => {
   const proj = mkdtempSync(join(tmpdir(), 'agide-att2-proj-'))
   mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-att2-db-')), 'store.sqlite')

@@ -126,10 +126,13 @@ export class AttentionMonitor {
     const closedRaw = parts
 
     // Clean each closed line; track the last non-empty for the heuristic, and
-    // feed all cleaned closed lines to the cost parser (last-summary-wins).
+    // feed all cleaned closed lines to the cost parser (last-summary-wins). Strip
+    // the CRLF line-terminator's trailing '\r' FIRST: stripAnsi collapses each
+    // line on '\r' (a TUI redraw), which would otherwise erase a line that ends
+    // with the terminator '\r' (e.g. "…proceed?\r" → "") and mask the prompt.
     const cleaned: string[] = []
     for (const raw of closedRaw) {
-      const c = stripAnsi(raw).trim()
+      const c = stripAnsi(raw.replace(/\r$/, '')).trim()
       cleaned.push(c)
       if (c) s.lastNonEmptyLine = c
     }

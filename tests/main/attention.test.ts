@@ -74,6 +74,18 @@ describe('AttentionMonitor — quiet-window flagging', () => {
     m.dispose()
   })
 
+  it('flags input on a CRLF-terminated prompt (trailing \\r not erased)', () => {
+    // Regression: stripAnsi collapses each line on '\r'; a CRLF terminator's
+    // trailing '\r' must be stripped FIRST or "…proceed?\r" cleans to "" and the
+    // prompt is masked (flagged idle instead of input).
+    const { emit } = makeEmit()
+    const m = new AttentionMonitor(emit, { quietMs: 100, providerOf: () => 'claude' })
+    m.onOutput('s1', 'Do you want to proceed?\r\n')
+    vi.advanceTimersByTime(100)
+    expect(m.stateMap().s1).toBe('input')
+    m.dispose()
+  })
+
   it('buffers output arriving across arbitrary chunk boundaries into lines', () => {
     const { emit } = makeEmit()
     const m = new AttentionMonitor(emit, { quietMs: 100, providerOf: () => 'claude' })
