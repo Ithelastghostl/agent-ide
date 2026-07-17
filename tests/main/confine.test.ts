@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
+import { realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { resolveProjectFile } from '../../src/main/ipc'
 import { Store } from '../../src/main/store'
+
+// Fixture roots live under the CANONICAL temp dir: confinement resolves through
+// symlinks, and macOS aliases /tmp → /private/tmp and /home → an automount, so
+// literal /home/... expectations are Linux-only.
+const base = join(realpathSync(tmpdir()), 'agide-confine-fixture')
 
 // B1 (Critical): the renderer used to supply the confinement `root` directly, so
 // fileRead('/', 'etc/passwd') resolved inside '/' and escaped. The fix: the
@@ -9,13 +17,13 @@ import { Store } from '../../src/main/store'
 describe('resolveProjectFile (B1 confinement by projectId)', () => {
   // A fake main-owned registry: only these projects exist.
   const roots: Record<string, string> = {
-    'proj-a': '/home/user/proj-a',
-    'proj-b': '/tmp/proj-b'
+    'proj-a': join(base, 'proj-a'),
+    'proj-b': join(base, 'proj-b')
   }
   const getRoot = (id: string): string | undefined => roots[id]
 
   it('resolves a child path inside a known project root', () => {
-    expect(resolveProjectFile(getRoot, 'proj-a', 'src/index.ts')).toBe('/home/user/proj-a/src/index.ts')
+    expect(resolveProjectFile(getRoot, 'proj-a', 'src/index.ts')).toBe(join(base, 'proj-a', 'src/index.ts'))
   })
 
   it('rejects an unknown projectId (not in the registry)', () => {
@@ -72,8 +80,8 @@ describe('resolveProjectFile with a real Store-backed root (B1 end-to-end)', () 
   })
 
   it('resolves a child inside a registered project but still blocks escape', () => {
-    const getRoot = rootOf(storeWith({ id: 'proj-a', localPath: '/home/user/proj-a' }))
-    expect(resolveProjectFile(getRoot, 'proj-a', 'src/index.ts')).toBe('/home/user/proj-a/src/index.ts')
+    const getRoot = rootOf(storeWith({ id: 'proj-a', localPath: join(base, 'proj-a') }))
+    expect(resolveProjectFile(getRoot, 'proj-a', 'src/index.ts')).toBe(join(base, 'proj-a', 'src/index.ts'))
     // even a known project can't be walked out of, nor addressed absolutely
     expect(resolveProjectFile(getRoot, 'proj-a', '../../etc/passwd')).toBeNull()
     expect(resolveProjectFile(getRoot, 'proj-a', '/etc/passwd')).toBeNull()

@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { electronArgs } from './launch'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -19,7 +20,7 @@ test('explorer: expand a folder and open a file in a new tab', async () => {
   const proj = seedProjectDir()
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-db-')), 'store.sqlite')
   const app = await electron.launch({
-    args: [join(__dirname, '..'), '--no-sandbox', '--ozone-platform=x11'],
+    args: electronArgs(),
     env: { ...process.env, AGENT_IDE_DB: dbPath }
   })
   const win = await app.firstWindow()

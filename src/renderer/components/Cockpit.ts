@@ -10,7 +10,7 @@ export interface CockpitProps {
   /** last-known connection health per provider (F8/F9). */
   health?: Partial<Record<Provider, ProviderHealth>>
   /** Library item counts per category (D14). Undefined → not loaded yet. */
-  libraryCounts?: { prompts: number; skills: number; workflows: number }
+  libraryCounts?: { prompts: number; skills: number; workflows: number; agents: number }
   /** Clicking a library pill opens that category's list. */
   onLibraryPill?: (category: LibraryCategory) => void
   onLaunch: (provider: Provider) => void
@@ -111,11 +111,12 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   el.appendChild(libSec)
   const pills = document.createElement('div')
   pills.className = 'libpills' + (p.libraryCounts ? '' : ' soon')
-  const counts = p.libraryCounts ?? { prompts: 0, skills: 0, workflows: 0 }
+  const counts = p.libraryCounts ?? { prompts: 0, skills: 0, workflows: 0, agents: 0 }
   const pillDefs: { icon: string; label: string; category: LibraryCategory; n: number }[] = [
     { icon: '📌', label: 'Prompts', category: 'prompts', n: counts.prompts },
     { icon: '🧠', label: 'Skills', category: 'skills', n: counts.skills },
-    { icon: '⚙', label: 'Flows', category: 'workflows', n: counts.workflows }
+    { icon: '⚙', label: 'Flows', category: 'workflows', n: counts.workflows },
+    { icon: '🤖', label: 'Agents', category: 'agents', n: counts.agents }
   ]
   for (const d of pillDefs) {
     const pill = document.createElement('span')

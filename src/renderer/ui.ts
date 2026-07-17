@@ -144,3 +144,14 @@ export function promptText(title: string, placeholder = ''): Promise<string | nu
     setTimeout(() => input.focus(), 0)
   })
 }
+
+/** Transient toast for non-blocking feedback (e.g. a refused insertion). */
+export function flash(message: string, ms = 2600): void {
+  document.getElementById('app-flash')?.remove()
+  const el = document.createElement('div')
+  el.id = 'app-flash'
+  el.className = 'flash'
+  el.textContent = message
+  document.body.appendChild(el)
+  setTimeout(() => el.remove(), ms)
+}

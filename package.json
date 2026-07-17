@@ -4,13 +4,13 @@
   "description": "Agent IDE — standalone cockpit for supervising AI coding-agent sessions",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "npm run rebuild:electron && electron-vite dev -- --ozone-platform=x11",
+    "dev": "npm run rebuild:electron && node scripts/run-electron.js dev",
     "build": "electron-vite build",
-    "start": "npm run rebuild:electron && npm run build && electron-vite preview -- --ozone-platform=x11",
+    "start": "npm run rebuild:electron && npm run build && node scripts/run-electron.js preview",
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
     "e2e": "npm run rebuild:electron && playwright test",
-    "native-gate": "npm run rebuild:electron && electron scripts/native-gate.js --no-sandbox --ozone-platform=x11",
+    "native-gate": "npm run rebuild:electron && node scripts/run-electron.js native-gate",
     "rebuild:electron": "electron-rebuild -f -w node-pty,better-sqlite3",
     "rebuild": "electron-rebuild -f -w node-pty,better-sqlite3",
     "postinstall": "electron-rebuild -f -w node-pty,better-sqlite3"
@@ -37,6 +37,7 @@
     "playwright": "1.61.0",
     "typescript": "6.0.3",
     "vite": "7.3.5",
-    "vitest": "4.1.9"
+    "vitest": "4.1.9",
+    "yaml": "^2.9.0"
   }
 }

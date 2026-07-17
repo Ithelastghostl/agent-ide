@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { mkdirSync, readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
-import type { LibraryItem, LibraryContents, LibraryCategory } from '@shared/types'
+import { mkdirSync, readdirSync, readFileSync, existsSync, statSync, writeFileSync } from 'node:fs'
+import type { LibraryItem, LibraryContents, LibraryCategory, AgentInput } from '@shared/types'
 import { confinedPath } from './confine'
 
 /** Root of the GitHub-backed library folder (a clone of the user's library repo:
@@ -41,11 +41,22 @@ export function parseFrontmatter(text: string): { meta: Record<string, string>; 
       }
       val = collected.join(' ').trim()
     } else {
-      val = val.trim().replace(/^["']|["']$/g, '') // strip surrounding quotes
+      val = decodeScalar(val.trim())
     }
     meta[key] = val
   }
   return { meta, body: body ?? '' }
+}
+
+/** Decode a frontmatter scalar. A fully double-quoted value is a YAML/JSON
+ *  double-quoted string — JSON.parse it so escapes round-trip (the agent writer
+ *  emits these). Anything else keeps the legacy behavior (strip surrounding
+ *  quote chars) so existing library files parse unchanged. */
+function decodeScalar(val: string): string {
+  if (val.length >= 2 && val.startsWith('"') && val.endsWith('"')) {
+    try { return JSON.parse(val) } catch { /* not valid JSON — legacy strip */ }
+  }
+  return val.replace(/^["']|["']$/g, '')
 }
 
 /** Best-effort name/description extraction from a workflow .js file's
@@ -70,6 +81,7 @@ function readText(path: string): string {
 /** Scan one category folder into LibraryItems.
  *  - skills:    subdirectories containing a SKILL.md (name/description from frontmatter)
  *  - prompts:   *.md files (frontmatter description, else first heading, else filename)
+ *  - agents:    *.md files (like prompts; body carries the layered sections)
  *  - workflows: *.js files (name/description from `export const meta`) */
 function scanCategory(libRoot: string, category: LibraryCategory): LibraryItem[] {
   const dir = join(libRoot, category)
@@ -91,7 +103,7 @@ function scanCategory(libRoot: string, category: LibraryCategory): LibraryItem[]
         relPath: `${category}/${e.name}/SKILL.md`,
         path: skillFile
       })
-    } else if (category === 'prompts') {
+    } else if (category === 'prompts' || category === 'agents') {
       if (!e.isFile() || !e.name.endsWith('.md')) continue
       const file = join(dir, e.name)
       const { meta, body } = parseFrontmatter(readText(file))
@@ -121,13 +133,14 @@ function scanCategory(libRoot: string, category: LibraryCategory): LibraryItem[]
   return items
 }
 
-/** Scan a library folder into its three categories. Pure over the passed root
+/** Scan a library folder into its categories. Pure over the passed root
  *  (tests call it with a temp dir). Missing categories yield empty arrays. */
 export function scanLibrary(libRoot: string): LibraryContents {
   return {
     prompts: scanCategory(libRoot, 'prompts'),
     skills: scanCategory(libRoot, 'skills'),
-    workflows: scanCategory(libRoot, 'workflows')
+    workflows: scanCategory(libRoot, 'workflows'),
+    agents: scanCategory(libRoot, 'agents')
   }
 }
 
@@ -148,4 +161,81 @@ export function readLibraryItem(relPath: string): { content?: string; error?: st
  *  `git pull` vs an initial clone. */
 export function libraryIsClone(libRoot: string = libraryDir()): boolean {
   return existsSync(join(libRoot, '.git'))
+}
+
+// ---- Agents (multi-layer agent files) --------------------------------------
+// One agent = agents/<slug>.md: YAML frontmatter (name, description) + layered
+// body sections (# Instructions / # Data / # Context). The library is
+// local-first: adding works whether or not the folder is a git clone.
+
+const AGENT_NAME_MAX = 80
+const AGENT_DESC_MAX = 200
+const AGENT_LAYER_MAX = 64 * 1024
+const AGENT_FILE_MAX = 256 * 1024
+
+/** Derive the filesystem slug for an agent name: lowercase, runs of anything
+ *  outside [a-z0-9] collapse to '-', trimmed. Empty result = invalid name. */
+export function agentSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-+|-+$)/g, '')
+}
+
+/** Validate an addAgent payload at the IPC boundary. Returns a typed AgentInput
+ *  or throws with a user-facing message. */
+export function validateAgentInput(raw: unknown): AgentInput {
+  const o = (raw ?? {}) as Record<string, unknown>
+  const str = (k: string): string => (typeof o[k] === 'string' ? (o[k] as string) : '')
+  const name = str('name').trim()
+  const description = str('description').trim()
+  if (!name || name.length > AGENT_NAME_MAX) throw new Error(`agent name must be 1–${AGENT_NAME_MAX} characters`)
+  if (!agentSlug(name)) throw new Error('agent name must contain at least one letter or digit')
+  if (/[\r\n]/.test(description)) throw new Error('description must be a single line')
+  if (description.length > AGENT_DESC_MAX) throw new Error(`description must be ≤${AGENT_DESC_MAX} characters`)
+  const layers = { instructions: str('instructions'), data: str('data'), context: str('context') }
+  for (const [k, v] of Object.entries(layers)) {
+    if (v.length > AGENT_LAYER_MAX) throw new Error(`${k} layer exceeds ${AGENT_LAYER_MAX / 1024}KB`)
+  }
+  return { name, description, ...layers }
+}
+
+/** Render the agent markdown. Frontmatter scalars are JSON-quoted (valid YAML
+ *  double-quoted strings) so quotes/colons/# round-trip; parseFrontmatter
+ *  JSON-decodes them. */
+export function renderAgentMd(a: AgentInput): string {
+  const oneLine = (s: string) => s.replace(/[\r\n]+/g, ' ').trim()
+  return [
+    '---',
+    `name: ${JSON.stringify(oneLine(a.name))}`,
+    `description: ${JSON.stringify(oneLine(a.description))}`,
+    '---',
+    '',
+    '# Instructions',
+    a.instructions.trim(),
+    '',
+    '# Data',
+    a.data.trim(),
+    '',
+    '# Context',
+    a.context.trim(),
+    ''
+  ].join('\n')
+}
+
+/** Create agents/<slug>.md in the library. Exclusive write ('wx') — an existing
+ *  slug is an error, never an overwrite. Returns { relPath } or { error }. */
+export function addAgent(raw: unknown, libRoot: string = libraryDir()): { relPath?: string; error?: string } {
+  let input: AgentInput
+  try { input = validateAgentInput(raw) } catch (err) { return { error: (err as Error).message } }
+  const body = renderAgentMd(input)
+  if (body.length > AGENT_FILE_MAX) return { error: `agent file exceeds ${AGENT_FILE_MAX / 1024}KB` }
+  const relPath = `agents/${agentSlug(input.name)}.md`
+  mkdirSync(join(libRoot, 'agents'), { recursive: true })
+  const abs = confinedPath(libRoot, relPath)
+  if (!abs) return { error: 'path outside library' }
+  try {
+    writeFileSync(abs, body, { encoding: 'utf8', flag: 'wx' })
+    return { relPath }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    return { error: code === 'EEXIST' ? `an agent named "${agentSlug(input.name)}" already exists` : (err as Error).message }
+  }
 }

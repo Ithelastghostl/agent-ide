@@ -1,7 +1,21 @@
 /* Variant-A cockpit styles — ported from the chosen mockup
    (.superpowers/brainstorm/.../cockpit.html), Talentchain-themed. */
 
-.ide-body { display: flex; height: 100vh; }
+/* titlebar — the window's drag surface. titleBarStyle 'hiddenInset' hides the
+   native macOS bar and floats the traffic lights over the top-left inset, so
+   this strip both hosts the drag region and keeps content clear of them.
+   Interactive children (none today) must set -webkit-app-region: no-drag. */
+.titlebar {
+  height: 38px; flex: none; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-page); border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag; user-select: none;
+}
+.titlebar .tb-title {
+  font-size: 10px; letter-spacing: .22em; color: var(--text-muted); font-weight: 700;
+}
+.titlebar button, .titlebar input, .titlebar select, .titlebar .ic { -webkit-app-region: no-drag; }
+
+.ide-body { display: flex; height: calc(100vh - 38px); }
 
 /* project rail (far-left, VS Code activity-bar style) */
 .projrail {
@@ -293,3 +307,17 @@
 .as-row .task-chip.analysis { color: var(--text-muted); }
 .as-row .task-status { font-size: 9px; color: var(--text-muted); text-transform: capitalize; opacity: 0.85; }
 .as-row .task-status.finished { color: var(--accent); }
+
+/* Transient toast (flash) for non-blocking feedback. */
+.flash { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); font-size: 12px; padding: 8px 14px; border-radius: 9px; box-shadow: 0 10px 40px rgba(0,0,0,.7); z-index: 300; }
+
+/* Agent form (library 🤖 New agent). */
+.agent-form .agent-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 14px; font-size: 11px; color: var(--text-muted); }
+.agent-form .agent-field input, .agent-form .agent-field textarea { background: var(--bg-page); border: 1px solid var(--border); border-radius: 7px; color: var(--text-primary); font-size: 12px; padding: 7px 9px; font-family: inherit; resize: vertical; }
+.agent-form .agent-slug { margin: 0 14px; }
+.agent-form .agent-error { color: #ff7b72; font-size: 11.5px; margin: 4px 14px; min-height: 14px; }
+
+/* AllSessions: history sync action + per-step result line. */
+.as-actions { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; }
+.as-actions .hsync-result { font-size: 11px; color: var(--text-muted); }
+.as-actions .hsync-result.err { color: #ff7b72; }

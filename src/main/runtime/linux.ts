@@ -2,7 +2,8 @@ import type { Provider } from '@shared/types'
 import { PtyManager, type SpawnOpts, type ExitReason } from '../ptyManager'
 import {
   upDevcontainer, hasDevcontainerCli, findRunningContainer, findContainerPresence,
-  startContainerById, resolveContainerUser, type ContainerPresence
+  startContainerById, resolveContainerUser, resolveContainerHome, containerWorkspaceFolder,
+  seedCredentialsInContainer, type ContainerPresence, type SeedFile
 } from '../devcontainer'
 import { probeHealth, installInContainer, type Health, type RunContext } from '../providerHealth'
 import { PortForwarder, ContainerPortWatcher } from '../portForwarder'
@@ -27,6 +28,7 @@ class LinuxTerminalRuntime implements TerminalRuntime {
   write(id: string, data: string): void { this.pty.write(id, data) }
   resize(id: string, cols: number, rows: number): void { this.pty.resize(id, cols, rows) }
   kill(id: string): void { this.pty.kill(id) }
+  has(id: string): boolean { return this.pty.has(id) }
   primeWhenReady(id: string, data: string, opts?: { quietMs?: number; maxWaitMs?: number }): void {
     this.pty.primeWhenReady(id, data, opts)
   }
@@ -41,6 +43,11 @@ class LinuxContainerRuntime implements ContainerRuntime {
   findPresence(workspace: string): Promise<ContainerPresence> { return findContainerPresence(workspace) }
   startById(id: string): Promise<void> { return startContainerById(id) }
   resolveUser(containerId: string): Promise<string | null> { return resolveContainerUser(containerId) }
+  resolveHome(containerId: string, user: string | null): Promise<string> { return resolveContainerHome(containerId, user) }
+  workspaceFolder(workspace: string): Promise<string> { return containerWorkspaceFolder(workspace) }
+  seedCredentials(containerId: string, user: string | null, home: string, files: SeedFile[]): Promise<void> {
+    return seedCredentialsInContainer(containerId, user, home, files)
+  }
 }
 
 class LinuxHostRuntime implements HostRuntime {

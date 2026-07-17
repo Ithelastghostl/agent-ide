@@ -7,12 +7,13 @@ import { SupervisionView, type OpenFile, type OpenReport, type ActiveTab } from 
 import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
 import { LibraryPanel } from './components/LibraryPanel'
+import { AgentForm } from './components/AgentForm'
 import type { LibraryCategory, LibraryContents, LibraryItem } from '@shared/types'
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
 import { AllSessions } from './components/AllSessions'
 import { modelsFor, loadModels } from './models'
-import { showMenu, promptText, chooseOption } from './ui'
+import { showMenu, promptText, chooseOption, flash } from './ui'
 
 const root = document.getElementById('app')!
 const state: AppState = initialState()
@@ -35,6 +36,9 @@ let library: LibraryContents | undefined
 function loadLibrary() {
   window.agentIDE.libraryList().then((lib) => { library = lib; render() }).catch(() => { /* library unavailable */ })
 }
+
+// App-level notices from main (container mount remediation, etc.).
+window.agentIDE.onNotice?.(({ message }) => flash(message, 4200))
 
 // F4: a session's pty exited. History is always kept; a crash flags reconnect.
 window.agentIDE.onSessionExit(({ id, reason }) => {
@@ -385,21 +389,50 @@ function openLibrary(category: LibraryCategory) {
     items,
     hasActiveSession: activeLivePtyId() !== null,
     onUse: (item) => { void useLibraryItem(item); closeOverlay() },
+    onAdd: category === 'agents' ? () => { closeOverlay(); openAgentForm() } : undefined,
     onCancel: closeOverlay
   })
   panel.id = 'picker-overlay'
   document.body.appendChild(panel)
 }
 
-// Insert a library item into the active session's pty. Prompts → the prompt body
-// (frontmatter stripped). Skills/Workflows → an invocation hint the agent CLI
-// understands (the item is in the mounted library, so the CLI can run it).
+// B2: create a library agent via the modal form; refresh pills on success.
+function openAgentForm() {
+  const form = AgentForm({
+    onSubmit: (input) => window.agentIDE.libraryAddAgent(input),
+    onDone: () => { closeOverlay(); loadLibrary(); flash('agent added to the library') },
+    onCancel: closeOverlay
+  })
+  form.id = 'picker-overlay'
+  document.body.appendChild(form)
+}
+
+/** Write library text into a session. Multi-line bodies go ONLY to provider
+ *  sessions (a plain shell would EXECUTE each line), wrapped in bracketed-paste
+ *  markers so the CLI treats them as one paste — never auto-submitted. */
+function insertIntoSession(sessionId: string, text: string): void {
+  if (!/[\r\n]/.test(text.trim())) {
+    window.agentIDE.ptyWrite(sessionId, text)
+    return
+  }
+  const isProviderSession = !sessionId.startsWith('term-') && !sessionId.startsWith('login-')
+  if (!isProviderSession) {
+    flash('multi-line items can only be inserted into an agent session, not a plain terminal')
+    return
+  }
+  window.agentIDE.ptyWrite(sessionId, `\x1b[200~${text}\x1b[201~`)
+}
+
+// Insert a library item into the active session's pty. Prompts/Agents → the
+// item body (frontmatter stripped). Skills/Workflows → an invocation hint the
+// agent CLI understands (the item is in the mounted library, so the CLI can
+// run it).
 async function useLibraryItem(item: LibraryItem) {
   const sessionId = activeLivePtyId()
   if (!sessionId) return
-  if (item.category === 'prompts') {
+  if (item.category === 'prompts' || item.category === 'agents') {
     const r = await window.agentIDE.libraryRead(item.relPath)
-    if (r.content) window.agentIDE.ptyWrite(sessionId, stripFrontmatter(r.content))
+    if (r.content) insertIntoSession(sessionId, stripFrontmatter(r.content))
   } else if (item.category === 'skills') {
     // Skills are invoked by name in the CLIs (e.g. a /name command).
     window.agentIDE.ptyWrite(sessionId, `/${item.name} `)
@@ -545,7 +578,9 @@ async function refreshHealth(provider: Provider) {
   const proj = currentProject()
   if (!proj) return
   try {
-    health[provider] = await window.agentIDE.providerHealth(provider, proj.id, proj.localPath)
+    // Health in the project's SELECTED context (B5): host-mode users must not
+    // see the container's health just because one happens to be running.
+    health[provider] = await window.agentIDE.providerHealth(provider, proj.id, proj.localPath, runInContainer.get(proj.id))
     render()
   } catch (err) { console.error('health check failed', err) }
 }
@@ -602,8 +637,9 @@ function openProviderMenu(provider: Provider, x: number, y: number) {
 async function reconnectSession(session: Session) {
   const proj = state.projects.find((p) => p.id === session.projectId)
   const cwd = proj?.localPath ?? ''
-  // Resume in the SAME context the session ran in (container vs host).
-  const useContainer = runInContainer.get(session.projectId) ?? false
+  // Resume in the SAME context the session ran in: the session's persisted
+  // context (B6) survives restarts; the per-project map is only a fallback.
+  const useContainer = session.useContainer ?? runInContainer.get(session.projectId) ?? false
   try {
     disposeTerminal(session.id) // discard dead-pty terminal + its listener
     const resumed = await window.agentIDE.sessionResume(session, cwd, useContainer)
@@ -733,6 +769,16 @@ function openSessionMenu(session: Session, x: number, y: number) {
 
 function render() {
   root.innerHTML = ''
+  // Window drag strip: titleBarStyle 'hiddenInset' removes the native macOS
+  // title bar, so the renderer must own the drag surface. Rendered before the
+  // body on every view path (home board and project cockpit).
+  const titlebar = document.createElement('div')
+  titlebar.className = 'titlebar'
+  const tbTitle = document.createElement('span')
+  tbTitle.className = 'tb-title'
+  tbTitle.textContent = "NACHO'S IDE"
+  titlebar.appendChild(tbTitle)
+  root.appendChild(titlebar)
   const body = document.createElement('div')
   body.className = 'ide-body'
 
@@ -759,7 +805,8 @@ function render() {
         setCurrentProject(projectId)
         state.activeSessionId = sessionId
         render()
-      }
+      },
+      onSyncHistory: () => window.agentIDE.historySync(new Date().toISOString())
     })
     // F1: prominent "Open project" CTA at the top of the board
     const cta = document.createElement('button')
@@ -825,7 +872,7 @@ function render() {
       reconnect,
       health,
       libraryCounts: library
-        ? { prompts: library.prompts.length, skills: library.skills.length, workflows: library.workflows.length }
+        ? { prompts: library.prompts.length, skills: library.skills.length, workflows: library.workflows.length, agents: library.agents.length }
         : undefined,
       onLibraryPill: openLibrary,
       onLaunch: launchFlow,
@@ -852,10 +899,19 @@ async function boot() {
     ])
     state.projects = projects
     state.sessions = sessions
-    // Hydrated non-archived sessions from a previous run have no live pty —
-    // mark them reconnectable rather than implying they're attached (Codex P2).
-    for (const s of sessions) {
-      if (s.status !== 'archived') reconnect.add(s.id)
+    // Hydrated non-archived sessions: on macOS the window closes while sessions
+    // keep running, so ask main which ptys are still LIVE — those get attached
+    // (never respawned); only truly dead ones become reconnectable (Codex P2).
+    const nonArchived = sessions.filter((s) => s.status !== 'archived')
+    const alive = await Promise.all(nonArchived.map((s) => window.agentIDE.ptyAlive(s.id).catch(() => false)))
+    nonArchived.forEach((s, i) => {
+      if (alive[i]) launchedSessions.add(s.id)
+      else reconnect.add(s.id)
+    })
+    // Seed each project's run-context from its most recent session's persisted
+    // context (B6) so health checks and resumes start from the real mode.
+    for (const s of [...sessions].sort((a, b) => a.updatedAt - b.updatedAt)) {
+      if (typeof s.useContainer === 'boolean') runInContainer.set(s.projectId, s.useContainer)
     }
   } catch (err) {
     console.error('boot hydrate failed', err)

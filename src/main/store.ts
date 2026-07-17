@@ -117,22 +117,29 @@ export class Store {
     add('taskKind', 'taskKind TEXT')       // 'product' | 'analysis' | NULL
     add('taskSubkind', 'taskSubkind TEXT') // 'code' | 'feature' | 'bug' | NULL
     add('taskStatus', 'taskStatus TEXT')   // 'open' | 'finished' | 'deployed' | 'ticketed' | NULL
+    add('useContainer', 'useContainer INTEGER') // 1 | 0 | NULL (pre-migration rows)
   }
 
   saveSession(s: Session): void {
     this.db
       .prepare(
-        `INSERT INTO sessions (id,projectId,provider,model,objective,status,createdAt,updatedAt,taskKind,taskSubkind,taskStatus)
-         VALUES (@id,@projectId,@provider,@model,@objective,@status,@createdAt,@updatedAt,@taskKind,@taskSubkind,@taskStatus)
-         ON CONFLICT(id) DO UPDATE SET status=@status, model=@model, objective=@objective, updatedAt=@updatedAt,
-           taskKind=@taskKind, taskSubkind=@taskSubkind, taskStatus=@taskStatus`
+        `INSERT INTO sessions (id,projectId,provider,model,objective,status,createdAt,updatedAt,taskKind,taskSubkind,taskStatus,useContainer)
+         VALUES (@id,@projectId,@provider,@model,@objective,@status,@createdAt,@updatedAt,@taskKind,@taskSubkind,@taskStatus,@uc)
+         ON CONFLICT(id) DO UPDATE SET status=@status, provider=@provider, model=@model, objective=@objective, updatedAt=@updatedAt,
+           taskKind=@taskKind, taskSubkind=@taskSubkind, taskStatus=@taskStatus, useContainer=@uc`
       )
       .run({
         ...s,
         taskKind: s.taskKind ?? null,
         taskSubkind: s.taskSubkind ?? null,
-        taskStatus: s.taskStatus ?? null
+        taskStatus: s.taskStatus ?? null,
+        uc: s.useContainer == null ? null : s.useContainer ? 1 : 0
       })
+  }
+
+  /** SQLite stores useContainer as 0/1/NULL; the app type is boolean | null. */
+  private static rowToSession(r: any): Session {
+    return { ...r, useContainer: r.useContainer == null ? null : !!r.useContainer }
   }
 
   /** M-LOG-a: set a session's task lifecycle status (open→finished→deployed→
@@ -152,6 +159,15 @@ export class Store {
       .run(t)
   }
 
+  /** Persist a ticket AND advance its session to 'ticketed' in ONE transaction —
+   *  a crash can no longer leave a saved ticket on a still-'deployed' session. */
+  finalizeTicket(t: Ticket): void {
+    this.db.transaction(() => {
+      this.saveTicket(t)
+      this.setTaskStatus(t.sessionId, 'ticketed')
+    })()
+  }
+
   /** Tickets for a project, newest first (for the Log list). */
   getTickets(projectId: string): Ticket[] {
     return this.db
@@ -167,17 +183,19 @@ export class Store {
   getSessions(projectId: string): Session[] {
     return this.db
       .prepare(`SELECT * FROM sessions WHERE projectId = ? ORDER BY createdAt`)
-      .all(projectId) as Session[]
+      .all(projectId)
+      .map(Store.rowToSession)
   }
 
   /** A single session by id, or undefined. Used by the M-LOG task lifecycle to
    *  read the current label/status before advancing it. */
   getSession(id: string): Session | undefined {
-    return this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id) as Session | undefined
+    const r = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id)
+    return r ? Store.rowToSession(r) : undefined
   }
 
   allSessions(): Session[] {
-    return this.db.prepare(`SELECT * FROM sessions ORDER BY createdAt`).all() as Session[]
+    return this.db.prepare(`SELECT * FROM sessions ORDER BY createdAt`).all().map(Store.rowToSession)
   }
 
   archiveSession(id: string): void {

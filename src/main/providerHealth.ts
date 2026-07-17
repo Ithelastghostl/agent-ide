@@ -11,6 +11,11 @@ export type Health = 'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'
 export interface RunContext {
   /** containerId when the project runs in a devcontainer; undefined = host. */
   containerId?: string
+  /** Container exec context (R3-1): the SAME user/home/cwd sessions run with,
+   *  so health and sessions can't disagree. Ignored for host runs. */
+  user?: string
+  home?: string
+  cwd?: string
 }
 
 interface ArgvCmd { cmd: string; args: string[] }
@@ -64,10 +69,19 @@ export function classifyHealth(p: { present: boolean; authOk: boolean | null }):
 
 /** Wrap an argv to run in the given context (host or `docker exec` into
  *  container). Non-interactive (no `-it`): these run via execFile with no TTY,
- *  so forcing a TTY would hang (Codex P2). */
+ *  so forcing a TTY would hang (Codex P2). Container runs carry the session's
+ *  user/HOME/cwd so credential discovery matches real sessions (R3-1). */
 function inContext(ctx: RunContext, cmd: string, args: string[]): ArgvCmd {
   if (ctx.containerId) {
-    return { cmd: 'docker', args: containerExecArgv(ctx.containerId, cmd, args, { interactive: false }) }
+    return {
+      cmd: 'docker',
+      args: containerExecArgv(ctx.containerId, cmd, args, {
+        interactive: false,
+        user: ctx.user,
+        cwd: ctx.cwd,
+        env: ctx.home ? { HOME: ctx.home } : undefined
+      })
+    }
   }
   return { cmd, args }
 }

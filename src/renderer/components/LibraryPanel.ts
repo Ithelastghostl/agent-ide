@@ -1,7 +1,7 @@
 import type { LibraryCategory, LibraryItem } from '@shared/types'
 
-const TITLE: Record<LibraryCategory, string> = { prompts: 'Prompts', skills: 'Skills', workflows: 'Workflows' }
-const ICON: Record<LibraryCategory, string> = { prompts: '📌', skills: '🧠', workflows: '⚙' }
+const TITLE: Record<LibraryCategory, string> = { prompts: 'Prompts', skills: 'Skills', workflows: 'Workflows', agents: 'Agents' }
+const ICON: Record<LibraryCategory, string> = { prompts: '📌', skills: '🧠', workflows: '⚙', agents: '🤖' }
 
 export interface LibraryPanelProps {
   category: LibraryCategory
@@ -10,6 +10,8 @@ export interface LibraryPanelProps {
   hasActiveSession: boolean
   /** Primary action for a Prompt: insert its body into the active session. */
   onUse: (item: LibraryItem) => void
+  /** Agents only: open the add-agent form. */
+  onAdd?: () => void
   onCancel: () => void
 }
 
@@ -31,8 +33,9 @@ export function LibraryPanel(p: LibraryPanelProps): HTMLElement {
 
   const sub = document.createElement('div')
   sub.className = 'sub'
-  sub.textContent = p.category === 'prompts'
-    ? 'Click a prompt to insert it into the active session.'
+  sub.textContent =
+    p.category === 'prompts' ? 'Click a prompt to insert it into the active session.'
+    : p.category === 'agents' ? 'An agent bundles instructions, data, and context. Use one in the active session, or create a new one.'
     : `Pick a ${p.category === 'skills' ? 'skill' : 'workflow'} to insert its invocation into the active session.`
   modal.appendChild(sub)
 
@@ -89,6 +92,13 @@ export function LibraryPanel(p: LibraryPanelProps): HTMLElement {
 
   const foot = document.createElement('div')
   foot.className = 'foot'
+  if (p.category === 'agents' && p.onAdd) {
+    const add = document.createElement('button')
+    add.className = 'primary lib-add-agent'
+    add.textContent = 'New agent'
+    add.onclick = p.onAdd
+    foot.appendChild(add)
+  }
   const cancel = document.createElement('button')
   cancel.textContent = 'Close'
   cancel.onclick = p.onCancel

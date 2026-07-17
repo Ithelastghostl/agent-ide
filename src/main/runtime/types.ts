@@ -24,6 +24,9 @@ export interface TerminalRuntime {
   write(id: string, data: string): void
   resize(id: string, cols: number, rows: number): void
   kill(id: string): void
+  /** Whether a live pty exists for this session — lets a reopened window attach
+   *  to surviving sessions instead of offering a killing "reconnect". */
+  has(id: string): boolean
   /** Write a history primer once the terminal settles (B12). */
   primeWhenReady(id: string, data: string, opts?: { quietMs?: number; maxWaitMs?: number }): void
 }
@@ -37,6 +40,13 @@ export interface ContainerRuntime {
   startById(id: string): Promise<void>
   /** The non-root user to `docker exec` as (devcontainer remoteUser / uid≥1000). */
   resolveUser(containerId: string): Promise<string | null>
+  /** That user's home from the container's passwd (R3-1); conventional fallback. */
+  resolveHome(containerId: string, user: string | null): Promise<string>
+  /** Container-side workspace folder (merged devcontainer configuration). */
+  workspaceFolder(workspace: string): Promise<string>
+  /** Copy host credentials into writable container state via docker cp (R3-2);
+   *  idempotent, container-local files always win. */
+  seedCredentials(containerId: string, user: string | null, home: string, files: import('../devcontainer').SeedFile[]): Promise<void>
 }
 
 /** Host-level provider operations (health probing + in-container install). Runs

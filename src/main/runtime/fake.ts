@@ -15,10 +15,12 @@ export class FakeTerminalRuntime implements TerminalRuntime {
   writes: { id: string; data: string }[] = []
   killed: string[] = []
   primed: { id: string; data: string }[] = []
+  private live = new Set<string>()
   private onExitById = new Map<string, (info: { exitCode: number; signal?: number; reason: ExitReason }) => void>()
 
   spawn(o: SpawnOpts, _onData: (d: string) => void, onExit?: (info: { exitCode: number; signal?: number; reason: ExitReason }) => void): string {
     this.spawns.push(o)
+    this.live.add(o.id)
     if (onExit) this.onExitById.set(o.id, onExit)
     return o.id
   }
@@ -26,11 +28,16 @@ export class FakeTerminalRuntime implements TerminalRuntime {
   resize(): void { /* no-op */ }
   kill(id: string): void {
     this.killed.push(id)
+    this.live.delete(id)
     this.onExitById.get(id)?.({ exitCode: 0, reason: 'closed' })
   }
+  has(id: string): boolean { return this.live.has(id) }
   primeWhenReady(id: string, data: string): void { this.primed.push({ id, data }) }
   /** test helper: simulate the process dying on its own. */
-  crash(id: string): void { this.onExitById.get(id)?.({ exitCode: 1, reason: 'crashed' }) }
+  crash(id: string): void {
+    this.live.delete(id)
+    this.onExitById.get(id)?.({ exitCode: 1, reason: 'crashed' })
+  }
 }
 
 export class FakeContainerRuntime implements ContainerRuntime {
@@ -56,6 +63,18 @@ export class FakeContainerRuntime implements ContainerRuntime {
   startById(): Promise<void> { return Promise.resolve() }
   resolveUser(containerId: string): Promise<string | null> {
     return Promise.resolve(this.userByContainer.get(containerId) ?? null)
+  }
+  homeByContainer = new Map<string, string>()
+  seeded: { containerId: string; user: string | null; home: string; files: import('../devcontainer').SeedFile[] }[] = []
+  resolveHome(containerId: string, user: string | null): Promise<string> {
+    return Promise.resolve(this.homeByContainer.get(containerId) ?? (user === 'root' ? '/root' : `/home/${user ?? 'node'}`))
+  }
+  workspaceFolder(workspace: string): Promise<string> {
+    return Promise.resolve(`/workspaces/${workspace.split('/').filter(Boolean).pop() ?? 'workspace'}`)
+  }
+  seedCredentials(containerId: string, user: string | null, home: string, files: import('../devcontainer').SeedFile[]): Promise<void> {
+    this.seeded.push({ containerId, user, home, files })
+    return Promise.resolve()
   }
 }
 

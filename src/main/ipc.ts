@@ -1,5 +1,5 @@
-import { app, ipcMain, dialog, shell, type BrowserWindow } from 'electron'
-import { existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appendFile } from 'node:fs'
+import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appendFile, readdirSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
@@ -7,14 +7,15 @@ import { launchArgv } from './providers'
 import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory, cloneRepo, cloneUrl, pullRepo } from './github'
-import { libraryDir, scanLibrary, readLibraryItem, libraryIsClone } from './library'
+import { libraryDir, scanLibrary, readLibraryItem, libraryIsClone, addAgent } from './library'
 // Pure argv/mount builders stay here (platform-agnostic); side-effecting docker
 // ops now go through runtime.container (M1).
-import { containerExecArgv, claudeConfigMount, codexConfigMount, geminiConfigMount, libraryConfigMount } from './devcontainer'
+import { containerExecArgv, libraryConfigMount, providerSeedFiles } from './devcontainer'
 import { loginArgv } from './providerHealth'
 import { loopbackPort } from './portForwarder'
 import type { Runtime, TerminalRuntime, ContainerRuntime, PortForwardService, PortWatchHandle } from './runtime'
 import { historyFile, buildPrimer, stripAnsi } from './history'
+import { hostShell } from './ptyManager'
 import { Store } from './store'
 import { confinedPath } from './confine'
 import { validateLaunchRequest, validateResumeSession, validateTaskTransition } from './validate'
@@ -67,6 +68,15 @@ export function isSafeExternalUrl(url: unknown): url is string {
   if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return false
   if (parsed.username || parsed.password) return false // embedded credentials
   return true
+}
+
+/** Send an event to the current live renderer, if any. IPC state is app-scoped
+ *  (macOS recreates windows on Dock activation), so pty/session callbacks must
+ *  not close over one BrowserWindow — with the window closed, sessions keep
+ *  running and events are simply dropped; the transcript replays on reopen. */
+export function sendToRenderer(channel: string, payload: unknown): void {
+  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+  win?.webContents.send(channel, payload)
 }
 
 /** The single choke point for opening a URL in the OS default browser (S-URL):
@@ -157,40 +167,60 @@ const containerByProject = new Map<string, string>()
 // M-LOG-b: session ids with a ticket-generation pass in flight — blocks a second
 // concurrent generate for the same session (no double headless pass / dup rows).
 const ticketsInFlight = new Set<string>()
+/** The exec context every in-container command shares (R3-1): the resolved
+ *  remoteUser, that user's REAL home (from the container's passwd), and the
+ *  container-side workspace folder. Sessions, terminals, health probes, and
+ *  installs all use this one resolution so they can't disagree. */
+async function containerExecContext(container: ContainerRuntime, containerId: string, workspace: string): Promise<{ user?: string; home: string; cwd: string }> {
+  const user = await container.resolveUser(containerId)
+  const home = await container.resolveHome(containerId, user)
+  const cwd = await container.workspaceFolder(workspace)
+  return { user: user ?? undefined, home, cwd }
+}
+
+/** Copy the host's provider credentials into the container user's WRITABLE
+ *  home via docker cp (R3-2): containerized sessions are pre-authenticated,
+ *  in-container logins/token refreshes persist, and nothing can write back to
+ *  the host. Idempotent — container-local files always win — and it works on
+ *  containers built before this feature existed (no rebuild, R2-2). ~/.claude
+ *  files stay opt-in via importConfig. */
+async function seedContainer(container: ContainerRuntime, containerId: string, workspace: string, importConfig: boolean): Promise<void> {
+  const ctx = await containerExecContext(container, containerId, workspace)
+  const files = providerSeedFiles(homedir(), { includeClaude: importConfig })
+  try {
+    await container.seedCredentials(containerId, ctx.user ?? null, ctx.home, files)
+  } catch (err) {
+    console.error('[seedContainer] credential seeding failed:', (err as Error).message)
+    sendToRenderer('app:notice', { message: 'copying provider logins into the container failed — run logins in-session if needed' })
+  }
+}
+
 async function ensureContainer(container: ContainerRuntime, projectId: string, workspace: string, importConfig = false): Promise<string> {
   // Docker is the source of truth (Codex P2 — no stale cache fast-path):
   // running -> reuse; stopped -> start it (don't rebuild); none -> build.
   const presence = await container.findPresence(workspace)
   if (presence.state === 'running') {
     containerByProject.set(projectId, presence.id)
+    await seedContainer(container, presence.id, workspace, importConfig)
     return presence.id
   }
   if (presence.state === 'stopped') {
     await container.startById(presence.id)
     containerByProject.set(projectId, presence.id)
+    await seedContainer(container, presence.id, workspace, importConfig)
     return presence.id
   }
-  // Make the host's provider logins visible inside the container (read-only), so
-  // containerized sessions are pre-authenticated and never need an in-container
-  // OAuth loopback (the callback can't reach a listener trapped in the container's
-  // network namespace). Mounted into the remoteUser's home (sessions exec as that
-  // user, not root). ~/.claude stays opt-in via importConfig; ~/.codex and
-  // ~/.gemini mount whenever present. Only mount dirs that exist so the build
-  // doesn't fail on a bind to a missing source.
-  const home = homedir()
+  // Mount the IDE library so in-container sessions can use its skills/
+  // workflows/agents. Only when it has content, to avoid binding an empty
+  // placeholder dir. (D14)
   const mounts: string[] = []
-  if (existsSync(join(home, '.codex'))) mounts.push(codexConfigMount(home))
-  if (existsSync(join(home, '.gemini'))) mounts.push(geminiConfigMount(home))
-  if (importConfig && existsSync(join(home, '.claude'))) mounts.push(claudeConfigMount(home))
-  // Mount the IDE library (read-only) so in-container sessions can use its
-  // skills/workflows. Only when it has content (a cloned repo), to avoid binding
-  // an empty placeholder dir. (D14)
   const lib = libraryDir()
-  if (existsSync(join(lib, 'skills')) || existsSync(join(lib, 'workflows')) || existsSync(join(lib, 'prompts'))) {
+  if (['skills', 'workflows', 'prompts', 'agents'].some((d) => existsSync(join(lib, d)))) {
     mounts.push(libraryConfigMount(lib))
   }
   const { containerId } = await container.up(workspace, mounts)
   containerByProject.set(projectId, containerId)
+  await seedContainer(container, containerId, workspace, importConfig)
   return containerId
 }
 
@@ -213,14 +243,14 @@ async function resolveContainerId(container: ContainerRuntime, projectId: string
 // last session in that container stops. Forwarding runs through the runtime's
 // PortForwardService (M1) rather than a module-level singleton.
 const watchers = new Map<string, { watcher: PortWatchHandle; sessions: Set<string> }>()
-function startPortWatch(ports: PortForwardService, sessionId: string, containerId: string, win: BrowserWindow): void {
+function startPortWatch(ports: PortForwardService, sessionId: string, containerId: string): void {
   const existing = watchers.get(containerId)
   if (existing) {
     existing.sessions.add(sessionId) // share the one watcher for this container
     return
   }
   const watcher = ports.watch(containerId, {
-    onForward: (port) => win.webContents.send('session:status', { id: sessionId, message: `forwarding container port ${port} → localhost:${port}` })
+    onForward: (port) => sendToRenderer('session:status', { id: sessionId, message: `forwarding container port ${port} → localhost:${port}` })
   })
   watchers.set(containerId, { watcher, sessions: new Set([sessionId]) })
   watcher.start()
@@ -276,9 +306,10 @@ async function containerForSession(container: ContainerRuntime, store: Store | u
 }
 
 /** Registers all main-process IPC handlers. Thin router — logic lives in managers.
+ *  Called exactly once per process (app-scoped; windows come and go on macOS).
  *  `store` may be undefined if persistence failed to initialize; handlers then
  *  no-op writes and return empty reads so the UI still works. */
-export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store, ticketRunner: HeadlessRunner = notEnabledRunner): void {
+export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: HeadlessRunner = notEnabledRunner): void {
   // M1: all platform side effects go through the runtime. `mgr` aliases the
   // terminal runtime, whose method names match the old PtyManager so the many
   // spawn/write/resize/kill/primeWhenReady call sites are unchanged.
@@ -337,9 +368,11 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
   // model registry for the picker
   ipcMain.handle('models:all', () => allModels())
 
-  // native directory picker (F2)
+  // native directory picker (F2) — parented to the focused window when one exists
   ipcMain.handle('dialog:openDirectory', async () => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] })
+    const parent = BrowserWindow.getFocusedWindow()
+    const opts = { properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] }
+    const r = parent ? await dialog.showOpenDialog(parent, opts) : await dialog.showOpenDialog(opts)
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
 
@@ -389,9 +422,12 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     return {
       dir,
       isClone: libraryIsClone(dir),
-      counts: { prompts: lib.prompts.length, skills: lib.skills.length, workflows: lib.workflows.length }
+      counts: { prompts: lib.prompts.length, skills: lib.skills.length, workflows: lib.workflows.length, agents: lib.agents.length }
     }
   })
+  // Create an agent file in the library (validated at the boundary; exclusive
+  // write — duplicates are an error, never an overwrite).
+  ipcMain.handle('library:addAgent', (_e, raw: unknown) => addAgent(raw))
   // Sync: pull if already a clone; otherwise clone the given repo (owner/name via
   // gh, or any git URL) into the (empty) library dir. `repo` is optional when a
   // clone already exists. Returns the refreshed contents (or an error).
@@ -401,6 +437,11 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
       if (libraryIsClone(dir)) {
         await pullRepo(dir)
       } else if (repo) {
+        // Local-first library: locally-added items (e.g. agents) may exist before
+        // any clone. Refuse to clone over them — never clobber local files.
+        if (existsSync(dir) && readdirSync(dir).some((n) => !n.startsWith('.'))) {
+          return { error: 'library folder has local items but is not a clone — clone manually or move the items first' }
+        }
         const isUrl = /^(https?:|git@|ssh:)/.test(repo)
         if (isUrl) await cloneUrl(repo, dir)
         else await cloneRepo(repo, dir)
@@ -495,9 +536,13 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     if (!session) return { error: 'unknown session' }
     if (session.taskKind !== 'product') return { error: 'only product tasks generate tickets' }
     // Idempotency guard: if this task already has a ticket, return it instead of
-    // regenerating (which would duplicate the row + re-run the billed pass).
+    // regenerating (which would duplicate the row + re-run the billed pass). Also
+    // repair a stale 'deployed' status left by a pre-transaction crash.
     const existing = store.getTicketBySession(id)
-    if (existing) return { ok: true, ticketId: existing.id }
+    if (existing) {
+      if (session.taskStatus !== 'ticketed') store.setTaskStatus(id, 'ticketed')
+      return { ok: true, ticketId: existing.id }
+    }
     // In-flight guard: a second concurrent call for the same session is refused
     // (e.g. a double-click), so we never run two headless passes at once.
     if (ticketsInFlight.has(id)) return { error: 'ticket generation already in progress' }
@@ -506,18 +551,20 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     if ((session.taskStatus ?? 'open') !== 'deployed' && session.taskStatus !== 'ticketed') {
       try { validateTaskTransition(session.taskStatus, 'deployed'); store.setTaskStatus(id, 'deployed') } catch { /* already past */ }
     }
-    const transcript = stripAnsi(store.getTranscript(id))
+    // Uncapped read: summarization must see the WHOLE transcript, not the 256KiB
+    // UI-replay tail (chunking handles the length).
+    const transcript = stripAnsi(store.getTranscript(id, Number.POSITIVE_INFINITY))
     try {
       const { fields, bodyMd } = await generateTicket(ticketRunner, session, transcript)
       const createdAt = Date.now()
       const ticketId = `ticket-${id}` // deterministic → a retry upserts, never duplicates
-      const ticketPath = writeTicketFile(session.projectId, fields.title, bodyMd, createdAt)
-      store.saveTicket({
+      const ticketPath = writeTicketFile(session.projectId, id, bodyMd)
+      if (!ticketPath) return { error: 'ticket file write failed — retry available' }
+      store.finalizeTicket({
         id: ticketId, sessionId: id, projectId: session.projectId, subkind: fields.subkind,
         title: fields.title, bodyMd, fieldsJson: JSON.stringify(fields), createdAt
-      })
-      store.setTaskStatus(id, 'ticketed') // only NOW advance — crash-safe
-      return { ok: true, ticketId, ticketPath: ticketPath ?? undefined }
+      }) // row + 'ticketed' in one transaction, only after the file exists
+      return { ok: true, ticketId, ticketPath }
     } catch (err) {
       // stays 'deployed' — retry available; transcript untouched.
       return { error: (err as Error).message }
@@ -534,29 +581,30 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
   // F13: open a plain shell session (no agent) in the project's context.
   ipcMain.handle('terminal:open', async (_e, req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<Session> => {
     const id = `term-${newSessionId()}`
-    let shell = 'bash'
+    let shell = hostShell()
     let args: string[] = []
     let cwd = req.cwd
     if (req.useContainer) {
       // Don't silently downgrade to a host shell (Codex P2): bring the container
-      // up if needed so the terminal really runs inside it. Exec as the non-root
-      // remoteUser so the shell matches what agent sessions use.
+      // up if needed so the terminal really runs inside it. Exec with the same
+      // user/HOME/workspace context agent sessions use (R3-1).
       const containerId = await ensureContainer(container, req.projectId, req.cwd)
-      const user = await container.resolveUser(containerId)
+      const ctx = await containerExecContext(container, containerId, req.cwd)
       shell = 'docker'
-      args = containerExecArgv(containerId, 'bash', [], { user: user ?? undefined })
+      args = containerExecArgv(containerId, 'bash', [], { user: ctx.user, cwd: ctx.cwd, env: { HOME: ctx.home } })
       cwd = req.cwd
     }
     const now = Date.now()
     const session: Session = {
       id, projectId: req.projectId, provider: 'codex', // provider unused for terminals; see isTerminal()
-      model: 'shell', objective: req.name || 'terminal', status: 'running', createdAt: now, updatedAt: now
+      model: 'shell', objective: req.name || 'terminal', status: 'running', createdAt: now, updatedAt: now,
+      useContainer: req.useContainer === true
     }
     store?.saveSession(session)
     mgr.spawn(
       { id, shell, args, cwd, env: {} },
-      (data) => { win.webContents.send('pty:data', { id, data }); recordOutput(store, id, data) },
-      ({ reason }) => { store?.archiveSession(id); win.webContents.send('session:exit', { id, reason }) }
+      (data) => { sendToRenderer('pty:data', { id, data }); recordOutput(store, id, data) },
+      ({ reason }) => { store?.archiveSession(id); sendToRenderer('session:exit', { id, reason }) }
     )
     return session
   })
@@ -567,13 +615,13 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     if (!(await container.hasCli())) {
       throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
     }
-    win.webContents.send('container:status', { projectId, state: 'starting' })
+    sendToRenderer('container:status', { projectId, state: 'starting' })
     try {
       const containerId = await ensureContainer(container, projectId, workspace, importConfig)
-      win.webContents.send('container:status', { projectId, state: 'running' })
+      sendToRenderer('container:status', { projectId, state: 'running' })
       return containerId
     } catch (err) {
-      win.webContents.send('container:status', { projectId, state: 'error' })
+      sendToRenderer('container:status', { projectId, state: 'error' })
       throw err
     }
   })
@@ -583,11 +631,17 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     return (await container.findPresence(workspace)).state
   })
 
-  // F8: provider connection health, in the project's context (host or container).
-  ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string, cwd: string) => {
+  // F8: provider connection health, in the project's context. An explicit
+  // useContainer from the renderer wins (a host-mode user must not see the
+  // container's health just because one is running); absent → auto-detect.
+  ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string, cwd: string, useContainer?: unknown) => {
     if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+    if (useContainer === false) return host.probeHealth(provider, {})
     const containerId = await resolveContainerId(container, projectId, cwd)
-    return host.probeHealth(provider, { containerId })
+    if (useContainer === true && !containerId) return 'unknown' // container context requested but not running
+    if (!containerId) return host.probeHealth(provider, {})
+    const ctx = await containerExecContext(container, containerId, cwd)
+    return host.probeHealth(provider, { containerId, ...ctx })
   })
 
   // F10: run an interactive CLI login as a terminal session, in project context.
@@ -608,8 +662,8 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     const spawnArgs = args
     mgr.spawn(
       { id, shell, args: spawnArgs, cwd, env: {} },
-      (data) => win.webContents.send('pty:data', { id, data }),
-      ({ reason }) => win.webContents.send('session:exit', { id, reason })
+      (data) => sendToRenderer('pty:data', { id, data }),
+      ({ reason }) => sendToRenderer('session:exit', { id, reason })
     )
     return id
   })
@@ -620,7 +674,8 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     const containerId = await resolveContainerId(container, projectId, cwd)
     if (!containerId) throw new Error('no running container for this project')
     await host.installInContainer(provider, containerId)
-    return host.probeHealth(provider, { containerId })
+    const ctx = await containerExecContext(container, containerId, cwd)
+    return host.probeHealth(provider, { containerId, ...ctx })
   })
 
   // Replay a session's saved terminal output (chat history). The renderer writes
@@ -640,6 +695,9 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
   // arbitrary argv/cwd/env, bypassing session:launch/terminal:open, the
   // FORBIDDEN_FLAGS guard, and payload validation. All ptys are started in main.
   ipcMain.on('pty:write', (_e, id: string, data: string) => mgr.write(id, data))
+  // Whether a live pty exists for a session — a reopened window uses this to
+  // ATTACH to surviving sessions instead of offering a killing "reconnect".
+  ipcMain.handle('pty:alive', (_e, id: string) => mgr.has(id))
   ipcMain.on('pty:resize', (_e, id: string, cols: number, rows: number) => mgr.resize(id, cols, rows))
   ipcMain.on('pty:kill', (_e, id: string) => mgr.kill(id))
 
@@ -664,15 +722,15 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
       if (!(await container.hasCli())) {
         throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
       }
-      win.webContents.send('session:status', { id, message: 'starting container…' })
+      sendToRenderer('session:status', { id, message: 'starting container…' })
       const containerId = await ensureContainer(container, req.projectId, req.cwd, req.importConfig)
-      // run inside the container as its non-root remoteUser; docker exec carries
-      // the provider argv. Root would break auto-approve (claude
-      // --dangerously-skip-permissions refuses to run as root).
-      const user = await container.resolveUser(containerId)
+      // run inside the container as its non-root remoteUser (root would break
+      // auto-approve: claude --dangerously-skip-permissions refuses euid 0),
+      // in the container-side workspace folder, with HOME set (R3-1).
+      const ctx = await containerExecContext(container, containerId, req.cwd)
       shell = 'docker'
-      spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined })
-      cwd = req.cwd // docker process runs on host; -w handled by image default
+      spawnArgs = containerExecArgv(containerId, cmd, args, { user: ctx.user, cwd: ctx.cwd, env: { HOME: ctx.home } })
+      cwd = req.cwd // host-side cwd of the docker process itself
       watchContainer = containerId
     }
 
@@ -689,7 +747,8 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
       // M-LOG-a: the task label validated at launch; a new task starts 'open'.
       taskKind: req.taskKind ?? null,
       taskSubkind: req.taskSubkind ?? null,
-      taskStatus: req.taskKind ? 'open' : null
+      taskStatus: req.taskKind ? 'open' : null,
+      useContainer: req.useContainer
     }
     // Spawn FIRST; only persist once the pty actually started (Codex P2 — a
     // failed spawn must not leave a persisted "running" ghost session).
@@ -697,7 +756,7 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
       mgr.spawn(
         { id, shell, args: spawnArgs, cwd, env: {} },
         (data) => {
-          win.webContents.send('pty:data', { id, data })
+          sendToRenderer('pty:data', { id, data })
           recordOutput(store, id, data)
         },
         ({ reason }) => {
@@ -706,7 +765,7 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
           if (reason === 'closed') store?.archiveSession(id)
           else store?.setSessionStatus(id, 'idle')
           stopPortWatch(id)
-          win.webContents.send('session:exit', { id, reason })
+          sendToRenderer('session:exit', { id, reason })
         }
       )
     } catch (err) {
@@ -716,7 +775,7 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
 
     // Auto-forward any localhost port the in-container agent opens (OAuth :1455,
     // dev servers, …) so the host browser can reach it — VS Code-style.
-    if (watchContainer) startPortWatch(ports, id, watchContainer, win)
+    if (watchContainer) startPortWatch(ports, id, watchContainer)
 
     return session
   })
@@ -734,7 +793,10 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     // fresh launch request (provider + model membership) reusing the same guards.
     const s: Session = validateResumeSession(rawSession)
     const cwd = typeof rawCwd === 'string' ? rawCwd : ''
-    const useContainer = rawUseContainer === true
+    // Explicit renderer choice wins; absent → the session's persisted context
+    // (B6), so a restart can't silently move a container session to the host.
+    const stored = store?.getSession(s.id)?.useContainer
+    const useContainer = typeof rawUseContainer === 'boolean' ? rawUseContainer : stored === true
     let modelOverride: { provider: Provider; model: string } | undefined
     if (rawOverride !== undefined) {
       const ov = validateResumeSession({ ...s, provider: (rawOverride as { provider?: unknown }).provider, model: (rawOverride as { model?: unknown }).model })
@@ -751,38 +813,60 @@ export function registerIpc(runtime: Runtime, win: BrowserWindow, store?: Store,
     if (useContainer) {
       const containerId = await resolveContainerId(container, s.projectId, cwd)
       if (!containerId) throw new Error('cannot reconnect: the project container is not running')
-      const user = await container.resolveUser(containerId)
+      const ctx = await containerExecContext(container, containerId, cwd)
       shell = 'docker'
-      spawnArgs = containerExecArgv(containerId, cmd, args, { user: user ?? undefined })
+      spawnArgs = containerExecArgv(containerId, cmd, args, { user: ctx.user, cwd: ctx.cwd, env: { HOME: ctx.home } })
       watchContainer = containerId
     }
     mgr.spawn(
       { id: s.id, shell, args: spawnArgs, cwd, env: {} },
       (data) => {
-        win.webContents.send('pty:data', { id: s.id, data })
+        sendToRenderer('pty:data', { id: s.id, data })
         recordOutput(store, s.id, data)
       },
       ({ reason }) => {
         stopPortWatch(s.id)
         if (reason === 'closed') store?.archiveSession(s.id)
         else store?.setSessionStatus(s.id, 'idle')
-        win.webContents.send('session:exit', { id: s.id, reason })
+        sendToRenderer('session:exit', { id: s.id, reason })
       }
     )
     // Seed the fresh engine with this session's prior history (context continuity).
     seedPrimer(mgr, store, s.id)
-    if (watchContainer) startPortWatch(ports, s.id, watchContainer, win)
-    const resumed: Session = { ...s, provider, model, status: 'running', updatedAt: Date.now() }
+    if (watchContainer) startPortWatch(ports, s.id, watchContainer)
+    const resumed: Session = { ...s, provider, model, status: 'running', updatedAt: Date.now(), useContainer }
     store?.saveSession(resumed)
     return resumed
   })
 
   // Tear down port watchers + host-side relays on shutdown (container relays die
-  // with the container). Avoids leaking python relay processes across app restarts.
-  app.on('before-quit', () => {
-    for (const { watcher } of watchers.values()) void watcher.stop()
+  // with the container), AWAITED (bounded) so Electron can't exit before the
+  // relays are actually gone. Avoids leaking relay processes across restarts.
+  app.on('before-quit', createQuitCoordinator(async () => {
+    const stops = [...watchers.values()].map(({ watcher }) => watcher.stop())
     watchers.clear()
-    void ports.disposeAll()
+    await Promise.all(stops)
+    await ports.disposeAll()
     store?.flush() // B6: persist any buffered transcript chunks before exit
-  })
+  }, () => app.exit(0)))
+}
+
+/** Bounded, awaited shutdown. The first quit attempt is intercepted; cleanup
+ *  runs (capped at `timeoutMs`) and then the real exit fires. Injected deps keep
+ *  it unit-testable without an Electron app. */
+export function createQuitCoordinator(
+  cleanup: () => Promise<unknown>,
+  exit: () => void,
+  timeoutMs = 2500
+): (e: { preventDefault(): void }) => void {
+  let done = false
+  return (e) => {
+    if (done) return
+    done = true
+    e.preventDefault()
+    void Promise.race([
+      cleanup().catch(() => { /* best-effort — exit regardless */ }),
+      new Promise((r) => setTimeout(r, timeoutMs))
+    ]).then(() => exit())
+  }
 }

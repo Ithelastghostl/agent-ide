@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { createRuntime } from './runtime'
 import { registerIpc, safeOpenExternal } from './ipc'
+import { createCliHeadlessRunner } from './headlessRunner'
 import { Store } from './store'
 
 // R1 / Linux-Wayland note: on a Wayland session (Ubuntu 24.04+ default), Electron
@@ -14,16 +15,33 @@ import { Store } from './store'
 // process starts — ozone selects its backend in native code before this main
 // module executes, so app.commandLine.appendSwitch() here is too late and is
 // overridden by a present WAYLAND_DISPLAY. The launch sites therefore pass the
-// flag: dev/start via the npm scripts, e2e via the Playwright launch args, and
-// the packaged app via its launcher (M5). See scripts/linux-launch note.
+// flag on Linux only: dev/start/native-gate via scripts/run-electron.js, e2e via
+// e2e/launch.ts, and the packaged app via its launcher.
 
 // Display name shown in the taskbar / window manager (distinct from the npm
 // package id "agent-ide", which stays as the data-dir/package identifier).
 app.setName("Nacho's IDE")
 
-// M1: the platform runtime (Linux impl in the beta). All node-pty/docker/host
-// side effects go through this; ipc.ts is platform-agnostic above it.
+// M1: the platform runtime. All node-pty/docker/host side effects go through
+// this; ipc.ts is platform-agnostic above it.
 const runtime = createRuntime()
+
+// App-scoped state: ipcMain handlers and the store are process-global, so they
+// are set up exactly once — macOS recreates windows on Dock activation, and a
+// second registerIpc would install duplicate handlers over a leaked store.
+let store: Store | undefined
+
+function initOnce(): void {
+  // Construct the store defensively: if better-sqlite3 fails to load (e.g. an
+  // ABI mismatch from `npm test`), the app must still open with a usable UI
+  // rather than a blank window. Persistence is degraded until fixed.
+  try {
+    store = new Store()
+  } catch (err) {
+    console.error('Store init failed — running without persistence:', err)
+  }
+  registerIpc(runtime, store, createCliHeadlessRunner())
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -38,16 +56,6 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
-
-  // Construct the store defensively: if better-sqlite3 fails to load (e.g. an
-  // ABI mismatch from `npm test`), the app must still open with a usable UI
-  // rather than a blank window. Persistence is degraded until fixed.
-  let store: Store | undefined
-  try {
-    store = new Store()
-  } catch (err) {
-    console.error('Store init failed — running without persistence:', err)
-  }
 
   // Links should open in the user's default browser, not a new Electron window.
   // Deny window.open / target=_blank and hand safe URLs to the OS instead — via
@@ -65,8 +73,6 @@ function createWindow(): void {
     safeOpenExternal(url)  // hand off iff safe (no-op otherwise)
   })
 
-  registerIpc(runtime, win, store)
-
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
@@ -74,7 +80,10 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  initOnce()
+  createWindow()
+})
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow()

@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { electronArgs } from './launch'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -21,9 +22,11 @@ test('library pills show counts and inserting a prompt writes it to the active s
   writeFileSync(join(libDir, 'skills', 'debug-it', 'SKILL.md'), '---\nname: debug-it\ndescription: debugging\n---\n# Debug\n')
   mkdirSync(join(libDir, 'workflows'), { recursive: true })
   writeFileSync(join(libDir, 'workflows', 'audit.js'), "export const meta = { name: 'audit', description: 'audit', phases: [] }\n")
+  mkdirSync(join(libDir, 'agents'), { recursive: true })
+  writeFileSync(join(libDir, 'agents', 'helper.md'), '---\nname: "helper"\ndescription: "a seeded agent"\n---\n# Instructions\nhelp\n# Data\n\n# Context\n\n')
 
   const app = await electron.launch({
-    args: [join(__dirname, '..'), '--no-sandbox', '--ozone-platform=x11'],
+    args: electronArgs(),
     env: { ...process.env, AGENT_IDE_DB: dbPath, AGENT_IDE_HISTORY: histDir, AGENT_IDE_LIBRARY: libDir }
   })
   const win = await app.firstWindow()
@@ -33,11 +36,30 @@ test('library pills show counts and inserting a prompt writes it to the active s
   await win.reload()
   await win.locator('.projrail .pj').first().click({ timeout: 20_000 })
 
-  // Pills show real counts (Prompts 2 · Skills 1 · Flows 1).
+  // Pills show real counts (Prompts 2 · Skills 1 · Flows 1 · Agents 1).
   await expect.poll(async () => win.evaluate(() => {
     const pills = Array.from(document.querySelectorAll('.libpills .pill')).map((p) => p.textContent || '')
     return pills.join(' | ')
   }), { timeout: 10_000 }).toContain('Prompts2')
+  await expect.poll(async () => win.evaluate(() => {
+    const pills = Array.from(document.querySelectorAll('.libpills .pill')).map((p) => p.textContent || '')
+    return pills.join(' | ')
+  }), { timeout: 10_000 }).toContain('Agents1')
+
+  // B2: adding an agent through the bridge lands in the library scan (and the
+  // duplicate is refused, never overwritten).
+  const added = await win.evaluate(() => window.agentIDE.libraryAddAgent({
+    name: 'Release Writer', description: 'writes release notes',
+    instructions: 'Write terse notes.', data: 'style: terse', context: 'for the IDE repo'
+  }))
+  expect(added.error).toBeUndefined()
+  expect(added.relPath).toBe('agents/release-writer.md')
+  const dup = await win.evaluate(() => window.agentIDE.libraryAddAgent({
+    name: 'release   writer', description: '', instructions: '', data: '', context: ''
+  }))
+  expect(dup.error).toContain('already exists')
+  const agentNames = await win.evaluate(async () => (await window.agentIDE.libraryList()).agents.map((a: any) => a.name))
+  expect(agentNames.sort()).toEqual(['Release Writer', 'helper'])
 
   // Open a session so "insert" has a live pty to write into.
   await win.locator('.provrow.terminal .add').click({ timeout: 20_000 })
