@@ -13,6 +13,7 @@ import type { LibraryCategory, LibraryContents, LibraryItem } from '@shared/type
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
 import { AllSessions } from './components/AllSessions'
+import { SearchOverlay } from './components/SearchOverlay'
 import { modelsFor, loadModels } from './models'
 import { showMenu, promptText, chooseOption, flash } from './ui'
 
@@ -81,6 +82,8 @@ function activityBar(): HTMLElement {
     const d = document.createElement('div')
     d.className = 'ic' + (on ? ' on' : '')
     d.textContent = icon
+    // The search glyph opens the ⌘K overlay (same as the keybinding).
+    if (icon === '🔍') { d.title = 'Search (⌘K)'; d.onclick = () => openSearch() }
     el.appendChild(d)
   }
   const sp = document.createElement('div'); sp.className = 'sp'; el.appendChild(sp)
@@ -415,6 +418,50 @@ function openGithubClone() {
   })
 }
 function closeOverlay() { document.getElementById('picker-overlay')?.remove() }
+
+// ---- ⌘K / Ctrl+K search overlay (S7) -----------------------------------------
+function closeSearch() { document.getElementById('search-overlay')?.remove() }
+
+/** Enter on a transcript hit: switch to the hit's project and activate the
+ *  session (the same navigation the home board's onOpen performs). */
+function selectSearchTranscript(projectId: string, sessionId: string) {
+  setCurrentProject(projectId)
+  state.activeSessionId = sessionId
+  state.view = 'cockpit'
+  render()
+}
+
+/** Enter on a backlog hit: open the Backlog view focused on that item. The
+ *  Backlog view itself ships in S1; here we route to it (project + focus) so the
+ *  seam is exercised and navigation is observable. */
+function selectSearchBacklog(projectId: string, itemId: string) {
+  setCurrentProject(projectId)
+  state.view = 'backlog'
+  state.backlogFocus = itemId
+  render()
+}
+
+function openSearch() {
+  if (document.getElementById('search-overlay')) return // already open
+  const overlay = SearchOverlay({
+    searchQuery: (q, limit) => window.agentIDE.searchQuery(q, limit),
+    onSelectTranscript: selectSearchTranscript,
+    onSelectBacklog: selectSearchBacklog,
+    onClose: closeSearch
+  })
+  overlay.id = 'search-overlay'
+  document.body.appendChild(overlay)
+}
+
+// Global ⌘K (macOS) / Ctrl+K (elsewhere) toggles the search overlay. Registered
+// once at module load; the overlay owns its own Escape/close handling.
+window.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault()
+    if (document.getElementById('search-overlay')) closeSearch()
+    else openSearch()
+  }
+})
 
 // The session id we can write into right now (focused + has a live pty this run).
 function activeLivePtyId(): string | null {
@@ -919,6 +966,25 @@ function render() {
   }
 
   const proj = currentProject()!
+
+  // Backlog route (S7 ⌘K navigation target). The full Backlog view ships in S1;
+  // this is the minimal seam that shows which item the search routed to, so the
+  // navigation is observable and the route exists without depending on S1.
+  if (state.view === 'backlog') {
+    const view = document.createElement('div')
+    view.className = 'backlog-view'
+    const h = document.createElement('h2')
+    h.textContent = `Backlog — ${proj.name}`
+    const focus = document.createElement('div')
+    focus.className = 'backlog-focus'
+    if (state.backlogFocus) focus.dataset.itemId = state.backlogFocus
+    focus.textContent = state.backlogFocus ? `Focused item: ${state.backlogFocus}` : 'No item focused.'
+    view.append(h, focus)
+    body.appendChild(view)
+    root.appendChild(body)
+    return
+  }
+
   // The cockpit shows live sessions only; archived ones live on the ⌘ home board.
   const projectSessions = liveSessionsFor(state.sessions, proj.id)
   const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
