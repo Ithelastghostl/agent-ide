@@ -61,6 +61,7 @@ export class FakeContainerRuntime implements ContainerRuntime {
     return Promise.resolve(this.presenceByWorkspace.get(workspace) ?? { state: 'none' })
   }
   startById(): Promise<void> { return Promise.resolve() }
+  stopById(): Promise<void> { return Promise.resolve() }
   resolveUser(containerId: string): Promise<string | null> {
     return Promise.resolve(this.userByContainer.get(containerId) ?? null)
   }

@@ -112,3 +112,11 @@ export interface AgentInput {
   data: string
   context: string
 }
+
+/** External-service CLIs whose connectivity the status bar tracks. */
+export const SERVICES = ['vercel', 'supabase', 'github', 'resend'] as const
+export type ServiceName = typeof SERVICES[number]
+
+/** A service's connectivity: online (installed + authenticated), needs login
+ *  (installed but not authed), not installed, or unknown/errored. */
+export type ServiceStatus = 'online' | 'not-logged-in' | 'not-installed' | 'unknown'

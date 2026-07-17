@@ -2,7 +2,7 @@ import type { Provider } from '@shared/types'
 import { PtyManager, type SpawnOpts, type ExitReason } from '../ptyManager'
 import {
   upDevcontainer, hasDevcontainerCli, findRunningContainer, findContainerPresence,
-  startContainerById, resolveContainerUser, resolveContainerHome, containerWorkspaceFolder,
+  startContainerById, stopContainerById, resolveContainerUser, resolveContainerHome, containerWorkspaceFolder,
   seedCredentialsInContainer, type ContainerPresence, type SeedFile
 } from '../devcontainer'
 import { probeHealth, installInContainer, type Health, type RunContext } from '../providerHealth'
@@ -42,6 +42,7 @@ class LinuxContainerRuntime implements ContainerRuntime {
   findRunning(workspace: string): Promise<string | null> { return findRunningContainer(workspace) }
   findPresence(workspace: string): Promise<ContainerPresence> { return findContainerPresence(workspace) }
   startById(id: string): Promise<void> { return startContainerById(id) }
+  stopById(id: string): Promise<void> { return stopContainerById(id) }
   resolveUser(containerId: string): Promise<string | null> { return resolveContainerUser(containerId) }
   resolveHome(containerId: string, user: string | null): Promise<string> { return resolveContainerHome(containerId, user) }
   workspaceFolder(workspace: string): Promise<string> { return containerWorkspaceFolder(workspace) }
