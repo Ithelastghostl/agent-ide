@@ -47,6 +47,9 @@ export interface SupervisionProps {
   onSelectTab: (tab: ActiveTab) => void
   onCloseFile: (path: string) => void
   onCloseReport: (path: string) => void
+  /** S8: display name of the library agent this session launched from, if any —
+   *  rendered as a chip in the session header. */
+  agentName?: string | null
 }
 
 /** Center pane: a tab strip (session + open files) over the active tab's content
@@ -153,6 +156,14 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
       chip.className = 'chip'
       chip.textContent = p.session.model
       head.append(sdot, obj, chip)
+      // S8: agent-preset chip in the header (textContent only).
+      if (p.agentName) {
+        const agentChip = document.createElement('span')
+        agentChip.className = 'chip agent-chip'
+        agentChip.textContent = `🤖 ${p.agentName}`
+        agentChip.title = 'Launched from a library agent'
+        head.append(agentChip)
+      }
       superv.appendChild(head)
     }
 

@@ -11,6 +11,8 @@ interface AgentIDEBridge {
   sessionLaunch(req: {
     projectId: string; provider: string; model: string; objective: string; cwd: string; useContainer: boolean; importConfig?: boolean
     taskKind?: import('@shared/types').TaskKind; taskSubkind?: import('@shared/types').TaskSubkind
+    // S8: agent preset relPath; main validates + primes the agent body.
+    agentRelPath?: string | null
   }): Promise<import('@shared/types').Session>
   sessionRename(id: string, name: string): Promise<void>
   sessionArchive(id: string): Promise<void>

@@ -8,6 +8,7 @@ import { allModels } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory, cloneRepo, cloneUrl, pullRepo } from './github'
 import { libraryDir, scanLibrary, readLibraryItem, libraryIsClone, addAgent } from './library'
+import { isRegisteredAgent, composeLaunchPrimer } from './agentPreset'
 // Pure argv/mount builders stay here (platform-agnostic); side-effecting docker
 // ops now go through runtime.container (M1).
 import { containerExecArgv, libraryConfigMount, providerSeedFiles } from './devcontainer'
@@ -162,6 +163,10 @@ export interface LaunchRequest {
    *  sessions; `taskSubkind` is required when `taskKind` is 'product'. */
   taskKind?: TaskKind
   taskSubkind?: TaskSubkind
+  /** S8: a library agent preset this session launches from. Validated in main
+   *  (confinedPath(libraryDir) + membership in scanLibrary().agents); its body is
+   *  primed into the session after the harness section. Persisted for the chip. */
+  agentRelPath?: string | null
 }
 
 let seq = 0
@@ -751,7 +756,11 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   ipcMain.handle('session:launch', async (_e, raw: unknown): Promise<Session> => {
     // B9: validate the renderer payload in main (types don't cross IPC). Enforces
     // provider/model membership, project ownership, field types + length caps.
-    const req: LaunchRequest = validateLaunchRequest(raw, (id) => !!store?.getProject(id))
+    const req: LaunchRequest = validateLaunchRequest(
+      raw,
+      (id) => !!store?.getProject(id),
+      (rel) => isRegisteredAgent(rel)
+    )
     const id = newSessionId()
 
     // Build the provider invocation. autoApprove == running in a container.
@@ -792,7 +801,10 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
       taskKind: req.taskKind ?? null,
       taskSubkind: req.taskSubkind ?? null,
       taskStatus: req.taskKind ? 'open' : null,
-      useContainer: req.useContainer
+      useContainer: req.useContainer,
+      // S8: persist the agent preset so the session chip can render its name and
+      // resume/relaunch carry it forward.
+      agentRelPath: req.agentRelPath ?? null
     }
     // Spawn FIRST; only persist once the pty actually started (Codex P2 — a
     // failed spawn must not leave a persisted "running" ghost session).
@@ -816,6 +828,18 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
       throw new Error(`failed to start ${req.provider} session: ${(err as Error).message}`)
     }
     store?.saveSession(session)
+
+    // P0.D primer: seed the session with the harness protocol, the agent preset
+    // body (S8 — trusted, auto-submitted AFTER the harness section), and the
+    // objective. Delivered once the terminal settles (primeWhenReady) so it never
+    // interleaves the CLI's initial render. Only agent launches add the agent
+    // section; a plain launch primes harness + objective.
+    const primer = composeLaunchPrimer({
+      objective: session.objective,
+      agentRelPath: req.agentRelPath,
+      agentLabel: session.objective
+    })
+    if (primer.trim()) mgr.primeWhenReady(id, primer + '\n')
 
     // Auto-forward any localhost port the in-container agent opens (OAuth :1455,
     // dev servers, …) so the host browser can reach it — VS Code-style.

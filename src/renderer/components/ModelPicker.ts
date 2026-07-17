@@ -1,4 +1,4 @@
-import type { Provider, Model } from '@shared/types'
+import { PROVIDERS, type Provider, type Model } from '@shared/types'
 
 const PROVIDER_LABEL: Record<Provider, string> = { codex: 'Codex', claude: 'Claude', gemini: 'Gemini' }
 const PROVIDER_VAR: Record<Provider, string> = {
@@ -12,9 +12,23 @@ export interface ModelPickerProps {
   models: Model[]
   onPick: (provider: Provider, modelId: string) => void
   onCancel: () => void
+  // ---- S8 agent-preset extensions (all optional; omitting them keeps the
+  // classic provider-fixed, model-only picker unchanged) ----
+  /** When set, title the picker after the agent this session launches from. */
+  agentName?: string
+  /** Prefilled, EDITABLE objective (e.g. the agent's description). When present
+   *  the picker renders an objective field and the confirm carries its text. */
+  objective?: string
+  /** Model catalog per provider — enables switching provider inside the picker. */
+  modelsForProvider?: (p: Provider) => Model[]
+  /** S8 confirm carrying the (possibly edited) objective. Takes precedence over
+   *  `onPick` when provided so callers get the prefilled/edited objective back. */
+  onLaunch?: (provider: Provider, modelId: string, objective: string) => void
 }
 
-/** Modal: full model list for a provider (D3). Returns the overlay element. */
+/** Modal: full model list for a provider (D3). With S8 props it becomes the
+ *  agent-preset launcher — a prefilled editable objective plus provider tabs —
+ *  reusing the same overlay chrome. Returns the overlay element. */
 export function ModelPicker(p: ModelPickerProps): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'modal-wrap show'
@@ -23,37 +37,96 @@ export function ModelPicker(p: ModelPickerProps): HTMLElement {
   const modal = document.createElement('div')
   modal.className = 'modal'
 
+  // Provider is switchable only when a catalog is supplied (agent-preset flow).
+  let provider: Provider = p.provider
+  const switchable = typeof p.modelsForProvider === 'function'
+  const catalog = (prov: Provider): Model[] => (p.modelsForProvider ? p.modelsForProvider(prov) : p.models)
+
   const h3 = document.createElement('h3')
   const pd = document.createElement('span')
   pd.className = 'pd'
-  pd.style.background = PROVIDER_VAR[p.provider]
-  h3.append(pd, document.createTextNode(`New ${PROVIDER_LABEL[p.provider]} session`))
+  pd.style.background = PROVIDER_VAR[provider]
+  const heading = document.createTextNode(
+    p.agentName ? `Launch “${p.agentName}” session` : `New ${PROVIDER_LABEL[provider]} session`
+  )
+  h3.append(pd, heading)
   modal.appendChild(h3)
 
   const sub = document.createElement('div')
   sub.className = 'sub'
-  sub.textContent = 'Pick the model for this session — full list. Lighter models for trivial edits, heavier for hard work. Changeable later.'
+  sub.textContent = p.agentName
+    ? 'Review the objective, pick provider + model — the agent’s instructions are primed automatically.'
+    : 'Pick the model for this session — full list. Lighter models for trivial edits, heavier for hard work. Changeable later.'
   modal.appendChild(sub)
+
+  // S8: prefilled, editable objective field.
+  let objectiveInput: HTMLTextAreaElement | undefined
+  if (p.objective !== undefined) {
+    const objLabel = document.createElement('label')
+    objLabel.className = 'mp-obj-label'
+    objLabel.textContent = 'Objective'
+    modal.appendChild(objLabel)
+    objectiveInput = document.createElement('textarea')
+    objectiveInput.className = 'mp-objective'
+    objectiveInput.rows = 2
+    objectiveInput.value = p.objective
+    modal.appendChild(objectiveInput)
+  }
 
   const scroll = document.createElement('div')
   scroll.className = 'mscroll'
-  for (const m of p.models) {
-    const opt = document.createElement('div')
-    opt.className = 'mopt'
-    opt.onclick = () => p.onPick(p.provider, m.id)
-    const ti = document.createElement('div')
-    ti.className = 'ti'
-    const b = document.createElement('b')
-    b.textContent = m.label
-    const span = document.createElement('span')
-    span.textContent = m.id
-    ti.append(b, span)
-    const tier = document.createElement('div')
-    tier.className = `tier ${m.tier}`
-    tier.textContent = m.tier === 'fast' ? 'Fast' : m.tier === 'balanced' ? 'Balanced' : 'Max'
-    opt.append(ti, tier)
-    scroll.appendChild(opt)
+
+  const renderModels = () => {
+    scroll.replaceChildren()
+    pd.style.background = PROVIDER_VAR[provider]
+    for (const m of catalog(provider)) {
+      const opt = document.createElement('div')
+      opt.className = 'mopt'
+      opt.onclick = () => {
+        const objective = objectiveInput ? objectiveInput.value : (p.objective ?? '')
+        if (p.onLaunch) p.onLaunch(provider, m.id, objective)
+        else p.onPick(provider, m.id)
+      }
+      const ti = document.createElement('div')
+      ti.className = 'ti'
+      const b = document.createElement('b')
+      b.textContent = m.label
+      const span = document.createElement('span')
+      span.textContent = m.id
+      ti.append(b, span)
+      const tier = document.createElement('div')
+      tier.className = `tier ${m.tier}`
+      tier.textContent = m.tier === 'fast' ? 'Fast' : m.tier === 'balanced' ? 'Balanced' : 'Max'
+      opt.append(ti, tier)
+      scroll.appendChild(opt)
+    }
   }
+
+  // S8: provider tabs (only when a catalog is supplied so we can list models).
+  if (switchable) {
+    const tabs = document.createElement('div')
+    tabs.className = 'mp-provtabs'
+    const buttons: { prov: Provider; el: HTMLButtonElement }[] = []
+    for (const prov of PROVIDERS) {
+      const tab = document.createElement('button')
+      tab.className = 'mp-provtab' + (prov === provider ? ' on' : '')
+      tab.dataset.provider = prov
+      const dot = document.createElement('span')
+      dot.className = 'pd'
+      dot.style.background = PROVIDER_VAR[prov]
+      tab.append(dot, document.createTextNode(PROVIDER_LABEL[prov]))
+      tab.onclick = () => {
+        provider = prov
+        for (const b of buttons) b.el.classList.toggle('on', b.prov === provider)
+        renderModels()
+      }
+      buttons.push({ prov, el: tab })
+      tabs.appendChild(tab)
+    }
+    modal.appendChild(tabs)
+  }
+
+  renderModels()
   modal.appendChild(scroll)
 
   const foot = document.createElement('div')
@@ -65,5 +138,6 @@ export function ModelPicker(p: ModelPickerProps): HTMLElement {
   modal.appendChild(foot)
 
   wrap.appendChild(modal)
+  if (objectiveInput) queueMicrotask(() => objectiveInput!.focus())
   return wrap
 }

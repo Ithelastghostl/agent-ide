@@ -16,6 +16,9 @@ export interface CockpitProps {
   onLaunch: (provider: Provider) => void
   onSelectSession: (id: string) => void
   onSessionMenu?: (session: Session, x: number, y: number) => void
+  /** S8: resolve a session's agent preset relPath → a display name for its chip.
+   *  Returns null/undefined when the session was not launched from an agent. */
+  agentNameFor?: (session: Session) => string | null | undefined
   onProviderMenu?: (provider: Provider, x: number, y: number) => void
   /** F13: open a plain shell session (the Terminal tab). */
   onOpenTerminal?: () => void
@@ -36,7 +39,8 @@ function sessionCard(
   active: boolean,
   needsReconnect: boolean,
   onSelect: (id: string) => void,
-  onMenu?: (session: Session, x: number, y: number) => void
+  onMenu?: (session: Session, x: number, y: number) => void,
+  agentName?: string | null
 ): HTMLElement {
   const card = document.createElement('div')
   const cls = ['scard']
@@ -72,6 +76,16 @@ function sessionCard(
     top.appendChild(dots)
   }
   card.appendChild(top)
+
+  // S8: agent-preset chip — shown when the session was launched from a library
+  // agent. textContent only (no innerHTML) per the P0.D renderer rule.
+  if (agentName) {
+    const chip = document.createElement('span')
+    chip.className = 'agent-chip'
+    chip.textContent = `🤖 ${agentName}`
+    chip.title = 'Launched from a library agent'
+    card.appendChild(chip)
+  }
 
   if (needsReconnect) {
     const tag = document.createElement('div')
@@ -204,7 +218,7 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     group.appendChild(row)
 
     for (const s of provSessions) {
-      group.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu))
+      group.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu, p.agentNameFor?.(s)))
     }
     list.appendChild(group)
   }
