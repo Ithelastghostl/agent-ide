@@ -77,10 +77,12 @@ describe('harness + search IPC (implemented)', () => {
 
 describe('stubbed stream registrars return not-implemented', () => {
   beforeEach(() => { handlers.clear() })
-  it('linear + git stubs', async () => {
+  it('linear (implemented by S2) + git stubs', async () => {
     const d = deps()
     registerLinearIpc(d); registerGitIpc(d)
-    expect(await invoke('linear:pull', 'p1')).toEqual({ error: 'not-implemented' })
+    // S2 implements linear:pull — an unlinked project reports "project not linked"
+    // (no longer the foundation not-implemented stub).
+    expect(await invoke('linear:pull', 'p1')).toEqual({ error: 'project not linked' })
     expect(await invoke('git:status', 'p1')).toEqual({ error: 'not-implemented' })
     expect(await invoke('git:rollbackApply', 'tok')).toEqual({ error: 'not-implemented' })
   })
