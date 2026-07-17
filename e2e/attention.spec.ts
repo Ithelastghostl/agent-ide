@@ -11,6 +11,11 @@ import { join } from 'path'
 // wiring in the real app: the attention:state and cost:forSession IPC contracts
 // answer correctly, and a live provider session (inert shim) is tracked.
 test('attention + cost IPC contracts answer through the real bridge', async () => {
+  // The FIRST Electron launch after a native rebuild is very cold (observed
+  // minutes on a fresh electron-rebuild) and exceeds the 30s default. Warm runs
+  // complete in ~4s. Give generous headroom so a cold first-launch (paid once per
+  // `npm run e2e`, whichever spec runs first) isn't a false failure.
+  test.setTimeout(180_000)
   const proj = mkdtempSync(join(tmpdir(), 'agide-att-proj-'))
   mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-att-db-')), 'store.sqlite')
@@ -18,8 +23,6 @@ test('attention + cost IPC contracts answer through the real bridge', async () =
 
   const app = await electron.launch({
     args: electronArgs(),
-    // Short quiet window so a bus-driven flag would land fast (used by the
-    // fixme'd end-to-end test below once the foundation routes output to the bus).
     env: e2eEnv({ AGENT_IDE_DB: dbPath, AGENT_IDE_HISTORY: histDir, AGENT_IDE_ATTENTION_QUIET_MS: '600' })
   })
   const win = await app.firstWindow()
@@ -52,6 +55,7 @@ test('attention + cost IPC contracts answer through the real bridge', async () =
 // event. ipc.ts recordOutput now emits on the sessionEvents 'output' bus, so the
 // monitor receives real output end-to-end.
 test('a quiet session ending on a question is flagged as needing input', async () => {
+  test.setTimeout(180_000)
   const proj = mkdtempSync(join(tmpdir(), 'agide-att2-proj-'))
   mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-att2-db-')), 'store.sqlite')
