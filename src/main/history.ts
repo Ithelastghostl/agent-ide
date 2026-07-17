@@ -36,6 +36,11 @@ export function stripAnsi(raw: string): string {
   s = s.replace(/\x1b[()][0-9A-Za-z]/g, '')
   // Other single-byte escapes: ESC =, ESC >, ESC 7/8, ESC M/D/E/H/c, …
   s = s.replace(/\x1b[=>78MDEHc]/g, '')
+  // Normalize CRLF→LF FIRST: a pty emits CRLF at end of line, and the CR-rewrite
+  // collapse below would otherwise treat that terminating CR as a last-write-wins
+  // redraw and erase the whole line's content (dropping e.g. a "proceed?\r\n"
+  // prompt to ""). CRLF is a line ending, not a mid-line redraw.
+  s = s.replace(/\r\n/g, '\n')
   // Collapse carriage-return rewrites: the text after the final \r on a line wins.
   s = s
     .split('\n')

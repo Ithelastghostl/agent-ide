@@ -3,7 +3,6 @@ import type { IpcDeps } from './deps'
 import type { QueueItem } from '@shared/types'
 import { isProvider } from '@shared/types'
 import { sessionEvents } from '../sessionEvents'
-import { getAutoAdvance, setAutoAdvance } from './autoAdvance'
 
 /** Queue CRUD (implemented in P0) + S6 wiring. The queue CONSUMPTION logic
  *  (claimNext, launchNextQueued/Admitted, boot recovery, exactly-once) is
@@ -35,7 +34,7 @@ export function registerQueueIpc({ store, launch, send }: IpcDeps): void {
     })
     // Non-completion wake-up (R21/R23-minor): an idle-project ENQUEUE auto-launches
     // ONLY when autoAdvance is enabled. Fire-and-forget through the gated path.
-    if (getAutoAdvance(q.projectId)) void advanceAndNotify(q.projectId)
+    if (store.getAutoAdvance(q.projectId)) void advanceAndNotify(q.projectId)
     return { item }
   })
 
@@ -62,11 +61,12 @@ export function registerQueueIpc({ store, launch, send }: IpcDeps): void {
 
   // --- autoAdvance toggle (S6-owned flag) --------------------------------------
   ipcMain.handle('queue:getAutoAdvance', (_e, projectId: unknown) =>
-    typeof projectId === 'string' ? getAutoAdvance(projectId) : false)
+    typeof projectId === "string" && !!store ? store.getAutoAdvance(projectId) : false)
 
   ipcMain.handle('queue:setAutoAdvance', async (_e, projectId: unknown, on: unknown) => {
     if (typeof projectId !== 'string') return { error: 'invalid request' }
-    const prev = setAutoAdvance(projectId, on === true)
+    if (!store) return { error: "invalid request" }
+    const prev = store.setAutoAdvance(projectId, on === true)
     // R21 non-completion wake-up: enabling autoAdvance with pending work launches.
     if (on === true && !prev) void advanceAndNotify(projectId)
     return { ok: true, autoAdvance: on === true }
@@ -78,7 +78,7 @@ export function registerQueueIpc({ store, launch, send }: IpcDeps): void {
   // through the public gated path. A no-op when the project isn't eligible.
   sessionEvents.onEvent('archived', ({ projectId }) => {
     send('queue:changed', { projectId })
-    if (getAutoAdvance(projectId)) void advanceAndNotify(projectId)
+    if (store?.getAutoAdvance(projectId)) void advanceAndNotify(projectId)
   })
 
   /** Advance the queue (gated, exactly-once) then tell the renderer to refresh. */

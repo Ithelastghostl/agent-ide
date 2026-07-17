@@ -148,6 +148,7 @@ export class Store {
     `)
     this.migrateProjectIds() // B7: upgrade legacy kebab ids to durable hash ids
     this.migrateSessionTaskColumns() // M-LOG-a: add task label columns (additive)
+    this.migrateProjectAutoAdvance() // S6 (v2): queue auto-advance flag (additive)
     this.migrateSessionV2Columns() // v2: desired/applied/termState/version columns
     this.migrateTicketsToBacklog() // v2: one-time tickets → backlog_items (C-7)
     this.rebuildFtsIfEmpty() // v2: populate FTS from existing content on upgrade
@@ -216,6 +217,30 @@ export class Store {
     add('taskSubkind', 'taskSubkind TEXT') // 'code' | 'feature' | 'bug' | NULL
     add('taskStatus', 'taskStatus TEXT')   // 'open' | 'finished' | 'deployed' | 'ticketed' | NULL
     add('useContainer', 'useContainer INTEGER') // 1 | 0 | NULL (pre-migration rows)
+  }
+
+  /** S6 (v2): per-project queue auto-advance flag (additive). Default 0 = off. */
+  migrateProjectAutoAdvance(): void {
+    const cols = new Set(
+      (this.db.prepare(`PRAGMA table_info(projects)`).all() as { name: string }[]).map((c) => c.name)
+    )
+    if (!cols.has('autoAdvance')) {
+      this.db.exec(`ALTER TABLE projects ADD COLUMN autoAdvance INTEGER NOT NULL DEFAULT 0`)
+    }
+  }
+
+  /** Whether a project's queue auto-advances on session completion (S6). */
+  getAutoAdvance(projectId: string): boolean {
+    const r = this.db.prepare(`SELECT autoAdvance FROM projects WHERE id = ?`).get(projectId) as { autoAdvance?: number } | undefined
+    return r?.autoAdvance === 1
+  }
+
+  /** Set a project's autoAdvance flag; returns the PREVIOUS value so callers can
+   *  detect a false→true edge (R21 non-completion wake-up). */
+  setAutoAdvance(projectId: string, on: boolean): boolean {
+    const prev = this.getAutoAdvance(projectId)
+    this.db.prepare(`UPDATE projects SET autoAdvance = ? WHERE id = ?`).run(on ? 1 : 0, projectId)
+    return prev
   }
 
   /** v2: additive desired/applied/termState/version columns + R29 backfill.
