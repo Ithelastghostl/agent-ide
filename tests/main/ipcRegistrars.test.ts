@@ -77,11 +77,29 @@ describe('harness + search IPC (implemented)', () => {
 
 describe('stubbed stream registrars return not-implemented', () => {
   beforeEach(() => { handlers.clear() })
-  it('linear + git stubs', async () => {
+  it('linear + deferred git snapshot/rollback stubs', async () => {
     const d = deps()
     registerLinearIpc(d); registerGitIpc(d)
     expect(await invoke('linear:pull', 'p1')).toEqual({ error: 'not-implemented' })
-    expect(await invoke('git:status', 'p1')).toEqual({ error: 'not-implemented' })
+    // Snapshot/rollback/undo (#9) stay deferred per the SNAPSHOT scope decision.
+    expect(await invoke('snapshot:list', 'p1')).toEqual({ error: 'not-implemented' })
+    expect(await invoke('git:rollbackPreview', 'snap')).toEqual({ error: 'not-implemented' })
     expect(await invoke('git:rollbackApply', 'tok')).toEqual({ error: 'not-implemented' })
+  })
+})
+
+describe('git IPC (S4, implemented — read-only)', () => {
+  beforeEach(() => { handlers.clear() })
+  it('git:status / git:diff return null for a non-repo project (never throw)', async () => {
+    const d = deps() // p1.localPath = /tmp/p, not a git repo
+    registerGitIpc(d)
+    expect(await invoke('git:status', 'p1')).toBeNull()
+    expect(await invoke('git:diff', 'p1')).toBeNull()
+  })
+  it('git:status returns null for an unknown project (no root)', async () => {
+    const d = deps()
+    registerGitIpc(d)
+    expect(await invoke('git:status', 'nope')).toBeNull()
+    expect(await invoke('git:status', 42)).toBeNull() // non-string projectId
   })
 })

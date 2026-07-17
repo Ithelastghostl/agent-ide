@@ -1,5 +1,5 @@
 import './cockpit.css'
-import type { Provider, Project, Session, TaskKind, TaskSubkind } from '@shared/types'
+import type { Provider, Project, Session, TaskKind, TaskSubkind, GitStatusSummary, GitDiff } from '@shared/types'
 import { initialState, liveCounts, liveSessionsFor, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit, type ProviderHealth } from './components/Cockpit'
@@ -97,6 +97,53 @@ function loadTree(projectId: string) {
   if (trees.has(projectId)) return
   trees.set(projectId, [])
   window.agentIDE.fsTree(projectId).then((t) => { trees.set(projectId, t.nodes as FileNode[]); render() })
+}
+
+// ---- S4 git awareness (read-only) --------------------------------------------
+// Per-project branch/dirty summary (rail badge) + working-tree diff (Diff tab).
+// Both are fetched lazily on project open; `gitLoaded` guards against refetching
+// every render. Non-repos resolve to null → no badge, no Diff tab.
+const gitStatus = new Map<string, GitStatusSummary>()
+const gitDiff = new Map<string, GitDiff | null>()
+const gitLoaded = new Set<string>()
+
+/** Fetch a project's git status + working-tree diff once, then re-render. */
+function loadGit(projectId: string) {
+  if (gitLoaded.has(projectId)) return
+  gitLoaded.add(projectId)
+  window.agentIDE.gitStatus(projectId).then((s) => {
+    if (s && !('error' in s)) { gitStatus.set(projectId, s); render() }
+  }).catch(() => { /* non-repo / git unavailable — leave badge empty */ })
+  window.agentIDE.gitDiff(projectId).then((d) => {
+    gitDiff.set(projectId, d && !('error' in d) ? d : null)
+    render()
+  }).catch(() => { gitDiff.set(projectId, null) })
+}
+
+/** Build the read-only Diff pane (plain <pre>, textContent only — no innerHTML,
+ *  no mutation, no write buttons). Shows the stat summary then the bounded patch;
+ *  a truncation notice when the diff exceeded the 512KB cap. */
+function diffPaneFor(projectId: string): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'diff-pane'
+  const d = gitDiff.get(projectId)
+  const pre = document.createElement('pre')
+  pre.className = 'diff-body'
+  if (d === undefined) {
+    pre.textContent = '› loading diff…'
+  } else if (d === null) {
+    pre.textContent = '› not a git repository'
+  } else if (!d.stat.trim() && !d.patch.trim()) {
+    pre.textContent = '› working tree clean — no changes'
+  } else {
+    const parts: string[] = []
+    if (d.stat.trim()) parts.push(d.stat.trimEnd())
+    if (d.patch) parts.push(d.patch)
+    if (d.truncated) parts.push('\n… diff truncated at 512KB (read-only preview) …')
+    pre.textContent = parts.join('\n')
+  }
+  wrap.appendChild(pre)
+  return wrap
 }
 
 // ---- Explorer expansion + open file tabs (per current project) ----------------
@@ -786,6 +833,7 @@ function render() {
     projects: state.projects,
     activeId: state.currentProjectId,
     counts: liveCounts(state.sessions),
+    gitStatus: Object.fromEntries(gitStatus),
     onSelect: (id) => { setCurrentProject(id); render() },
     onHome: () => { state.view = 'home'; render() },
     onAdd: () => {
@@ -825,6 +873,7 @@ function render() {
   const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
 
   loadTree(proj.id)
+  loadGit(proj.id) // S4: branch/dirty badge + working-tree diff (read-only)
   if (proj.hasDevcontainer) loadContainerStatus(proj.id, proj.localPath)
   body.appendChild(Explorer({
     projectName: proj.name,
@@ -852,6 +901,13 @@ function render() {
     : undefined
   const fileEl = activeTab.kind === 'file' ? fileEditorFor(proj.id, activeTab.path) : undefined
   const reportEl = activeTab.kind === 'report' ? reportViewerFor(activeTab.path) : undefined
+  // S4: the Diff tab appears only for git repos (gitDiff resolved to a diff, not
+  // null); its pane is built only when active. gitDiff===undefined = still loading
+  // (repo status unknown) → show the tab optimistically so the user can open it.
+  const isRepo = gitDiff.get(proj.id) !== null
+  const diffEl = isRepo
+    ? (activeTab.kind === 'diff' ? diffPaneFor(proj.id) : document.createElement('div'))
+    : undefined
   body.appendChild(SupervisionView({
     session: activeSession,
     projectName: proj.name,
@@ -861,6 +917,7 @@ function render() {
     terminalEl,
     fileEl,
     reportEl,
+    diffEl,
     onSelectTab: (tab) => { activeTab = tab; render() },
     onCloseFile: closeFile,
     onCloseReport: closeReport

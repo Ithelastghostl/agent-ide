@@ -1,12 +1,22 @@
-import type { Project } from '@shared/types'
+import type { Project, GitStatusSummary } from '@shared/types'
 
 export interface RailProps {
   projects: Project[]
   activeId: string | null
   counts: Record<string, number>
+  /** S4 git awareness: per-project branch + dirty-count summary (absent for
+   *  non-repos / not-yet-loaded). Drives the rail's branch badge. */
+  gitStatus?: Record<string, GitStatusSummary>
   onSelect: (id: string) => void
   onHome: () => void
   onAdd: () => void
+}
+
+/** Short label for a project's git state: branch name (or "detached" for a
+ *  detached HEAD), suffixed with a "●N" dirty marker when the tree is dirty. */
+export function gitBadgeLabel(g: GitStatusSummary): string {
+  const branch = g.branch === '(detached)' ? 'detached' : g.branch
+  return g.dirtyCount > 0 ? `${branch} ●${g.dirtyCount}` : branch
 }
 
 /** Two-letter avatar from a repo name: initials of the first two word-segments
@@ -44,6 +54,16 @@ export function ProjectRail(p: RailProps): HTMLElement {
       c.className = 'cnt' + (pj.id === p.activeId ? ' busy' : '')
       c.textContent = String(n)
       d.appendChild(c)
+    }
+    // S4: branch + dirty-count badge under the avatar (read-only git awareness).
+    const g = p.gitStatus?.[pj.id]
+    if (g && g.branch) {
+      const gb = document.createElement('span')
+      gb.className = 'gitbadge' + (g.dirtyCount > 0 ? ' dirty' : '')
+      gb.textContent = gitBadgeLabel(g)
+      gb.title = `git: ${gitBadgeLabel(g)}` +
+        (g.ahead || g.behind ? ` (↑${g.ahead} ↓${g.behind})` : '')
+      d.appendChild(gb)
     }
     d.onclick = () => p.onSelect(pj.id)
     el.appendChild(d)

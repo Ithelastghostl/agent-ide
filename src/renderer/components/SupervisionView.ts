@@ -19,11 +19,13 @@ export interface OpenReport {
   name: string
 }
 
-/** Which tab is active: the session terminal, a file editor, or a rendered report. */
+/** Which tab is active: the session terminal, a file editor, a rendered report,
+ *  or the read-only working-tree diff (S4). */
 export type ActiveTab =
   | { kind: 'session' }
   | { kind: 'file'; path: string }
   | { kind: 'report'; path: string }
+  | { kind: 'diff' }
 
 export interface SupervisionProps {
   session: Session | null
@@ -39,6 +41,9 @@ export interface SupervisionProps {
   fileEl?: HTMLElement
   /** Rendered-report element for the active report tab (a sandboxed iframe). */
   reportEl?: HTMLElement
+  /** Read-only working-tree diff element for the Diff tab (S4). Present iff the
+   *  project is a git repo — omitted → no Diff tab is shown. */
+  diffEl?: HTMLElement
   onSelectTab: (tab: ActiveTab) => void
   onCloseFile: (path: string) => void
   onCloseReport: (path: string) => void
@@ -100,12 +105,29 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
     tab.onclick = () => p.onSelectTab({ kind: 'report', path: r.path })
     tabs.appendChild(tab)
   }
+
+  // Diff tab (S4): read-only working-tree diff. Only shown for git repos.
+  if (p.diffEl) {
+    const diffActive = p.activeTab.kind === 'diff'
+    const dTab = document.createElement('div')
+    dTab.className = 'ed-tab diff' + (diffActive ? ' on' : '')
+    const name = document.createElement('span')
+    name.className = 'fname'
+    name.textContent = 'Diff'
+    dTab.appendChild(name)
+    dTab.title = 'Working-tree changes (read-only)'
+    dTab.onclick = () => p.onSelectTab({ kind: 'diff' })
+    tabs.appendChild(dTab)
+  }
   editor.appendChild(tabs)
 
   const superv = document.createElement('div')
   superv.className = 'superv'
 
-  if (p.activeTab.kind === 'report' && p.reportEl) {
+  if (p.activeTab.kind === 'diff' && p.diffEl) {
+    // Read-only diff pane fills the pane (a plain <pre>, textContent only). S4.
+    superv.appendChild(p.diffEl)
+  } else if (p.activeTab.kind === 'report' && p.reportEl) {
     // Rendered report fills the pane (a sandboxed iframe; its own bar is inside).
     superv.appendChild(p.reportEl)
   } else if (p.activeTab.kind === 'file' && p.fileEl) {
