@@ -17,7 +17,8 @@ import { join } from 'path'
 
 async function openProjectWithTerminal(): Promise<{ app: ElectronApplication; win: Page; openLog: string }> {
   const proj = mkdtempSync(join(tmpdir(), 'agide-proj-'))
-  mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
+  mkdirSync(join(proj, 'src'))
+  writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-db-')), 'store.sqlite')
   const openLog = join(mkdtempSync(join(tmpdir(), 'agide-open-')), 'opened.log')
   const app = await electron.launch({
@@ -26,8 +27,12 @@ async function openProjectWithTerminal(): Promise<{ app: ElectronApplication; wi
   })
   const win = await app.firstWindow()
   await win.waitForSelector('.projrail', { timeout: 20_000 })
-  await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
-  await expect.poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 15_000 }).toBeGreaterThan(0)
+  await win.evaluate(async (p) => {
+    await window.agentIDE.projectsAddLocal(p)
+  }, proj)
+  await expect
+    .poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 15_000 })
+    .toBeGreaterThan(0)
   await win.reload()
   // Open the project from the rail. Generous timeouts: under full-suite load
   // (many sequential Electron launches) boot() hydration can lag.
@@ -40,10 +45,18 @@ async function openProjectWithTerminal(): Promise<{ app: ElectronApplication; wi
 /** Wait for `visibleText` to render on a row, then click its middle with a real
  *  mouse sequence (hover-in, press, release) so xterm's hit-testing fires. */
 async function clickTextInTerminal(win: Page, visibleText: string) {
-  await expect.poll(async () => win.evaluate((needle) => {
-    const rows = Array.from(document.querySelectorAll('.terminal-host .xterm-rows > div')) as HTMLElement[]
-    return rows.some((r) => (r.textContent || '').includes(needle))
-  }, visibleText), { timeout: 8_000 }).toBe(true)
+  await expect
+    .poll(
+      async () =>
+        win.evaluate((needle) => {
+          const rows = Array.from(
+            document.querySelectorAll('.terminal-host .xterm-rows > div')
+          ) as HTMLElement[]
+          return rows.some((r) => (r.textContent || '').includes(needle))
+        }, visibleText),
+      { timeout: 8_000 }
+    )
+    .toBe(true)
 
   const target = await win.evaluate((needle) => {
     const rowsEl = document.querySelector('.terminal-host .xterm-rows') as HTMLElement
@@ -80,7 +93,8 @@ test('clicking a PLAIN-TEXT terminal URL opens it in the host browser', async ()
   const { app, win, openLog } = await openProjectWithTerminal()
   await writeToTerminal(win, 'echo SEE https://example.com/plain\n')
   await clickTextInTerminal(win, 'https://example.com/plain')
-  await expect.poll(() => (existsSync(openLog) ? readFileSync(openLog, 'utf8') : ''), { timeout: 5_000 })
+  await expect
+    .poll(() => (existsSync(openLog) ? readFileSync(openLog, 'utf8') : ''), { timeout: 5_000 })
     .toContain('https://example.com/plain')
   await app.close()
 })
@@ -91,7 +105,8 @@ test('clicking an OSC-8 hyperlink opens it in the host browser (regression)', as
   // Use BEL (\a) terminators for robustness. Visible text is "OPEN-DOCS".
   await writeToTerminal(win, `printf 'go \\033]8;;https://example.com/osc8\\aOPEN-DOCS\\033]8;;\\a\\n'\n`)
   await clickTextInTerminal(win, 'OPEN-DOCS')
-  await expect.poll(() => (existsSync(openLog) ? readFileSync(openLog, 'utf8') : ''), { timeout: 5_000 })
+  await expect
+    .poll(() => (existsSync(openLog) ? readFileSync(openLog, 'utf8') : ''), { timeout: 5_000 })
     .toContain('https://example.com/osc8')
   await app.close()
 })

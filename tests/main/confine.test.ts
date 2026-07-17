@@ -70,7 +70,10 @@ describe('resolveProjectFile with a real Store-backed root (B1 end-to-end)', () 
     // This is exactly the `projectRoot` closure ipc.ts hands to every fs handler.
     return store
   }
-  const rootOf = (store: Store) => (id: string): string | undefined => store.getProject(id)?.localPath
+  const rootOf =
+    (store: Store) =>
+    (id: string): string | undefined =>
+      store.getProject(id)?.localPath
 
   it('refuses a projectId the Store has never seen (the B1 attack: name any project)', () => {
     const getRoot = rootOf(storeWith()) // empty Store — no projects registered

@@ -47,10 +47,12 @@ describe('asBool', () => {
 describe('isKnownModel (model membership)', () => {
   it('accepts a real model for its provider', () => {
     expect(isKnownModel('claude', 'claude-opus-4-8')).toBe(true)
-    expect(isKnownModel('codex', 'gpt-5-codex')).toBe(true)
+    expect(isKnownModel('claude', 'claude-fable-5')).toBe(true)
+    expect(isKnownModel('codex', 'gpt-5.6-sol')).toBe(true)
   })
-  it('rejects a model that is not in the provider\'s registry', () => {
-    expect(isKnownModel('claude', 'gpt-5-codex')).toBe(false) // wrong provider
+  it("rejects a model that is not in the provider's registry", () => {
+    expect(isKnownModel('claude', 'gpt-5.6-sol')).toBe(false) // wrong provider
+    expect(isKnownModel('codex', 'gpt-5-codex')).toBe(false) // retired family
     expect(isKnownModel('claude', 'made-up-model')).toBe(false)
   })
 })
@@ -86,7 +88,9 @@ describe('validateLaunchRequest (B9)', () => {
   })
 
   it('rejects an unknown projectId (project ownership)', () => {
-    expect(() => validateLaunchRequest({ ...good, projectId: 'proj-evil' }, isKnownProject)).toThrow(/project/i)
+    expect(() => validateLaunchRequest({ ...good, projectId: 'proj-evil' }, isKnownProject)).toThrow(
+      /project/i
+    )
   })
 
   it('rejects non-object / missing payloads', () => {
@@ -96,21 +100,32 @@ describe('validateLaunchRequest (B9)', () => {
   })
 
   it('rejects a wrong-typed useContainer (no coercion)', () => {
-    expect(() => validateLaunchRequest({ ...good, useContainer: 'yes' }, isKnownProject)).toThrow(/useContainer/i)
+    expect(() => validateLaunchRequest({ ...good, useContainer: 'yes' }, isKnownProject)).toThrow(
+      /useContainer/i
+    )
   })
 
   it('M-LOG-a: rejects a launch with no/invalid task label', () => {
     const { taskKind, taskSubkind, ...noLabel } = good
     expect(() => validateLaunchRequest(noLabel, isKnownProject)).toThrow(/taskKind/i)
-    expect(() => validateLaunchRequest({ ...good, taskKind: 'nonsense' }, isKnownProject)).toThrow(/taskKind/i)
+    expect(() => validateLaunchRequest({ ...good, taskKind: 'nonsense' }, isKnownProject)).toThrow(
+      /taskKind/i
+    )
   })
 
   it('M-LOG-a: a product launch requires a subkind; analysis must not have one', () => {
-    expect(() => validateLaunchRequest({ ...good, taskKind: 'product', taskSubkind: undefined }, isKnownProject)).toThrow(/subkind/i)
-    const analysis = validateLaunchRequest({ ...good, taskKind: 'analysis', taskSubkind: undefined }, isKnownProject)
+    expect(() =>
+      validateLaunchRequest({ ...good, taskKind: 'product', taskSubkind: undefined }, isKnownProject)
+    ).toThrow(/subkind/i)
+    const analysis = validateLaunchRequest(
+      { ...good, taskKind: 'analysis', taskSubkind: undefined },
+      isKnownProject
+    )
     expect(analysis.taskKind).toBe('analysis')
     expect(analysis.taskSubkind).toBeUndefined()
-    expect(() => validateLaunchRequest({ ...good, taskKind: 'analysis', taskSubkind: 'bug' }, isKnownProject)).toThrow(/subkind/i)
+    expect(() =>
+      validateLaunchRequest({ ...good, taskKind: 'analysis', taskSubkind: 'bug' }, isKnownProject)
+    ).toThrow(/subkind/i)
   })
 })
 
@@ -142,9 +157,15 @@ describe('validateTaskTransition (M-LOG-a §4.1 lifecycle)', () => {
 
 describe('validateTicketFields (M-LOG-b §4.4 schema)', () => {
   const good = {
-    title: 'Fix the widget race', subkind: 'bug', problem: 'it raced', solution: 'added a lock',
-    files_touched: ['a.ts', 'b.ts'], key_decisions: ['use a mutex'], follow_ups: [],
-    test_status: 'unit green', deploy_ref: 'commit abc123'
+    title: 'Fix the widget race',
+    subkind: 'bug',
+    problem: 'it raced',
+    solution: 'added a lock',
+    files_touched: ['a.ts', 'b.ts'],
+    key_decisions: ['use a mutex'],
+    follow_ups: [],
+    test_status: 'unit green',
+    deploy_ref: 'commit abc123'
   }
   it('accepts a well-formed ticket', () => {
     const t = validateTicketFields(good)
@@ -175,7 +196,7 @@ describe('validateResumeSession (B9: status transitions + membership)', () => {
     id: 'sess-1-123',
     projectId: 'proj-abc',
     provider: 'codex',
-    model: 'gpt-5-codex',
+    model: 'gpt-5.6-terra',
     objective: 'x',
     status: 'idle',
     createdAt: 1,

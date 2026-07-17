@@ -13,9 +13,13 @@ class FakeChild extends EventEmitter {
   killedWith: string | null = null
   stdin = {
     on: () => {},
-    end: (data: string) => { this.stdinData = data }
+    end: (data: string) => {
+      this.stdinData = data
+    }
   }
-  kill(sig: string) { this.killedWith = sig }
+  kill(sig: string) {
+    this.killedWith = sig
+  }
 }
 
 function fakeSpawnRecorder() {
@@ -29,19 +33,32 @@ function fakeSpawnRecorder() {
   return { calls, spawn, child: () => child! }
 }
 
-afterEach(() => { delete process.env.AGENT_IDE_TICKET_CMD })
+afterEach(() => {
+  delete process.env.AGENT_IDE_TICKET_CMD
+})
 
 describe('claudeHeadlessArgv (confinement is in the argv)', () => {
   it('disables all tools, settings sources, MCP, and session persistence', () => {
     const { cmd, args } = claudeHeadlessArgv()
     expect(cmd).toBe('claude')
-    expect(args).toEqual(['-p', '--tools', '', '--setting-sources', '', '--strict-mcp-config', '--no-session-persistence'])
+    expect(args).toEqual([
+      '-p',
+      '--tools',
+      '',
+      '--setting-sources',
+      '',
+      '--strict-mcp-config',
+      '--no-session-persistence'
+    ])
   })
 })
 
 describe('ticketCmdOverride', () => {
   it('parses a JSON argv array', () => {
-    expect(ticketCmdOverride({ AGENT_IDE_TICKET_CMD: '["node","fixture.js"]' })).toEqual(['node', 'fixture.js'])
+    expect(ticketCmdOverride({ AGENT_IDE_TICKET_CMD: '["node","fixture.js"]' })).toEqual([
+      'node',
+      'fixture.js'
+    ])
   })
   it('returns null when unset', () => {
     expect(ticketCmdOverride({})).toBeNull()

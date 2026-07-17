@@ -25,9 +25,8 @@ describe('PtyManager', () => {
   it('spawns a process, emits data, and kills it', async () => {
     const mgr = new PtyManager()
     const chunks: string[] = []
-    mgr.spawn(
-      { id: 's1', shell: 'bash', args: ['-c', 'echo hello-pty'], cwd: process.cwd(), env: {} },
-      (d) => chunks.push(d)
+    mgr.spawn({ id: 's1', shell: 'bash', args: ['-c', 'echo hello-pty'], cwd: process.cwd(), env: {} }, (d) =>
+      chunks.push(d)
     )
     await new Promise((r) => setTimeout(r, 600))
     expect(chunks.join('')).toContain('hello-pty')
@@ -38,10 +37,7 @@ describe('PtyManager', () => {
   it('writes input to a running shell and sees it echoed', async () => {
     const mgr = new PtyManager()
     const chunks: string[] = []
-    mgr.spawn(
-      { id: 's2', shell: 'bash', args: [], cwd: process.cwd(), env: {} },
-      (d) => chunks.push(d)
-    )
+    mgr.spawn({ id: 's2', shell: 'bash', args: [], cwd: process.cwd(), env: {} }, (d) => chunks.push(d))
     await new Promise((r) => setTimeout(r, 300))
     mgr.write('s2', 'echo written-in\n')
     await new Promise((r) => setTimeout(r, 500))
@@ -51,10 +47,7 @@ describe('PtyManager', () => {
 
   it('removes a process from tracking when it exits on its own', async () => {
     const mgr = new PtyManager()
-    mgr.spawn(
-      { id: 's3', shell: 'bash', args: ['-c', 'true'], cwd: process.cwd(), env: {} },
-      () => {}
-    )
+    mgr.spawn({ id: 's3', shell: 'bash', args: ['-c', 'true'], cwd: process.cwd(), env: {} }, () => {})
     await new Promise((r) => setTimeout(r, 600))
     expect(mgr.has('s3')).toBe(false)
   })
@@ -65,7 +58,9 @@ describe('PtyManager', () => {
     mgr.spawn(
       { id: 's4', shell: 'bash', args: [], cwd: process.cwd(), env: {} },
       () => {},
-      (info) => { reason = info.reason }
+      (info) => {
+        reason = info.reason
+      }
     )
     await new Promise((r) => setTimeout(r, 250))
     mgr.kill('s4')
@@ -79,7 +74,10 @@ describe('PtyManager', () => {
     mgr.spawn({ id: 'dup', shell: 'bash', args: [], cwd: process.cwd(), env: {} }, () => {})
     await new Promise((r) => setTimeout(r, 200))
     // replace same id with a process that prints a marker
-    mgr.spawn({ id: 'dup', shell: 'bash', args: ['-c', 'echo NEWPROC; sleep 1'], cwd: process.cwd(), env: {} }, (d) => out.push(d))
+    mgr.spawn(
+      { id: 'dup', shell: 'bash', args: ['-c', 'echo NEWPROC; sleep 1'], cwd: process.cwd(), env: {} },
+      (d) => out.push(d)
+    )
     await new Promise((r) => setTimeout(r, 500))
     // the new proc is the tracked one and is alive
     expect(mgr.has('dup')).toBe(true)
@@ -93,7 +91,9 @@ describe('PtyManager', () => {
     mgr.spawn(
       { id: 's5', shell: 'bash', args: ['-c', 'exit 1'], cwd: process.cwd(), env: {} },
       () => {},
-      (info) => { reason = info.reason }
+      (info) => {
+        reason = info.reason
+      }
     )
     await new Promise((r) => setTimeout(r, 500))
     expect(reason).toBe('crashed')
@@ -106,10 +106,7 @@ describe('PtyManager', () => {
   it('B12: primeWhenReady writes the primer to a live session once it settles', async () => {
     const mgr = new PtyManager()
     const chunks: string[] = []
-    mgr.spawn(
-      { id: 'p', shell: 'bash', args: [], cwd: process.cwd(), env: {} },
-      (d) => chunks.push(d)
-    )
+    mgr.spawn({ id: 'p', shell: 'bash', args: [], cwd: process.cwd(), env: {} }, (d) => chunks.push(d))
     mgr.primeWhenReady('p', 'echo PRIMED', { quietMs: 150, maxWaitMs: 2000 })
     await new Promise((r) => setTimeout(r, 900))
     expect(chunks.join('')).toContain('PRIMED')
@@ -119,10 +116,7 @@ describe('PtyManager', () => {
   it('B12: primeWhenReady does NOT write if the session is killed before it fires', async () => {
     const mgr = new PtyManager()
     const chunks: string[] = []
-    mgr.spawn(
-      { id: 'p2', shell: 'bash', args: [], cwd: process.cwd(), env: {} },
-      (d) => chunks.push(d)
-    )
+    mgr.spawn({ id: 'p2', shell: 'bash', args: [], cwd: process.cwd(), env: {} }, (d) => chunks.push(d))
     mgr.primeWhenReady('p2', 'echo SHOULD_NOT_APPEAR', { quietMs: 300, maxWaitMs: 3000 })
     mgr.kill('p2') // killed immediately, before the quiet window elapses
     await new Promise((r) => setTimeout(r, 700))

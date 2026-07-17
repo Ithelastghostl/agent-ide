@@ -13,11 +13,19 @@ import { cloneRepo, cloneUrl, repoNameFromUrl } from './github'
  *  keyed by its real path. */
 export function projectKey(repo: string, localPath: string): string {
   if (repo && repo.trim()) {
-    const norm = repo.trim().toLowerCase().replace(/\.git$/, '').replace(/\/+$/, '')
+    const norm = repo
+      .trim()
+      .toLowerCase()
+      .replace(/\.git$/, '')
+      .replace(/\/+$/, '')
     return `repo:${norm}`
   }
   let p = resolve(localPath)
-  try { p = realpathSync.native(p) } catch { /* path may not exist yet — use resolved */ }
+  try {
+    p = realpathSync.native(p)
+  } catch {
+    /* path may not exist yet — use resolved */
+  }
   return `path:${p}`
 }
 
@@ -97,5 +105,11 @@ export async function addProjectFromUrl(url: string, parentDir: string): Promise
   if (!existsSync(localPath)) {
     await cloneUrl(url, localPath)
   }
-  return { id: projectId(url, localPath), name, repo: url, localPath, hasDevcontainer: detectDevcontainer(localPath) }
+  return {
+    id: projectId(url, localPath),
+    name,
+    repo: url,
+    localPath,
+    hasDevcontainer: detectDevcontainer(localPath)
+  }
 }

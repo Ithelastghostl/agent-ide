@@ -20,7 +20,11 @@ describe('runtime seam (M1)', () => {
   it('the fake terminal records spawns and drives onExit on kill', () => {
     const rt = createFakeRuntime()
     const exits: string[] = []
-    rt.terminal.spawn({ id: 's1', shell: 'bash', args: [], cwd: '/x', env: {} }, () => {}, (i) => exits.push(i.reason))
+    rt.terminal.spawn(
+      { id: 's1', shell: 'bash', args: [], cwd: '/x', env: {} },
+      () => {},
+      (i) => exits.push(i.reason)
+    )
     expect(rt.terminal.spawns).toHaveLength(1)
     expect(rt.terminal.spawns[0].id).toBe('s1')
     rt.terminal.kill('s1')
@@ -31,7 +35,11 @@ describe('runtime seam (M1)', () => {
   it('the fake terminal can simulate a crash (reason=crashed)', () => {
     const rt = createFakeRuntime()
     const exits: string[] = []
-    rt.terminal.spawn({ id: 's2', shell: 'bash', args: [], cwd: '/x', env: {} }, () => {}, (i) => exits.push(i.reason))
+    rt.terminal.spawn(
+      { id: 's2', shell: 'bash', args: [], cwd: '/x', env: {} },
+      () => {},
+      (i) => exits.push(i.reason)
+    )
     rt.terminal.crash('s2')
     expect(exits).toEqual(['crashed'])
   })

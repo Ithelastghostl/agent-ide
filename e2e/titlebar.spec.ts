@@ -10,7 +10,9 @@ import { join } from 'path'
 // nonzero drag surface on EVERY view path, and must not swallow clicks on the
 // app's interactive controls.
 
-async function dragRegion(win: Awaited<ReturnType<Awaited<ReturnType<typeof electron.launch>>['firstWindow']>>) {
+async function dragRegion(
+  win: Awaited<ReturnType<Awaited<ReturnType<typeof electron.launch>>['firstWindow']>>
+) {
   return win.evaluate(() => {
     const el = document.querySelector('.titlebar')
     if (!el) return { present: false, region: '', w: 0, h: 0 }
@@ -45,13 +47,18 @@ test('home board has a nonzero titlebar drag region and controls still click', a
 
 test('project cockpit view keeps the titlebar drag region', async () => {
   const proj = mkdtempSync(join(tmpdir(), 'agide-tb-proj-'))
-  mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
+  mkdirSync(join(proj, 'src'))
+  writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-tb-db-')), 'store.sqlite')
   const app = await electron.launch({ args: electronArgs(), env: { ...process.env, AGENT_IDE_DB: dbPath } })
   const win = await app.firstWindow()
   await win.waitForSelector('.projrail', { timeout: 20_000 })
-  await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
-  await expect.poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 15_000 }).toBeGreaterThan(0)
+  await win.evaluate(async (p) => {
+    await window.agentIDE.projectsAddLocal(p)
+  }, proj)
+  await expect
+    .poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 15_000 })
+    .toBeGreaterThan(0)
   await win.reload()
   await win.locator('.projrail .pj').first().click({ timeout: 20_000 })
   await win.waitForSelector('.cp-title', { timeout: 15_000 })

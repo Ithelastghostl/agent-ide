@@ -11,9 +11,11 @@ import { AgentForm } from './components/AgentForm'
 import type { LibraryCategory, LibraryContents, LibraryItem } from '@shared/types'
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
-import { AllSessions } from './components/AllSessions'
+import { AllSessions, type BoardMode } from './components/AllSessions'
+import { StatusBar } from './components/StatusBar'
 import { modelsFor, loadModels } from './models'
 import { showMenu, promptText, chooseOption, flash } from './ui'
+import type { ServiceName, ServiceStatus } from '@shared/types'
 
 const root = document.getElementById('app')!
 const state: AppState = initialState()
@@ -26,6 +28,8 @@ const health: Partial<Record<Provider, ProviderHealth>> = {}
 const runInContainer = new Map<string, boolean>()
 // Container state per project (F14).
 const containerState = new Map<string, 'none' | 'stopped' | 'starting' | 'running' | 'error'>()
+// Home board view: live sessions (default) or archived (for cleanup/delete).
+let boardMode: BoardMode = 'live'
 window.agentIDE.onContainerStatus?.(({ projectId, state: s }) => {
   containerState.set(projectId, s)
   render()
@@ -34,11 +38,69 @@ window.agentIDE.onContainerStatus?.(({ projectId, state: s }) => {
 // Library contents (D14), loaded once at boot; undefined → pills show "—".
 let library: LibraryContents | undefined
 function loadLibrary() {
-  window.agentIDE.libraryList().then((lib) => { library = lib; render() }).catch(() => { /* library unavailable */ })
+  window.agentIDE
+    .libraryList()
+    .then((lib) => {
+      library = lib
+      render()
+    })
+    .catch(() => {
+      /* library unavailable */
+    })
 }
 
 // App-level notices from main (container mount remediation, etc.).
 window.agentIDE.onNotice?.(({ message }) => flash(message, 4200))
+
+// F16: external-service connectivity (status bar). Probed on startup + on demand.
+let serviceStatus: Partial<Record<ServiceName, ServiceStatus>> = {}
+let serviceChecking = false
+function probeServices() {
+  serviceChecking = true
+  render()
+  window.agentIDE
+    .serviceHealth()
+    .then((s) => {
+      serviceStatus = s
+    })
+    .catch(() => {
+      /* leave as-is */
+    })
+    .finally(() => {
+      serviceChecking = false
+      render()
+    })
+}
+// Re-check a single service (after a connect, or on clicking an online chip).
+function recheckService(_service: ServiceName) {
+  probeServices()
+}
+// Open a login terminal for a service, then re-check shortly after.
+function connectService(service: ServiceName) {
+  const cwd = currentProject()?.localPath ?? ''
+  window.agentIDE
+    .serviceLogin(service, cwd)
+    .then((id) => {
+      // Surface the login as a terminal session so the user can complete the flow.
+      const now = Date.now()
+      const sess: Session = {
+        id,
+        projectId: state.currentProjectId ?? '',
+        provider: 'codex',
+        model: 'login',
+        objective: `${service} login`,
+        status: 'running',
+        createdAt: now,
+        updatedAt: now
+      }
+      launchedSessions.add(id)
+      state.sessions.push(sess)
+      state.activeSessionId = id
+      state.view = 'cockpit'
+      render()
+    })
+    .catch((err) => console.error('service login failed', err))
+}
 
 // F4: a session's pty exited. History is always kept; a crash flags reconnect.
 window.agentIDE.onSessionExit(({ id, reason }) => {
@@ -50,6 +112,27 @@ window.agentIDE.onSessionExit(({ id, reason }) => {
     s.status = 'archived'
   }
   render()
+})
+
+// The provider rejected the session's model (Codex model not on a ChatGPT-account
+// plan). Codex stays at its prompt, so there's no crash — surface it and offer to
+// pick another model. The 400 line can repeat in the stream; only prompt once.
+const modelRejectedOnce = new Set<string>()
+window.agentIDE.onSessionModelRejected(async ({ id, model }) => {
+  if (modelRejectedOnce.has(id)) return
+  modelRejectedOnce.add(id)
+  const s = state.sessions.find((x) => x.id === id)
+  if (!s) return
+  const choice = await chooseOption<'pick'>(
+    'Model not available',
+    [{ label: 'Pick another model', value: 'pick', primary: true }],
+    undefined,
+    `“${model || s.model}” isn't available on your plan for ${s.provider}. Choose a different model to continue this session.`
+  )
+  if (choice?.value === 'pick') {
+    modelRejectedOnce.delete(id)
+    await changeModelFlow(s)
+  }
 })
 
 // Cache one terminal element per session so re-renders don't respawn the pty.
@@ -76,14 +159,24 @@ function disposeTerminal(sessionId: string) {
 function activityBar(): HTMLElement {
   const el = document.createElement('div')
   el.className = 'activity'
-  for (const [icon, on] of [['🗂', true], ['🔍', false], ['⑂', false], ['▷', false]] as const) {
+  for (const [icon, on] of [
+    ['🗂', true],
+    ['🔍', false],
+    ['⑂', false],
+    ['▷', false]
+  ] as const) {
     const d = document.createElement('div')
     d.className = 'ic' + (on ? ' on' : '')
     d.textContent = icon
     el.appendChild(d)
   }
-  const sp = document.createElement('div'); sp.className = 'sp'; el.appendChild(sp)
-  const cog = document.createElement('div'); cog.className = 'ic'; cog.textContent = '⚙'; el.appendChild(cog)
+  const sp = document.createElement('div')
+  sp.className = 'sp'
+  el.appendChild(sp)
+  const cog = document.createElement('div')
+  cog.className = 'ic'
+  cog.textContent = '⚙'
+  el.appendChild(cog)
   return el
 }
 
@@ -96,7 +189,10 @@ const trees = new Map<string, FileNode[]>()
 function loadTree(projectId: string) {
   if (trees.has(projectId)) return
   trees.set(projectId, [])
-  window.agentIDE.fsTree(projectId).then((t) => { trees.set(projectId, t.nodes as FileNode[]); render() })
+  window.agentIDE.fsTree(projectId).then((t) => {
+    trees.set(projectId, t.nodes as FileNode[])
+    render()
+  })
 }
 
 // ---- Explorer expansion + open file tabs (per current project) ----------------
@@ -127,8 +223,8 @@ function toggleDir(projectId: string, relPath: string) {
 
 // Open editor tabs and which tab is showing. activeTab defaults to the session.
 const openFiles: OpenFile[] = []
-const openReports: OpenReport[] = []            // F15: HTML reports rendered in-app
-const fileContent = new Map<string, string>()   // path -> on-disk/edited text
+const openReports: OpenReport[] = [] // F15: HTML reports rendered in-app
+const fileContent = new Map<string, string>() // path -> on-disk/edited text
 let activeTab: ActiveTab = { kind: 'session' }
 
 /** F15: does this path look like an HTML report we should render in-app? */
@@ -158,7 +254,9 @@ function closeFile(relPath: string) {
   // Keep the cached text if the same path is also open as a rendered report.
   if (!openReports.some((r) => r.path === relPath)) fileContent.delete(relPath)
   if (activeTab.kind === 'file' && activeTab.path === relPath) {
-    activeTab = openFiles.length ? { kind: 'file', path: openFiles[openFiles.length - 1].path } : { kind: 'session' }
+    activeTab = openFiles.length
+      ? { kind: 'file', path: openFiles[openFiles.length - 1].path }
+      : { kind: 'session' }
   }
   render()
 }
@@ -187,7 +285,9 @@ function closeReport(relPath: string) {
   // Don't drop fileContent — the same path may still be open as an editor tab.
   if (!openFiles.some((f) => f.path === relPath)) fileContent.delete(relPath)
   if (activeTab.kind === 'report' && activeTab.path === relPath) {
-    activeTab = openReports.length ? { kind: 'report', path: openReports[openReports.length - 1].path } : { kind: 'session' }
+    activeTab = openReports.length
+      ? { kind: 'report', path: openReports[openReports.length - 1].path }
+      : { kind: 'session' }
   }
   render()
 }
@@ -196,7 +296,10 @@ function closeReport(relPath: string) {
  *  tabs, expansions and cached children are all project-relative and meaningless
  *  across projects). No-op if the project is unchanged (keeps tabs/expansions). */
 function setCurrentProject(id: string) {
-  if (state.currentProjectId === id) { state.view = 'cockpit'; return }
+  if (state.currentProjectId === id) {
+    state.view = 'cockpit'
+    return
+  }
   state.currentProjectId = id
   state.view = 'cockpit'
   openFiles.length = 0
@@ -262,7 +365,10 @@ function fileEditorFor(projectId: string, relPath: string): HTMLElement {
     }
   })
   ta.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save() }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault()
+      save()
+    }
   })
   saveBtn.onclick = save
 
@@ -295,7 +401,8 @@ function reportViewerFor(relPath: string): HTMLElement {
   // together would defeat the sandbox).
   frame.setAttribute('sandbox', 'allow-scripts')
   const html = fileContent.get(relPath)
-  frame.srcdoc = html ?? '<!doctype html><body style="font:13px sans-serif;color:#888;padding:16px">Loading report…</body>'
+  frame.srcdoc =
+    html ?? '<!doctype html><body style="font:13px sans-serif;color:#888;padding:16px">Loading report…</body>'
   wrap.appendChild(frame)
 
   return wrap
@@ -357,8 +464,11 @@ function openGithubClone() {
         closeOverlay()
         const dir = await window.agentIDE.openDirectory() // choose where to clone (item 2)
         if (!dir) return
-        try { addProjectToState(await window.agentIDE.projectsAddGithub(repo, dir)) }
-        catch (err) { console.error('clone failed', err) }
+        try {
+          addProjectToState(await window.agentIDE.projectsAddGithub(repo, dir))
+        } catch (err) {
+          console.error('clone failed', err)
+        }
       },
       onCancel: closeOverlay
     })
@@ -366,7 +476,9 @@ function openGithubClone() {
     document.body.appendChild(picker)
   })
 }
-function closeOverlay() { document.getElementById('picker-overlay')?.remove() }
+function closeOverlay() {
+  document.getElementById('picker-overlay')?.remove()
+}
 
 // The session id we can write into right now (focused + has a live pty this run).
 function activeLivePtyId(): string | null {
@@ -388,8 +500,17 @@ function openLibrary(category: LibraryCategory) {
     category,
     items,
     hasActiveSession: activeLivePtyId() !== null,
-    onUse: (item) => { void useLibraryItem(item); closeOverlay() },
-    onAdd: category === 'agents' ? () => { closeOverlay(); openAgentForm() } : undefined,
+    onUse: (item) => {
+      void useLibraryItem(item)
+      closeOverlay()
+    },
+    onAdd:
+      category === 'agents'
+        ? () => {
+            closeOverlay()
+            openAgentForm()
+          }
+        : undefined,
     onCancel: closeOverlay
   })
   panel.id = 'picker-overlay'
@@ -400,7 +521,11 @@ function openLibrary(category: LibraryCategory) {
 function openAgentForm() {
   const form = AgentForm({
     onSubmit: (input) => window.agentIDE.libraryAddAgent(input),
-    onDone: () => { closeOverlay(); loadLibrary(); flash('agent added to the library') },
+    onDone: () => {
+      closeOverlay()
+      loadLibrary()
+      flash('agent added to the library')
+    },
     onCancel: closeOverlay
   })
   form.id = 'picker-overlay'
@@ -439,13 +564,18 @@ async function useLibraryItem(item: LibraryItem) {
   } else {
     // Workflow: drop a reference the agent can act on (it can read the file from
     // the mounted library). Keep it as plain text, no auto-submit.
-    window.agentIDE.ptyWrite(sessionId, `Run the workflow "${item.name}" (library/workflows/${item.name}.js). `)
+    window.agentIDE.ptyWrite(
+      sessionId,
+      `Run the workflow "${item.name}" (library/workflows/${item.name}.js). `
+    )
   }
 }
 
 // F11/F12: decide run context for a devcontainer project. Returns
 // { useContainer, importConfig } or null if cancelled. Remembers per project.
-async function resolveRunContext(proj: Project): Promise<{ useContainer: boolean; importConfig: boolean } | null> {
+async function resolveRunContext(
+  proj: Project
+): Promise<{ useContainer: boolean; importConfig: boolean } | null> {
   if (!proj.hasDevcontainer) return { useContainer: false, importConfig: false }
   if (runInContainer.has(proj.id)) {
     return { useContainer: runInContainer.get(proj.id)!, importConfig: false }
@@ -454,7 +584,12 @@ async function resolveRunContext(proj: Project): Promise<{ useContainer: boolean
     `Run “${proj.name}” in its devcontainer?`,
     [
       { label: 'Run on host', value: 'host', hint: 'Full filesystem access, no container' },
-      { label: 'Run in container', value: 'container', primary: true, hint: 'Isolated to the devcontainer workspace' }
+      {
+        label: 'Run in container',
+        value: 'container',
+        primary: true,
+        hint: 'Isolated to the devcontainer workspace'
+      }
     ],
     { label: 'Also import my ~/.claude skills + config into the container (read-only)', checked: true }
   )
@@ -469,8 +604,17 @@ async function resolveRunContext(proj: Project): Promise<{ useContainer: boolean
 // Returns { taskKind, taskSubkind } or null if cancelled.
 async function chooseTaskLabel(): Promise<{ taskKind: TaskKind; taskSubkind?: TaskSubkind } | null> {
   const kind = await chooseOption<TaskKind>('What is this chat for?', [
-    { label: 'Product — build/change the code', value: 'product', primary: true, hint: 'Logged as a task; can become a roadmap ticket' },
-    { label: 'Analysis — explore / ask / understand', value: 'analysis', hint: 'Saved and replayable, but not logged' }
+    {
+      label: 'Product — build/change the code',
+      value: 'product',
+      primary: true,
+      hint: 'Logged as a task; can become a roadmap ticket'
+    },
+    {
+      label: 'Analysis — explore / ask / understand',
+      value: 'analysis',
+      hint: 'Saved and replayable, but not logged'
+    }
   ])
   if (!kind) return null
   if (kind.value === 'analysis') return { taskKind: 'analysis' }
@@ -516,7 +660,9 @@ async function launchFlow(provider: Provider) {
         state.activeSessionId = session.id
         state.view = 'cockpit'
         render()
-      } catch (err) { console.error('session launch failed', err) }
+      } catch (err) {
+        console.error('session launch failed', err)
+      }
     },
     onCancel: closeOverlay
   })
@@ -537,7 +683,11 @@ async function startContainer() {
       [{ label: 'Start', value: 'go', primary: true }],
       { label: 'Import my ~/.claude skills + config (read-only)', checked: true }
     )
-    if (!choice) { containerStatusLoaded.delete(proj.id); loadContainerStatus(proj.id, proj.localPath); return }
+    if (!choice) {
+      containerStatusLoaded.delete(proj.id)
+      loadContainerStatus(proj.id, proj.localPath)
+      return
+    }
     importConfig = choice.checked
     runInContainer.set(proj.id, true) // starting the container implies container mode
   }
@@ -547,6 +697,39 @@ async function startContainer() {
   } catch (err) {
     console.error('start container failed', err)
     containerState.set(proj.id, 'error')
+    render()
+  }
+}
+
+// Stop the project's running container (reversible). Warns first if any of this
+// project's sessions are running inside it — stopping kills their ptys (they flip
+// to reconnectable, history kept). On confirm, docker stops it; the button then
+// shows "Restart container".
+async function stopContainer() {
+  const proj = currentProject()
+  if (!proj) return
+  // Sessions live in THIS project's container only when it's in container mode.
+  const inContainer = runInContainer.get(proj.id) ?? false
+  const running = inContainer
+    ? state.sessions.filter((s) => s.projectId === proj.id && s.status === 'running' && !reconnect.has(s.id))
+    : []
+  if (running.length > 0) {
+    const ok = await chooseOption<'stop'>(
+      `Stop “${proj.name}”'s container?`,
+      [{ label: 'Stop anyway', value: 'stop', primary: true }],
+      undefined,
+      `${running.length} running session${running.length > 1 ? 's' : ''} will disconnect (history is kept; reconnect after restart).`
+    )
+    if (!ok) return
+  }
+  const prev = containerState.get(proj.id)
+  containerState.set(proj.id, 'stopped') // optimistic; main confirms via container:status
+  render()
+  try {
+    await window.agentIDE.containerStop(proj.id, proj.localPath)
+  } catch (err) {
+    console.error('stop container failed', err)
+    containerState.set(proj.id, prev ?? 'running')
     render()
   }
 }
@@ -570,7 +753,9 @@ async function openTerminal() {
     state.activeSessionId = session.id
     state.view = 'cockpit'
     render()
-  } catch (err) { console.error('open terminal failed', err) }
+  } catch (err) {
+    console.error('open terminal failed', err)
+  }
 }
 
 // F8/F9: provider-tag menu — check health, run login, install CLI (with confirm).
@@ -580,9 +765,16 @@ async function refreshHealth(provider: Provider) {
   try {
     // Health in the project's SELECTED context (B5): host-mode users must not
     // see the container's health just because one happens to be running.
-    health[provider] = await window.agentIDE.providerHealth(provider, proj.id, proj.localPath, runInContainer.get(proj.id))
+    health[provider] = await window.agentIDE.providerHealth(
+      provider,
+      proj.id,
+      proj.localPath,
+      runInContainer.get(proj.id)
+    )
     render()
-  } catch (err) { console.error('health check failed', err) }
+  } catch (err) {
+    console.error('health check failed', err)
+  }
 }
 
 function openProviderMenu(provider: Provider, x: number, y: number) {
@@ -601,8 +793,14 @@ function openProviderMenu(provider: Provider, x: number, y: number) {
           // surface the login as the active terminal session
           launchedSessions.add(id)
           state.sessions.push({
-            id, projectId: proj.id, provider, model: 'login',
-            objective: `${provider} login`, status: 'running', createdAt: 0, updatedAt: 0
+            id,
+            projectId: proj.id,
+            provider,
+            model: 'login',
+            objective: `${provider} login`,
+            status: 'running',
+            createdAt: 0,
+            updatedAt: 0
           })
           state.activeSessionId = id
           state.view = 'cockpit'
@@ -624,7 +822,9 @@ function openProviderMenu(provider: Provider, x: number, y: number) {
         try {
           health[provider] = await window.agentIDE.providerInstall(provider, proj.id, proj.localPath)
           render()
-        } catch (err) { console.error('install failed', err) }
+        } catch (err) {
+          console.error('install failed', err)
+        }
       }
     })
   }
@@ -674,7 +874,13 @@ async function changeModelFlow(session: Session) {
   const useContainer = runInContainer.get(session.projectId) ?? false
   try {
     disposeTerminal(session.id) // old engine's terminal is stale; rebuild on the new pty
-    const updated = await window.agentIDE.sessionChangeModel(session, proj.localPath, useContainer, provider, modelChoice.value)
+    const updated = await window.agentIDE.sessionChangeModel(
+      session,
+      proj.localPath,
+      useContainer,
+      provider,
+      modelChoice.value
+    )
     launchedSessions.add(session.id)
     session.provider = updated.provider
     session.model = updated.model
@@ -687,13 +893,39 @@ async function changeModelFlow(session: Session) {
   }
 }
 
+// Permanently delete an archived session from the home board's Archived view.
+// Confirms first (irreversible from the app), then removes it from the store +
+// its on-disk history (moved to Bin/ per never-rm), and drops it from state.
+async function deleteArchivedSession(session: Session) {
+  const ok = await chooseOption<'delete'>(
+    `Delete “${session.objective}”?`,
+    [{ label: 'Delete', value: 'delete', primary: true }],
+    undefined,
+    "Removes this chat and its history permanently. This can't be undone."
+  )
+  if (!ok) return
+  try {
+    await window.agentIDE.sessionDelete(session.id)
+    const i = state.sessions.findIndex((s) => s.id === session.id)
+    if (i >= 0) state.sessions.splice(i, 1)
+    disposeTerminal(session.id)
+    reconnect.delete(session.id)
+    if (state.activeSessionId === session.id) state.activeSessionId = null
+    render()
+  } catch (err) {
+    console.error('delete session failed', err)
+  }
+}
+
 // F6/F7: three-dot session menu — reconnect (if crashed), rename, change model, close+archive.
 function openSessionMenu(session: Session, x: number, y: number) {
   const items = []
   if (reconnect.has(session.id)) {
     items.push({
       label: '↻ Reconnect',
-      onClick: () => { void reconnectSession(session) }
+      onClick: () => {
+        void reconnectSession(session)
+      }
     })
   }
   // M-LOG-a (§4.5.3): a product task can be marked finished, which exports its raw
@@ -703,7 +935,10 @@ function openSessionMenu(session: Session, x: number, y: number) {
       label: '✓ Mark finished (export log)',
       onClick: async () => {
         const res = await window.agentIDE.taskSetStatus(session.id, 'finished')
-        if (res.error) { console.error('mark finished failed', res.error); return }
+        if (res.error) {
+          console.error('mark finished failed', res.error)
+          return
+        }
         session.taskStatus = 'finished'
         render()
       }
@@ -712,18 +947,23 @@ function openSessionMenu(session: Session, x: number, y: number) {
   // M-LOG-b (§4.5.3): a finished/deployed product task can generate its roadmap
   // ticket via the headless addendum pass. On success the task becomes 'ticketed';
   // on failure it stays deployed (retry available).
-  if (session.taskKind === 'product' && (session.taskStatus === 'finished' || session.taskStatus === 'deployed')) {
+  if (
+    session.taskKind === 'product' &&
+    (session.taskStatus === 'finished' || session.taskStatus === 'deployed')
+  ) {
     items.push({
       label: '📋 Mark deployed → generate ticket',
       onClick: async () => {
-        session.taskStatus = 'deployed'; render()
+        session.taskStatus = 'deployed'
+        render()
         const res = await window.agentIDE.taskGenerateTicket(session.id)
         if (res.error) {
           console.error('ticket generation failed (stays deployed — retry):', res.error)
           await promptText('Ticket generation failed — retry available', res.error).catch(() => {})
           return
         }
-        session.taskStatus = 'ticketed'; render()
+        session.taskStatus = 'ticketed'
+        render()
       }
     })
   }
@@ -743,7 +983,9 @@ function openSessionMenu(session: Session, x: number, y: number) {
       // session under the chosen provider/model and seeds it with the prior
       // history, so the conversation carries over across models.
       label: '⇄ Change model…',
-      onClick: () => { void changeModelFlow(session) }
+      onClick: () => {
+        void changeModelFlow(session)
+      }
     },
     {
       label: 'Close + Archive',
@@ -786,8 +1028,14 @@ function render() {
     projects: state.projects,
     activeId: state.currentProjectId,
     counts: liveCounts(state.sessions),
-    onSelect: (id) => { setCurrentProject(id); render() },
-    onHome: () => { state.view = 'home'; render() },
+    onSelect: (id) => {
+      setCurrentProject(id)
+      render()
+    },
+    onHome: () => {
+      state.view = 'home'
+      render()
+    },
     onAdd: () => {
       const r = document.querySelector('.projrail .add')?.getBoundingClientRect()
       openAddProjectMenu(r ? r.right : 70, r ? r.top : 80)
@@ -801,21 +1049,32 @@ function render() {
     const board = AllSessions({
       projects: state.projects,
       sessions: state.sessions,
+      mode: boardMode,
+      onSetMode: (m) => {
+        boardMode = m
+        render()
+      },
       onOpen: (projectId, sessionId) => {
         setCurrentProject(projectId)
         state.activeSessionId = sessionId
         render()
       },
-      onSyncHistory: () => window.agentIDE.historySync(new Date().toISOString())
+      onSyncHistory: () => window.agentIDE.historySync(new Date().toISOString()),
+      onDelete: deleteArchivedSession
     })
     // F1: prominent "Open project" CTA at the top of the board
     const cta = document.createElement('button')
     cta.className = 'open-cta'
     cta.textContent = '+ Open project'
-    cta.onclick = (e) => openAddProjectMenu((e.target as HTMLElement).getBoundingClientRect().left, (e.target as HTMLElement).getBoundingClientRect().bottom)
+    cta.onclick = (e) =>
+      openAddProjectMenu(
+        (e.target as HTMLElement).getBoundingClientRect().left,
+        (e.target as HTMLElement).getBoundingClientRect().bottom
+      )
     board.insertBefore(cta, board.querySelector('.sub')!.nextSibling)
     body.appendChild(board)
     root.appendChild(body)
+    appendStatusBar()
     return
   }
 
@@ -826,45 +1085,49 @@ function render() {
 
   loadTree(proj.id)
   if (proj.hasDevcontainer) loadContainerStatus(proj.id, proj.localPath)
-  body.appendChild(Explorer({
-    projectName: proj.name,
-    tree: trees.get(proj.id) ?? [],
-    expanded: expandedDirs,
-    childrenOf: (dirPath) => dirChildren.get(dirPath),
-    activePath: activeTab.kind === 'file' || activeTab.kind === 'report' ? activeTab.path : undefined,
-    onToggleDir: (dirPath) => toggleDir(proj.id, dirPath),
-    // Left-click: .html renders in-app (F15), everything else opens the editor.
-    onOpenFile: (filePath, name) =>
-      isHtml(filePath)
-        ? openReport(proj.id, filePath, name)
-        : openFile(proj.id, filePath, name),
-    // Right-click any file: offer "Open in new tab" → rendered report (F15).
-    onContextMenu: (filePath, name, x, y) =>
-      showMenu(x, y, [
-        { label: 'Open in new tab', onClick: () => openReport(proj.id, filePath, name) },
-        { label: 'Open in editor', onClick: () => openFile(proj.id, filePath, name) }
-      ])
-  }))
+  body.appendChild(
+    Explorer({
+      projectName: proj.name,
+      tree: trees.get(proj.id) ?? [],
+      expanded: expandedDirs,
+      childrenOf: (dirPath) => dirChildren.get(dirPath),
+      activePath: activeTab.kind === 'file' || activeTab.kind === 'report' ? activeTab.path : undefined,
+      onToggleDir: (dirPath) => toggleDir(proj.id, dirPath),
+      // Left-click: .html renders in-app (F15), everything else opens the editor.
+      onOpenFile: (filePath, name) =>
+        isHtml(filePath) ? openReport(proj.id, filePath, name) : openFile(proj.id, filePath, name),
+      // Right-click any file: offer "Open in new tab" → rendered report (F15).
+      onContextMenu: (filePath, name, x, y) =>
+        showMenu(x, y, [
+          { label: 'Open in new tab', onClick: () => openReport(proj.id, filePath, name) },
+          { label: 'Open in editor', onClick: () => openFile(proj.id, filePath, name) }
+        ])
+    })
+  )
   // Only mount a live terminal for sessions launched this run; hydrated/stale
   // sessions have no pty and are shown as reconnectable instead.
-  const terminalEl = activeSession && launchedSessions.has(activeSession.id)
-    ? terminalFor(activeSession.id)
-    : undefined
+  const terminalEl =
+    activeSession && launchedSessions.has(activeSession.id) ? terminalFor(activeSession.id) : undefined
   const fileEl = activeTab.kind === 'file' ? fileEditorFor(proj.id, activeTab.path) : undefined
   const reportEl = activeTab.kind === 'report' ? reportViewerFor(activeTab.path) : undefined
-  body.appendChild(SupervisionView({
-    session: activeSession,
-    projectName: proj.name,
-    openFiles,
-    openReports,
-    activeTab,
-    terminalEl,
-    fileEl,
-    reportEl,
-    onSelectTab: (tab) => { activeTab = tab; render() },
-    onCloseFile: closeFile,
-    onCloseReport: closeReport
-  }))
+  body.appendChild(
+    SupervisionView({
+      session: activeSession,
+      projectName: proj.name,
+      openFiles,
+      openReports,
+      activeTab,
+      terminalEl,
+      fileEl,
+      reportEl,
+      onSelectTab: (tab) => {
+        activeTab = tab
+        render()
+      },
+      onCloseFile: closeFile,
+      onCloseReport: closeReport
+    })
+  )
   body.appendChild(
     Cockpit({
       sessions: projectSessions,
@@ -872,21 +1135,43 @@ function render() {
       reconnect,
       health,
       libraryCounts: library
-        ? { prompts: library.prompts.length, skills: library.skills.length, workflows: library.workflows.length, agents: library.agents.length }
+        ? {
+            prompts: library.prompts.length,
+            skills: library.skills.length,
+            workflows: library.workflows.length,
+            agents: library.agents.length
+          }
         : undefined,
       onLibraryPill: openLibrary,
       onLaunch: launchFlow,
-      onSelectSession: (id) => { state.activeSessionId = id; render() },
+      onSelectSession: (id) => {
+        state.activeSessionId = id
+        render()
+      },
       onSessionMenu: openSessionMenu,
       onProviderMenu: openProviderMenu,
       onOpenTerminal: openTerminal,
       showContainerButton: proj.hasDevcontainer,
       containerState: containerState.get(proj.id) ?? 'none',
-      onStartContainer: startContainer
+      onStartContainer: startContainer,
+      onStopContainer: stopContainer
     })
   )
 
   root.appendChild(body)
+  appendStatusBar()
+}
+
+// F16: the bottom status bar, appended after the main body on every render.
+function appendStatusBar() {
+  root.appendChild(
+    StatusBar({
+      status: serviceStatus,
+      checking: serviceChecking,
+      onRecheck: recheckService,
+      onConnect: connectService
+    })
+  )
 }
 
 // F1: hydrate persisted projects/sessions from the store at boot.
@@ -918,6 +1203,7 @@ async function boot() {
   }
   loadLibrary() // D14: populate library pill counts (async, re-renders on load)
   render()
+  probeServices() // F16: test external-service connectivity on startup (async)
 }
 
 boot()

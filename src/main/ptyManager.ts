@@ -18,6 +18,10 @@ export function resolveCwd(cwd: string): string {
   } catch {
     /* fall through */
   }
+  // A non-empty cwd that doesn't resolve is a stale/missing project path. Warn
+  // rather than silently dropping the session into $HOME — that silent fallback
+  // is exactly what masks a host session starting in the wrong directory.
+  if (cwd) console.warn(`[pty] cwd "${cwd}" not found — falling back to home (${homedir()})`)
   return homedir()
 }
 
@@ -30,7 +34,9 @@ export function hostShell(env: Record<string, string | undefined> = process.env)
   try {
     const s = userInfo().shell
     if (s) return s
-  } catch { /* no passwd entry available */ }
+  } catch {
+    /* no passwd entry available */
+  }
   return process.platform === 'darwin' ? '/bin/zsh' : 'bash'
 }
 
@@ -66,7 +72,11 @@ export class PtyManager {
     // flag must not leak onto the new generation's classification.
     const prev = this.procs.get(o.id)
     if (prev) {
-      try { prev.kill() } catch { /* already dead */ }
+      try {
+        prev.kill()
+      } catch {
+        /* already dead */
+      }
     }
     const myGen = (this.gen.get(o.id) ?? 0) + 1
     this.gen.set(o.id, myGen)
@@ -123,7 +133,11 @@ export class PtyManager {
       done = true
       if (quietTimer) clearTimeout(quietTimer)
       clearTimeout(hardCap)
-      try { dataSub.dispose() } catch { /* already disposed */ }
+      try {
+        dataSub.dispose()
+      } catch {
+        /* already disposed */
+      }
     }
 
     const self = this
@@ -132,7 +146,11 @@ export class PtyManager {
       cleanup()
       // Only write if this exact generation is still the live one and not killed.
       if (self.gen.get(id) !== myGen || self.killed.has(id) || !self.procs.has(id)) return
-      try { self.procs.get(id)?.write(data) } catch { /* pty gone */ }
+      try {
+        self.procs.get(id)?.write(data)
+      } catch {
+        /* pty gone */
+      }
     }
   }
 

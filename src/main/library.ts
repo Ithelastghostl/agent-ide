@@ -54,7 +54,11 @@ export function parseFrontmatter(text: string): { meta: Record<string, string>; 
  *  quote chars) so existing library files parse unchanged. */
 function decodeScalar(val: string): string {
   if (val.length >= 2 && val.startsWith('"') && val.endsWith('"')) {
-    try { return JSON.parse(val) } catch { /* not valid JSON — legacy strip */ }
+    try {
+      return JSON.parse(val)
+    } catch {
+      /* not valid JSON — legacy strip */
+    }
   }
   return val.replace(/^["']|["']$/g, '')
 }
@@ -75,7 +79,11 @@ function firstHeading(body: string): string | undefined {
 }
 
 function readText(path: string): string {
-  try { return readFileSync(path, 'utf8') } catch { return '' }
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return ''
+  }
 }
 
 /** Scan one category folder into LibraryItems.
@@ -86,7 +94,11 @@ function readText(path: string): string {
 function scanCategory(libRoot: string, category: LibraryCategory): LibraryItem[] {
   const dir = join(libRoot, category)
   let entries: import('node:fs').Dirent[]
-  try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return [] }
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
   const items: LibraryItem[] = []
 
   for (const e of entries) {
@@ -176,7 +188,10 @@ const AGENT_FILE_MAX = 256 * 1024
 /** Derive the filesystem slug for an agent name: lowercase, runs of anything
  *  outside [a-z0-9] collapse to '-', trimmed. Empty result = invalid name. */
 export function agentSlug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-+|-+$)/g, '')
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-+|-+$)/g, '')
 }
 
 /** Validate an addAgent payload at the IPC boundary. Returns a typed AgentInput
@@ -186,10 +201,12 @@ export function validateAgentInput(raw: unknown): AgentInput {
   const str = (k: string): string => (typeof o[k] === 'string' ? (o[k] as string) : '')
   const name = str('name').trim()
   const description = str('description').trim()
-  if (!name || name.length > AGENT_NAME_MAX) throw new Error(`agent name must be 1–${AGENT_NAME_MAX} characters`)
+  if (!name || name.length > AGENT_NAME_MAX)
+    throw new Error(`agent name must be 1–${AGENT_NAME_MAX} characters`)
   if (!agentSlug(name)) throw new Error('agent name must contain at least one letter or digit')
   if (/[\r\n]/.test(description)) throw new Error('description must be a single line')
-  if (description.length > AGENT_DESC_MAX) throw new Error(`description must be ≤${AGENT_DESC_MAX} characters`)
+  if (description.length > AGENT_DESC_MAX)
+    throw new Error(`description must be ≤${AGENT_DESC_MAX} characters`)
   const layers = { instructions: str('instructions'), data: str('data'), context: str('context') }
   for (const [k, v] of Object.entries(layers)) {
     if (v.length > AGENT_LAYER_MAX) throw new Error(`${k} layer exceeds ${AGENT_LAYER_MAX / 1024}KB`)
@@ -224,7 +241,11 @@ export function renderAgentMd(a: AgentInput): string {
  *  slug is an error, never an overwrite. Returns { relPath } or { error }. */
 export function addAgent(raw: unknown, libRoot: string = libraryDir()): { relPath?: string; error?: string } {
   let input: AgentInput
-  try { input = validateAgentInput(raw) } catch (err) { return { error: (err as Error).message } }
+  try {
+    input = validateAgentInput(raw)
+  } catch (err) {
+    return { error: (err as Error).message }
+  }
   const body = renderAgentMd(input)
   if (body.length > AGENT_FILE_MAX) return { error: `agent file exceeds ${AGENT_FILE_MAX / 1024}KB` }
   const relPath = `agents/${agentSlug(input.name)}.md`
@@ -236,6 +257,11 @@ export function addAgent(raw: unknown, libRoot: string = libraryDir()): { relPat
     return { relPath }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
-    return { error: code === 'EEXIST' ? `an agent named "${agentSlug(input.name)}" already exists` : (err as Error).message }
+    return {
+      error:
+        code === 'EEXIST'
+          ? `an agent named "${agentSlug(input.name)}" already exists`
+          : (err as Error).message
+    }
   }
 }

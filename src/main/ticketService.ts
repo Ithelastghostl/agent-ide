@@ -37,7 +37,10 @@ export function chunkTranscript(transcript: string, maxChars = 150_000): string[
   const chunks: string[] = []
   let cur = ''
   for (const seg of segments) {
-    if (cur && cur.length + seg.length > maxChars) { chunks.push(cur); cur = '' }
+    if (cur && cur.length + seg.length > maxChars) {
+      chunks.push(cur)
+      cur = ''
+    }
     cur += seg
   }
   if (cur) chunks.push(cur)
@@ -161,7 +164,10 @@ export async function generateTicket(
   const basePrompt = ticketPrompt(session, material, fromNotes)
   let lastErr = ''
   for (let attempt = 0; attempt < 2; attempt++) {
-    const prompt = attempt === 0 ? basePrompt : `${basePrompt}\n\nYour previous reply was invalid: ${lastErr}\nReturn ONLY the corrected JSON object.`
+    const prompt =
+      attempt === 0
+        ? basePrompt
+        : `${basePrompt}\n\nYour previous reply was invalid: ${lastErr}\nReturn ONLY the corrected JSON object.`
     try {
       const fields = validateTicketFields(extractJson(await run(prompt)))
       return { fields, bodyMd: renderTicketMd(fields) }

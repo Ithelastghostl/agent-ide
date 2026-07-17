@@ -5,10 +5,16 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('agentIDE', {
   ping: () => ipcRenderer.invoke('ping'),
 
+  // Terminal copy/paste via the OS clipboard in main (the renderer's
+  // navigator.clipboard silently no-ops without focus/activation).
+  clipboardWrite: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
+  clipboardRead: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
+
   // Open a URL in the host's default browser (host-side; works from containers).
   // Pass the originating sessionId so main can forward a container localhost port
   // out to the host before opening (OAuth callbacks, in-container dev servers).
-  openExternal: (url: string, sessionId?: string): Promise<boolean> => ipcRenderer.invoke('shell:openExternal', url, sessionId),
+  openExternal: (url: string, sessionId?: string): Promise<boolean> =>
+    ipcRenderer.invoke('shell:openExternal', url, sessionId),
 
   // model registry + session launch
   modelsAll: () => ipcRenderer.invoke('models:all'),
@@ -22,25 +28,38 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // addendum pass); crash-safe with retry. And the project Log list (tickets).
   taskGenerateTicket: (id: string) => ipcRenderer.invoke('task:generateTicket', id),
   logTickets: (projectId: string) => ipcRenderer.invoke('log:tickets', projectId),
+  sessionDelete: (id: string) => ipcRenderer.invoke('session:delete', id),
   terminalOpen: (req: unknown) => ipcRenderer.invoke('terminal:open', req),
 
   // container lifecycle (F14)
-  containerStart: (projectId: string, workspace: string, importConfig: boolean) => ipcRenderer.invoke('container:start', projectId, workspace, importConfig),
-  containerStatus: (projectId: string, workspace: string) => ipcRenderer.invoke('container:status', projectId, workspace),
-  onContainerStatus: (cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void) =>
-    ipcRenderer.on('container:status', (_e, p) => cb(p)),
+  containerStart: (projectId: string, workspace: string, importConfig: boolean) =>
+    ipcRenderer.invoke('container:start', projectId, workspace, importConfig),
+  containerStatus: (projectId: string, workspace: string) =>
+    ipcRenderer.invoke('container:status', projectId, workspace),
+  containerStop: (projectId: string, workspace: string) =>
+    ipcRenderer.invoke('container:stop', projectId, workspace),
+  onContainerStatus: (
+    cb: (p: { projectId: string; state: 'none' | 'stopped' | 'starting' | 'running' | 'error' }) => void
+  ) => ipcRenderer.on('container:status', (_e, p) => cb(p)),
+
+  // external-service connectivity (status bar, F16)
+  serviceHealth: () => ipcRenderer.invoke('service:health'),
+  serviceLogin: (service: string, cwd: string) => ipcRenderer.invoke('service:login', service, cwd),
 
   // provider connection (F8/F9/F10). useContainer: explicit context wins in
   // main; omit for auto-detection.
   providerHealth: (provider: string, projectId: string, cwd: string, useContainer?: boolean) =>
     ipcRenderer.invoke('provider:health', provider, projectId, cwd, useContainer),
-  providerLogin: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:login', provider, projectId, cwd),
-  providerInstall: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:install', provider, projectId, cwd),
+  providerLogin: (provider: string, projectId: string, cwd: string) =>
+    ipcRenderer.invoke('provider:login', provider, projectId, cwd),
+  providerInstall: (provider: string, projectId: string, cwd: string) =>
+    ipcRenderer.invoke('provider:install', provider, projectId, cwd),
 
   // projects
   githubRepos: () => ipcRenderer.invoke('github:repos'),
   openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
-  projectsAddGithub: (repo: string, parentDir?: string) => ipcRenderer.invoke('projects:addGithub', repo, parentDir),
+  projectsAddGithub: (repo: string, parentDir?: string) =>
+    ipcRenderer.invoke('projects:addGithub', repo, parentDir),
   projectsAddLocal: (localPath: string) => ipcRenderer.invoke('projects:addLocal', localPath),
   projectsAddUrl: (url: string, parentDir: string) => ipcRenderer.invoke('projects:addUrl', url, parentDir),
   projectsList: () => ipcRenderer.invoke('projects:list'),
@@ -49,7 +68,8 @@ contextBridge.exposeInMainWorld('agentIDE', {
   fsTree: (projectId: string) => ipcRenderer.invoke('fs:tree', projectId),
   fsDir: (projectId: string, path: string) => ipcRenderer.invoke('fs:dir', projectId, path),
   fileRead: (projectId: string, path: string) => ipcRenderer.invoke('file:read', projectId, path),
-  fileWrite: (projectId: string, path: string, content: string) => ipcRenderer.invoke('file:write', projectId, path, content),
+  fileWrite: (projectId: string, path: string, content: string) =>
+    ipcRenderer.invoke('file:write', projectId, path, content),
 
   // terminal / session pty. No raw spawn from the renderer (NN0): ptys are
   // started in main via session:launch / terminal:open / session:resume.
@@ -66,8 +86,13 @@ contextBridge.exposeInMainWorld('agentIDE', {
   onSessionExit: (cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void) =>
     ipcRenderer.on('session:exit', (_e, p) => cb(p)),
   // App-level notices from main (e.g. a container missing credential mounts).
-  onNotice: (cb: (p: { message: string }) => void) =>
-    ipcRenderer.on('app:notice', (_e, p) => cb(p)),
+  onNotice: (cb: (p: { message: string }) => void) => ipcRenderer.on('app:notice', (_e, p) => cb(p)),
+
+  // The chosen model was rejected by the provider (e.g. a Codex model not
+  // available on a ChatGPT-account login). The session stays alive at its prompt;
+  // the UI offers to pick another model.
+  onSessionModelRejected: (cb: (p: { id: string; model: string; message: string }) => void) =>
+    ipcRenderer.on('session:model-rejected', (_e, p) => cb(p)),
 
   // Replay saved terminal output for a session (chat history) on mount.
   transcriptGet: (id: string): Promise<string> => ipcRenderer.invoke('transcript:get', id),
@@ -87,7 +112,8 @@ contextBridge.exposeInMainWorld('agentIDE', {
 
   // sessions persistence / global board
   sessionsAll: () => ipcRenderer.invoke('sessions:all'),
-  sessionResume: (s: unknown, cwd: string, useContainer: boolean) => ipcRenderer.invoke('session:resume', s, cwd, useContainer),
+  sessionResume: (s: unknown, cwd: string, useContainer: boolean) =>
+    ipcRenderer.invoke('session:resume', s, cwd, useContainer),
   // Move a session's conversation to a different engine: relaunches the same
   // session id under a new provider/model and seeds it with the prior history.
   sessionChangeModel: (s: unknown, cwd: string, useContainer: boolean, provider: string, model: string) =>

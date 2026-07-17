@@ -2,13 +2,22 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseFrontmatter, parseWorkflowMeta, scanLibrary, readLibraryItem, addAgent, agentSlug } from '../../src/main/library'
+import {
+  parseFrontmatter,
+  parseWorkflowMeta,
+  scanLibrary,
+  readLibraryItem,
+  addAgent,
+  agentSlug
+} from '../../src/main/library'
 import { readFileSync } from 'node:fs'
 import YAML from 'yaml'
 
 describe('parseFrontmatter', () => {
   it('parses simple key: value frontmatter and returns the body', () => {
-    const { meta, body } = parseFrontmatter('---\nname: my-skill\ndescription: does a thing\n---\n# Title\nbody text')
+    const { meta, body } = parseFrontmatter(
+      '---\nname: my-skill\ndescription: does a thing\n---\n# Title\nbody text'
+    )
     expect(meta.name).toBe('my-skill')
     expect(meta.description).toBe('does a thing')
     expect(body).toContain('# Title')
@@ -31,7 +40,8 @@ describe('parseFrontmatter', () => {
 
 describe('parseWorkflowMeta', () => {
   it('extracts name + description from export const meta', () => {
-    const src = "export const meta = {\n  name: 'review-changes',\n  description: 'review the diff',\n  phases: []\n}\n"
+    const src =
+      "export const meta = {\n  name: 'review-changes',\n  description: 'review the diff',\n  phases: []\n}\n"
     expect(parseWorkflowMeta(src)).toEqual({ name: 'review-changes', description: 'review the diff' })
   })
   it('returns {} when absent', () => {
@@ -45,24 +55,38 @@ describe('scanLibrary', () => {
     dir = mkdtempSync(join(tmpdir(), 'agide-lib-'))
     // a skill (dir + SKILL.md)
     mkdirSync(join(dir, 'skills', 'debug-it'), { recursive: true })
-    writeFileSync(join(dir, 'skills', 'debug-it', 'SKILL.md'), '---\nname: debug-it\ndescription: systematic debugging\n---\n# Debug it\n')
+    writeFileSync(
+      join(dir, 'skills', 'debug-it', 'SKILL.md'),
+      '---\nname: debug-it\ndescription: systematic debugging\n---\n# Debug it\n'
+    )
     // a skill dir WITHOUT SKILL.md (should be ignored)
     mkdirSync(join(dir, 'skills', 'empty'), { recursive: true })
     // a prompt
     mkdirSync(join(dir, 'prompts'), { recursive: true })
-    writeFileSync(join(dir, 'prompts', 'tidy.md'), '---\ndescription: tidy the code\n---\nPlease tidy this code.')
+    writeFileSync(
+      join(dir, 'prompts', 'tidy.md'),
+      '---\ndescription: tidy the code\n---\nPlease tidy this code.'
+    )
     // a prompt with no frontmatter (name from filename, desc from heading)
     writeFileSync(join(dir, 'prompts', 'explain.md'), '# Explain this\nWalk me through it.')
     // a workflow
     mkdirSync(join(dir, 'workflows'), { recursive: true })
-    writeFileSync(join(dir, 'workflows', 'audit.js'), "export const meta = { name: 'audit', description: 'audit pass', phases: [] }\n")
+    writeFileSync(
+      join(dir, 'workflows', 'audit.js'),
+      "export const meta = { name: 'audit', description: 'audit pass', phases: [] }\n"
+    )
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
   it('finds skills with a SKILL.md and skips dirs without one', () => {
     const lib = scanLibrary(dir)
     expect(lib.skills).toHaveLength(1)
-    expect(lib.skills[0]).toMatchObject({ category: 'skills', name: 'debug-it', description: 'systematic debugging', relPath: 'skills/debug-it/SKILL.md' })
+    expect(lib.skills[0]).toMatchObject({
+      category: 'skills',
+      name: 'debug-it',
+      description: 'systematic debugging',
+      relPath: 'skills/debug-it/SKILL.md'
+    })
   })
   it('finds prompts; name/description from frontmatter or fallbacks', () => {
     const lib = scanLibrary(dir)
@@ -75,7 +99,11 @@ describe('scanLibrary', () => {
   it('finds workflows via export const meta', () => {
     const lib = scanLibrary(dir)
     expect(lib.workflows).toHaveLength(1)
-    expect(lib.workflows[0]).toMatchObject({ name: 'audit', description: 'audit pass', relPath: 'workflows/audit.js' })
+    expect(lib.workflows[0]).toMatchObject({
+      name: 'audit',
+      description: 'audit pass',
+      relPath: 'workflows/audit.js'
+    })
   })
   it('returns empty arrays for a library with no category folders', () => {
     const empty = mkdtempSync(join(tmpdir(), 'agide-lib-empty-'))
@@ -127,8 +155,12 @@ describe('readLibraryItem confinement (L1, shares B1/B2 hardening)', () => {
 // layered body sections, created through addAgent with strict validation.
 describe('agents (B2)', () => {
   let lib: string
-  beforeEach(() => { lib = mkdtempSync(join(tmpdir(), 'agide-lib-agents-')) })
-  afterEach(() => { rmSync(lib, { recursive: true, force: true }) })
+  beforeEach(() => {
+    lib = mkdtempSync(join(tmpdir(), 'agide-lib-agents-'))
+  })
+  afterEach(() => {
+    rmSync(lib, { recursive: true, force: true })
+  })
 
   it('agentSlug derives a filesystem slug', () => {
     expect(agentSlug('Release Notes Writer')).toBe('release-notes-writer')
@@ -169,18 +201,36 @@ describe('agents (B2)', () => {
   })
 
   it('refuses a duplicate slug (exclusive write, never overwrite)', () => {
-    expect(addAgent({ name: 'My Agent', description: '', instructions: 'v1', data: '', context: '' }, lib).relPath).toBeTruthy()
-    const dup = addAgent({ name: 'my   AGENT', description: '', instructions: 'v2', data: '', context: '' }, lib)
+    expect(
+      addAgent({ name: 'My Agent', description: '', instructions: 'v1', data: '', context: '' }, lib).relPath
+    ).toBeTruthy()
+    const dup = addAgent(
+      { name: 'my   AGENT', description: '', instructions: 'v2', data: '', context: '' },
+      lib
+    )
     expect(dup.error).toMatch(/already exists/)
     expect(readFileSync(join(lib, 'agents', 'my-agent.md'), 'utf8')).toContain('v1') // untouched
   })
 
   it('validates name, description, and layer sizes at the boundary', () => {
-    expect(addAgent({ name: '', description: '', instructions: '', data: '', context: '' }, lib).error).toMatch(/name/)
-    expect(addAgent({ name: '!!!', description: '', instructions: '', data: '', context: '' }, lib).error).toMatch(/letter or digit/)
-    expect(addAgent({ name: 'x'.repeat(81), description: '', instructions: '', data: '', context: '' }, lib).error).toMatch(/1–80/)
-    expect(addAgent({ name: 'ok', description: 'two\nlines', instructions: '', data: '', context: '' }, lib).error).toMatch(/single line/)
-    expect(addAgent({ name: 'ok', description: '', instructions: 'x'.repeat(64 * 1024 + 1), data: '', context: '' }, lib).error).toMatch(/exceeds/)
+    expect(
+      addAgent({ name: '', description: '', instructions: '', data: '', context: '' }, lib).error
+    ).toMatch(/name/)
+    expect(
+      addAgent({ name: '!!!', description: '', instructions: '', data: '', context: '' }, lib).error
+    ).toMatch(/letter or digit/)
+    expect(
+      addAgent({ name: 'x'.repeat(81), description: '', instructions: '', data: '', context: '' }, lib).error
+    ).toMatch(/1–80/)
+    expect(
+      addAgent({ name: 'ok', description: 'two\nlines', instructions: '', data: '', context: '' }, lib).error
+    ).toMatch(/single line/)
+    expect(
+      addAgent(
+        { name: 'ok', description: '', instructions: 'x'.repeat(64 * 1024 + 1), data: '', context: '' },
+        lib
+      ).error
+    ).toMatch(/exceeds/)
   })
 
   it('agents count toward the library scan without disturbing other categories', () => {

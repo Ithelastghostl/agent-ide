@@ -35,9 +35,13 @@ describe('launchArgv — subscription interactive only (NN0)', () => {
   })
 
   it('autoApprove adds each provider auto-accept flag', () => {
-    expect(launchArgv({ provider: 'claude', model: 'x', autoApprove: true }).args).toContain('--dangerously-skip-permissions')
+    expect(launchArgv({ provider: 'claude', model: 'x', autoApprove: true }).args).toContain(
+      '--dangerously-skip-permissions'
+    )
     expect(launchArgv({ provider: 'gemini', model: 'x', autoApprove: true }).args).toContain('--yolo')
-    expect(launchArgv({ provider: 'codex', model: 'x', autoApprove: true }).args).toContain('--dangerously-bypass-approvals-and-sandbox')
+    expect(launchArgv({ provider: 'codex', model: 'x', autoApprove: true }).args).toContain(
+      '--dangerously-bypass-approvals-and-sandbox'
+    )
   })
 
   it('NEVER emits a forbidden (API-key/headless) flag for any provider, autoApprove on or off', () => {

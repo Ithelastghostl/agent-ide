@@ -53,7 +53,8 @@ export function providerSeedFiles(
     ['codex', '.codex', ['auth.json', 'config.toml']],
     ['gemini', '.gemini', ['oauth_creds.json', 'google_accounts.json', 'settings.json']]
   ]
-  if (opts.includeClaude) spec.push(['claude', '.claude', ['.credentials.json', 'settings.json', 'CLAUDE.md']])
+  if (opts.includeClaude)
+    spec.push(['claude', '.claude', ['.credentials.json', 'settings.json', 'CLAUDE.md']])
   const files: SeedFile[] = []
   for (const [provider, dir, names] of spec) {
     for (const file of names) {
@@ -82,12 +83,26 @@ export async function seedCredentialsInContainer(
   for (const f of files) {
     const dst = seedTarget(home, f)
     const dir = dst.slice(0, dst.lastIndexOf('/'))
-    const { stdout } = await pexec('docker', ['exec', containerId, 'sh', '-c', `test -e ${dst} && echo EXISTS || echo MISSING`])
+    const { stdout } = await pexec('docker', [
+      'exec',
+      containerId,
+      'sh',
+      '-c',
+      `test -e ${dst} && echo EXISTS || echo MISSING`
+    ])
     if (stdout.includes('EXISTS')) continue
     await pexec('docker', ['exec', '-u', 'root', containerId, 'sh', '-c', `mkdir -p ${dir}`])
     await pexec('docker', ['cp', f.hostPath, `${containerId}:${dst}`])
     if (user) {
-      await pexec('docker', ['exec', '-u', 'root', containerId, 'sh', '-c', `chown -R ${user} ${dir} && chmod 600 ${dst}`])
+      await pexec('docker', [
+        'exec',
+        '-u',
+        'root',
+        containerId,
+        'sh',
+        '-c',
+        `chown -R ${user} ${dir} && chmod 600 ${dst}`
+      ])
     }
   }
 }
@@ -113,7 +128,9 @@ export function parseWorkspaceFolder(stdout: string, workspace: string): string 
  *  configuration; falls back to the /workspaces/<name> convention). */
 export async function containerWorkspaceFolder(workspace: string): Promise<string> {
   try {
-    const { stdout } = await pexec(devcontainerBin(), readConfigurationArgv(workspace), { maxBuffer: 1024 * 1024 * 8 })
+    const { stdout } = await pexec(devcontainerBin(), readConfigurationArgv(workspace), {
+      maxBuffer: 1024 * 1024 * 8
+    })
     return parseWorkspaceFolder(stdout, workspace)
   } catch {
     return parseWorkspaceFolder('', workspace)
@@ -126,8 +143,13 @@ export async function resolveContainerHome(containerId: string, user: string | n
   const fallback = !user ? CONTAINER_HOME : user === 'root' ? '/root' : `/home/${user}`
   if (!user) return fallback
   try {
-    const { stdout } = await pexec('docker', ['exec', containerId, 'sh', '-c',
-      `getent passwd ${user} | cut -d: -f6`])
+    const { stdout } = await pexec('docker', [
+      'exec',
+      containerId,
+      'sh',
+      '-c',
+      `getent passwd ${user} | cut -d: -f6`
+    ])
     const home = stdout.trim().split('\n')[0]?.trim()
     return home || fallback
   } catch {
@@ -153,6 +175,29 @@ export function parseContainerId(stdout: string): string {
     if (m) return m[1]
   }
   throw new Error('devcontainer up: no containerId in output')
+}
+
+/** Extract the in-container workspace path (`remoteWorkspaceFolder`) from
+ *  `devcontainer up` JSON output — the directory the workspace is bind-mounted to
+ *  inside the container (e.g. /workspaces/<repo>). This is the cwd sessions must
+ *  exec in; without it `docker exec` lands in the image's default WORKDIR (often
+ *  `/`), which is why agents were starting at the root directory. Returns null if
+ *  absent (older CLI / unexpected output) so the caller can fall back. */
+export function parseRemoteWorkspaceFolder(stdout: string): string | null {
+  const lines = stdout.split('\n').reverse()
+  for (const line of lines) {
+    const m = line.match(/"remoteWorkspaceFolder"\s*:\s*"([^"]+)"/)
+    if (m) return m[1]
+  }
+  return null
+}
+
+/** The conventional in-container workspace path for a host workspace folder: the
+ *  devcontainer CLI bind-mounts <host>/<name> to /workspaces/<name> by default.
+ *  Used as a last-resort fallback when we can't read the real path from Docker. */
+export function defaultWorkspaceFolder(hostWorkspace: string): string {
+  const name = hostWorkspace.replace(/\/+$/, '').split('/').pop() || 'workspace'
+  return `/workspaces/${name}`
 }
 
 /** argv for `docker exec [-it] [-u user] [-w cwd] [-e K=V] <id> <cmd> <args...>`.
@@ -202,7 +247,10 @@ export function parseRemoteUser(metadataLabel: string | undefined): string | nul
 export async function resolveContainerUser(containerId: string): Promise<string | null> {
   try {
     const { stdout: label } = await pexec('docker', [
-      'inspect', '-f', '{{index .Config.Labels "devcontainer.metadata"}}', containerId
+      'inspect',
+      '-f',
+      '{{index .Config.Labels "devcontainer.metadata"}}',
+      containerId
     ])
     const declared = parseRemoteUser(label.trim())
     if (declared && declared !== 'root') return declared
@@ -211,8 +259,13 @@ export async function resolveContainerUser(containerId: string): Promise<string 
   }
   try {
     // First passwd entry with a uid in [1000, 65534): the conventional human user.
-    const { stdout } = await pexec('docker', ['exec', containerId, 'sh', '-c',
-      'getent passwd | awk -F: \'$3>=1000 && $3<65534 {print $1; exit}\''])
+    const { stdout } = await pexec('docker', [
+      'exec',
+      containerId,
+      'sh',
+      '-c',
+      "getent passwd | awk -F: '$3>=1000 && $3<65534 {print $1; exit}'"
+    ])
     const user = stdout.trim()
     return user || null
   } catch {
@@ -220,12 +273,45 @@ export async function resolveContainerUser(containerId: string): Promise<string 
   }
 }
 
-/** Bring up the project's devcontainer (same tool VS Code uses) and return its id. */
-export async function upDevcontainer(workspace: string, mounts: string[] = []): Promise<{ containerId: string }> {
+/** Bring up the project's devcontainer (same tool VS Code uses) and return its id
+ *  plus the in-container workspace folder (the cwd sessions must exec in). When
+ *  `up` doesn't report remoteWorkspaceFolder, fall back to the /workspaces/<name>
+ *  convention so sessions still start in the project, not the image WORKDIR. */
+export async function upDevcontainer(
+  workspace: string,
+  mounts: string[] = []
+): Promise<{ containerId: string; workspaceFolder: string }> {
   const { stdout } = await pexec(devcontainerBin(), devcontainerUpArgv(workspace, mounts), {
     maxBuffer: 1024 * 1024 * 32
   })
-  return { containerId: parseContainerId(stdout) }
+  return {
+    containerId: parseContainerId(stdout),
+    workspaceFolder: parseRemoteWorkspaceFolder(stdout) ?? defaultWorkspaceFolder(workspace)
+  }
+}
+
+/** Resolve the in-container workspace folder for an ALREADY-RUNNING (or restarted)
+ *  container we didn't just `up` — read the destination of the bind mount whose
+ *  source is the host workspace (where the project is actually mounted). Falls
+ *  back to the /workspaces/<name> convention if the mount can't be read. This is
+ *  the `-w` for sessions reusing an existing container. */
+export async function resolveWorkspaceFolder(containerId: string, hostWorkspace: string): Promise<string> {
+  try {
+    const host = hostWorkspace.replace(/\/+$/, '')
+    const { stdout } = await pexec('docker', [
+      'inspect',
+      '-f',
+      '{{range .Mounts}}{{.Source}}\t{{.Destination}}{{"\\n"}}{{end}}',
+      containerId
+    ])
+    for (const line of stdout.split('\n')) {
+      const [src, dest] = line.split('\t')
+      if (src && dest && src.replace(/\/+$/, '') === host) return dest
+    }
+  } catch {
+    /* fall through to convention */
+  }
+  return defaultWorkspaceFolder(hostWorkspace)
 }
 
 /** True if the devcontainer CLI is available (local or on PATH). */
@@ -241,13 +327,28 @@ export async function hasDevcontainerCli(): Promise<boolean> {
 /** argv to find a RUNNING devcontainer for a workspace, by the label the
  *  devcontainer CLI sets. Survives app restarts (queries Docker, not memory). */
 export function findContainerArgv(workspace: string): string[] {
-  return ['ps', '--filter', `label=devcontainer.local_folder=${workspace}`, '--format', '{{.ID}}', '--no-trunc']
+  return [
+    'ps',
+    '--filter',
+    `label=devcontainer.local_folder=${workspace}`,
+    '--format',
+    '{{.ID}}',
+    '--no-trunc'
+  ]
 }
 
 /** argv to find ANY devcontainer (running OR stopped) for a workspace, with its
  *  state, so we can distinguish "stopped, restart it" from "never built". */
 export function findAnyContainerArgv(workspace: string): string[] {
-  return ['ps', '-a', '--filter', `label=devcontainer.local_folder=${workspace}`, '--format', '{{.ID}} {{.State}}', '--no-trunc']
+  return [
+    'ps',
+    '-a',
+    '--filter',
+    `label=devcontainer.local_folder=${workspace}`,
+    '--format',
+    '{{.ID}} {{.State}}',
+    '--no-trunc'
+  ]
 }
 
 /** Return the running container id for a project workspace, or null. */
@@ -262,13 +363,14 @@ export async function findRunningContainer(workspace: string): Promise<string | 
 }
 
 export type ContainerPresence =
-  | { state: 'running'; id: string }
-  | { state: 'stopped'; id: string }
-  | { state: 'none' }
+  { state: 'running'; id: string } | { state: 'stopped'; id: string } | { state: 'none' }
 
 /** Parse `docker ps -a ... {{.ID}} {{.State}}` output, preferring a running one. */
 export function parseContainerPresence(stdout: string): ContainerPresence {
-  const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean)
+  const lines = stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
   let stopped: string | null = null
   for (const line of lines) {
     const [id, state] = line.split(/\s+/)
@@ -292,4 +394,11 @@ export async function findContainerPresence(workspace: string): Promise<Containe
 /** Start an already-built but stopped container by id. */
 export async function startContainerById(id: string): Promise<void> {
   await pexec('docker', ['start', id])
+}
+
+/** Stop a running container by id (reversible — preserves its filesystem/state;
+ *  `findContainerPresence` will then report it 'stopped', so the UI offers a
+ *  restart rather than a rebuild). Any sessions execing into it lose their pty. */
+export async function stopContainerById(id: string): Promise<void> {
+  await pexec('docker', ['stop', id])
 }

@@ -28,11 +28,12 @@ test('explorer: expand a folder and open a file in a new tab', async () => {
 
   // Register the project via the real IPC and confirm it persisted, THEN reload
   // so boot() re-hydrates it (poll the store to avoid a reload/persist race).
-  await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
-  await expect.poll(
-    async () => (await win.evaluate(() => window.agentIDE.projectsList())).length,
-    { timeout: 10_000 }
-  ).toBeGreaterThan(0)
+  await win.evaluate(async (p) => {
+    await window.agentIDE.projectsAddLocal(p)
+  }, proj)
+  await expect
+    .poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 10_000 })
+    .toBeGreaterThan(0)
   await win.reload()
 
   // Open the project from the rail (generous timeout: hydration lags under load).

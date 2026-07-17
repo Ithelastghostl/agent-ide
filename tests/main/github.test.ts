@@ -4,7 +4,12 @@ import { promisify } from 'node:util'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseRepoList, buildHistorySyncCommands, syncHistory, isNothingToCommit } from '../../src/main/github'
+import {
+  parseRepoList,
+  buildHistorySyncCommands,
+  syncHistory,
+  isNothingToCommit
+} from '../../src/main/github'
 
 const pexec = promisify(execFile)
 
@@ -37,7 +42,7 @@ describe('buildHistorySyncCommands', () => {
 })
 
 describe('isNothingToCommit (B8: only this is a benign no-op)', () => {
-  it('recognizes git\'s nothing-to-commit messages', () => {
+  it("recognizes git's nothing-to-commit messages", () => {
     expect(isNothingToCommit('nothing to commit, working tree clean')).toBe(true)
     expect(isNothingToCommit('nothing added to commit but untracked files present')).toBe(true)
     expect(isNothingToCommit('no changes added to commit')).toBe(true)
@@ -71,9 +76,9 @@ describe('syncHistory (B8)', () => {
     const results = await syncHistory('2026-07-02T00:00:00Z')
     const byStep = Object.fromEntries(results.map((r) => [r.step, r]))
     expect(byStep['add'].ok).toBe(true)
-    expect(byStep['commit'].ok).toBe(true)   // there WAS something to commit
+    expect(byStep['commit'].ok).toBe(true) // there WAS something to commit
     expect(byStep['commit'].skipped).toBeFalsy()
-    expect(byStep['push'].ok).toBe(false)     // no remote configured — real failure surfaced
+    expect(byStep['push'].ok).toBe(false) // no remote configured — real failure surfaced
     expect(byStep['push'].error).toBeTruthy()
 
     delete process.env.AGENT_IDE_HISTORY
@@ -90,7 +95,7 @@ describe('syncHistory (B8)', () => {
 
     const results = await syncHistory('2026-07-02T00:00:00Z')
     const commit = results.find((r) => r.step === 'commit')!
-    expect(commit.ok).toBe(true)      // benign
+    expect(commit.ok).toBe(true) // benign
     expect(commit.skipped).toBe(true) // nothing to commit
 
     delete process.env.AGENT_IDE_HISTORY

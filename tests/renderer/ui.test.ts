@@ -6,8 +6,19 @@ describe('showMenu', () => {
   it('renders items and fires onClick', () => {
     let clicked = ''
     showMenu(10, 10, [
-      { label: 'Rename', onClick: () => { clicked = 'rename' } },
-      { label: 'Delete', danger: true, onClick: () => { clicked = 'delete' } }
+      {
+        label: 'Rename',
+        onClick: () => {
+          clicked = 'rename'
+        }
+      },
+      {
+        label: 'Delete',
+        danger: true,
+        onClick: () => {
+          clicked = 'delete'
+        }
+      }
     ])
     const menu = document.getElementById('app-menu')!
     expect(menu).toBeTruthy()
@@ -22,7 +33,14 @@ describe('showMenu', () => {
 
   it('a mousedown INSIDE the menu does not close it before the click lands (regression)', async () => {
     let clicked = false
-    showMenu(10, 10, [{ label: 'Open', onClick: () => { clicked = true } }])
+    showMenu(10, 10, [
+      {
+        label: 'Open',
+        onClick: () => {
+          clicked = true
+        }
+      }
+    ])
     // let the outside-close listener attach (setTimeout 0)
     await new Promise((r) => setTimeout(r, 5))
     const item = document.querySelector('#app-menu .ctx-item') as HTMLElement

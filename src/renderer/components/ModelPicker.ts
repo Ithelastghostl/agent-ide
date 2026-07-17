@@ -18,7 +18,9 @@ export interface ModelPickerProps {
 export function ModelPicker(p: ModelPickerProps): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'modal-wrap show'
-  wrap.onclick = (e) => { if (e.target === wrap) p.onCancel() }
+  wrap.onclick = (e) => {
+    if (e.target === wrap) p.onCancel()
+  }
 
   const modal = document.createElement('div')
   modal.className = 'modal'
@@ -32,7 +34,8 @@ export function ModelPicker(p: ModelPickerProps): HTMLElement {
 
   const sub = document.createElement('div')
   sub.className = 'sub'
-  sub.textContent = 'Pick the model for this session — full list. Lighter models for trivial edits, heavier for hard work. Changeable later.'
+  sub.textContent =
+    'Pick the model for this session — full list. Lighter models for trivial edits, heavier for hard work. Changeable later.'
   modal.appendChild(sub)
 
   const scroll = document.createElement('div')
