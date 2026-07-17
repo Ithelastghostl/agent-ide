@@ -12,6 +12,9 @@ import type { LibraryCategory, LibraryContents, LibraryItem } from '@shared/type
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
 import { AllSessions } from './components/AllSessions'
+import { BacklogView, type BacklogLayout } from './components/BacklogView'
+import { BacklogModal } from './components/BacklogModal'
+import type { BacklogItem, BacklogCreateInput, BacklogUpdateInput, BacklogManualStatus } from '@shared/types'
 import { modelsFor, loadModels } from './models'
 import { showMenu, promptText, chooseOption, flash } from './ui'
 
@@ -35,6 +38,24 @@ window.agentIDE.onContainerStatus?.(({ projectId, state: s }) => {
 let library: LibraryContents | undefined
 function loadLibrary() {
   window.agentIDE.libraryList().then((lib) => { library = lib; render() }).catch(() => { /* library unavailable */ })
+}
+
+// ---- S1 Backlog tab state ----------------------------------------------------
+// Items for the current project, loaded on demand. Layout (grid⇄table) persists
+// in localStorage. `backlogSelected` holds "Work on this" selection (per project;
+// cleared when the project changes).
+const backlogItems = new Map<string, BacklogItem[]>()   // projectId → items
+const backlogSelected = new Set<string>()               // selected item ids
+const BK_LAYOUT_KEY = 'agentide.backlog.layout'
+function backlogLayout(): BacklogLayout {
+  return localStorage.getItem(BK_LAYOUT_KEY) === 'table' ? 'table' : 'grid'
+}
+function setBacklogLayout(next: BacklogLayout) { localStorage.setItem(BK_LAYOUT_KEY, next); render() }
+
+function loadBacklog(projectId: string, force = false) {
+  if (backlogItems.has(projectId) && !force) return
+  if (!backlogItems.has(projectId)) backlogItems.set(projectId, [])
+  window.agentIDE.backlogList(projectId).then((items) => { backlogItems.set(projectId, items); render() }).catch(() => {})
 }
 
 // App-level notices from main (container mount remediation, etc.).
@@ -76,11 +97,24 @@ function disposeTerminal(sessionId: string) {
 function activityBar(): HTMLElement {
   const el = document.createElement('div')
   el.className = 'activity'
-  for (const [icon, on] of [['🗂', true], ['🔍', false], ['⑂', false], ['▷', false]] as const) {
-    const d = document.createElement('div')
-    d.className = 'ic' + (on ? ' on' : '')
-    d.textContent = icon
-    el.appendChild(d)
+  // Cockpit + Backlog are clickable top-level views (project-scoped); the rest
+  // stay inert placeholders. S1 adds the Backlog tab (📋).
+  const cockpitTab = document.createElement('div')
+  cockpitTab.className = 'ic' + (state.view === 'cockpit' ? ' on' : '')
+  cockpitTab.textContent = '🗂'
+  cockpitTab.title = 'Cockpit'
+  cockpitTab.onclick = () => { if (currentProject()) { state.view = 'cockpit'; render() } }
+  el.appendChild(cockpitTab)
+
+  const backlogTab = document.createElement('div')
+  backlogTab.className = 'ic backlog-tab' + (state.view === 'backlog' ? ' on' : '')
+  backlogTab.textContent = '📋'
+  backlogTab.title = 'Backlog'
+  backlogTab.onclick = () => { if (currentProject()) { state.view = 'backlog'; render() } }
+  el.appendChild(backlogTab)
+
+  for (const [icon] of [['🔍'], ['⑂'], ['▷']] as const) {
+    const d = document.createElement('div'); d.className = 'ic'; d.textContent = icon; el.appendChild(d)
   }
   const sp = document.createElement('div'); sp.className = 'sp'; el.appendChild(sp)
   const cog = document.createElement('div'); cog.className = 'ic'; cog.textContent = '⚙'; el.appendChild(cog)
@@ -205,6 +239,7 @@ function setCurrentProject(id: string) {
   expandedDirs.clear()
   dirChildren.clear()
   activeTab = { kind: 'session' }
+  backlogSelected.clear() // selection is per-project
 }
 
 /** Build the editable file pane for the active file tab (textarea + Ctrl+S save).
@@ -407,6 +442,58 @@ function openAgentForm() {
   document.body.appendChild(form)
 }
 
+// ---- S1 Backlog: create/edit modal + CRUD + selection --------------------------
+function openBacklogModal(projectId: string, item?: BacklogItem) {
+  const items = backlogItems.get(projectId) ?? []
+  const modal = BacklogModal({
+    item,
+    items,
+    onCreate: async (input: BacklogCreateInput) => {
+      const r = await window.agentIDE.backlogCreate({ ...input, projectId })
+      if (r.error) { flash(r.error); return }
+      closeOverlay(); loadBacklog(projectId, true)
+    },
+    onUpdate: async (input: BacklogUpdateInput) => {
+      const r = await window.agentIDE.backlogUpdate(input)
+      if (r.error) { flash(r.error); return }
+      closeOverlay(); loadBacklog(projectId, true)
+    },
+    onCancel: closeOverlay
+  })
+  modal.id = 'picker-overlay'
+  document.body.appendChild(modal)
+}
+
+async function deleteBacklogItem(projectId: string, item: BacklogItem) {
+  const ok = await chooseOption<'yes'>(`Delete “${item.title}”?`, [
+    { label: 'Delete', value: 'yes', primary: true, hint: 'Children re-parent; a bound active session blocks deletion' }
+  ])
+  if (!ok) return
+  const r = await window.agentIDE.backlogDelete(item.id)
+  if (r.error) { flash(r.error); return }
+  backlogSelected.delete(item.id)
+  loadBacklog(projectId, true)
+}
+
+async function setBacklogStatus(projectId: string, item: BacklogItem, status: BacklogManualStatus) {
+  const r = await window.agentIDE.backlogUpdate({ id: item.id, manualStatus: status })
+  if (r.error) { flash(r.error); return }
+  loadBacklog(projectId, true)
+}
+
+// "Work on this": pick a provider, then launch a session seeded with the selected
+// backlog items (passed through as backlogItemIds → main binds them).
+async function startWorkOnThis() {
+  if (backlogSelected.size === 0) return
+  const choice = await chooseOption<Provider>('Launch a session for the selected items', [
+    { label: 'Codex', value: 'codex', primary: true },
+    { label: 'Claude', value: 'claude' },
+    { label: 'Gemini', value: 'gemini' }
+  ])
+  if (!choice) return
+  await launchFlow(choice.value, [...backlogSelected])
+}
+
 /** Write library text into a session. Multi-line bodies go ONLY to provider
  *  sessions (a plain shell would EXECUTE each line), wrapped in bracketed-paste
  *  markers so the CLI treats them as one paste — never auto-submitted. */
@@ -484,10 +571,12 @@ async function chooseTaskLabel(): Promise<{ taskKind: TaskKind; taskSubkind?: Ta
 }
 
 // F3: launch a session — choose run context, prompt for a name, label the task,
-// then pick a model.
-async function launchFlow(provider: Provider) {
+// then pick a model. S1: an optional backlog selection is carried through as
+// backlogItemIds (bound to the new session; item → 'in-session').
+async function launchFlow(provider: Provider, backlogItemIds: string[] = []) {
   const proj = currentProject()
   if (!proj) return
+  if (backlogItemIds.length > 5) { flash('at most 5 backlog items per launch'); return }
   const ctx = await resolveRunContext(proj) // F11/F12
   if (ctx === null) return // cancelled
   const name = await promptText(`Name this ${provider} session`, 'e.g. fix auth bug')
@@ -500,7 +589,9 @@ async function launchFlow(provider: Provider) {
     onPick: async (prov, modelId) => {
       closeOverlay()
       try {
-        const session = await window.agentIDE.sessionLaunch({
+        // S1: backlogItemIds rides along the launch payload (main binds it to the
+        // new session). The frozen bridge type omits the field, so widen the arg.
+        const req = {
           projectId: proj.id,
           provider: prov,
           model: modelId,
@@ -509,11 +600,14 @@ async function launchFlow(provider: Provider) {
           useContainer: ctx.useContainer,
           importConfig: ctx.importConfig,
           taskKind: label.taskKind,
-          taskSubkind: label.taskSubkind
-        })
+          taskSubkind: label.taskSubkind,
+          backlogItemIds
+        }
+        const session = await window.agentIDE.sessionLaunch(req as unknown as Parameters<typeof window.agentIDE.sessionLaunch>[0])
         launchedSessions.add(session.id)
         state.sessions.push(session)
         state.activeSessionId = session.id
+        if (backlogItemIds.length) { backlogSelected.clear(); loadBacklog(proj.id, true) }
         state.view = 'cockpit'
         render()
       } catch (err) { console.error('session launch failed', err) }
@@ -521,6 +615,23 @@ async function launchFlow(provider: Provider) {
     onCancel: closeOverlay
   })
   picker.id = 'picker-overlay'
+  // S1: show the selected backlog items as chips at the top of the launcher.
+  if (backlogItemIds.length) {
+    const items = backlogItems.get(proj.id) ?? []
+    const strip = document.createElement('div')
+    strip.className = 'bk-launch-chips'
+    const lbl = document.createElement('span'); lbl.className = 'bk-launch-label'; lbl.textContent = 'Working on:'
+    strip.appendChild(lbl)
+    for (const id of backlogItemIds) {
+      const it = items.find((x) => x.id === id)
+      const chip = document.createElement('span')
+      chip.className = 'bk-launch-chip'
+      chip.textContent = it ? it.title : id
+      strip.appendChild(chip)
+    }
+    const modalEl = picker.querySelector('.modal')
+    if (modalEl) modalEl.insertBefore(strip, modalEl.firstChild?.nextSibling ?? null)
+  }
   document.body.appendChild(picker)
 }
 
@@ -815,6 +926,34 @@ function render() {
     cta.onclick = (e) => openAddProjectMenu((e.target as HTMLElement).getBoundingClientRect().left, (e.target as HTMLElement).getBoundingClientRect().bottom)
     board.insertBefore(cta, board.querySelector('.sub')!.nextSibling)
     body.appendChild(board)
+    root.appendChild(body)
+    return
+  }
+
+  // S1 Backlog tab — project-scoped bento⇄table view.
+  if (state.view === 'backlog') {
+    const bproj = currentProject()!
+    loadBacklog(bproj.id)
+    body.appendChild(BacklogView({
+      projectName: bproj.name,
+      items: backlogItems.get(bproj.id) ?? [],
+      layout: backlogLayout(),
+      selected: backlogSelected,
+      onToggleLayout: setBacklogLayout,
+      onNew: () => openBacklogModal(bproj.id),
+      onEdit: (it) => openBacklogModal(bproj.id, it),
+      onDelete: (it) => deleteBacklogItem(bproj.id, it),
+      onSetStatus: (it, s) => setBacklogStatus(bproj.id, it, s),
+      onToggleSelect: (it) => {
+        if (backlogSelected.has(it.id)) backlogSelected.delete(it.id)
+        else {
+          if (backlogSelected.size >= 5) { flash('at most 5 backlog items per launch'); return }
+          backlogSelected.add(it.id)
+        }
+        render()
+      },
+      onWorkOnThis: () => startWorkOnThis()
+    }))
     root.appendChild(body)
     return
   }

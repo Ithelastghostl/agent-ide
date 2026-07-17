@@ -6,7 +6,7 @@ export interface AppState {
   sessions: Session[]
   currentProjectId: string | null
   activeSessionId: string | null
-  view: 'cockpit' | 'home'
+  view: 'cockpit' | 'home' | 'backlog'
 }
 
 // B13: sample/mock data moved to tests/fixtures/mockData.ts — it was unused at
