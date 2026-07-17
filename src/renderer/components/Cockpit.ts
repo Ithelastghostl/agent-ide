@@ -1,4 +1,5 @@
-import { PROVIDERS, isTerminalSession, type Provider, type Session, type LibraryCategory } from '@shared/types'
+import { PROVIDERS, isTerminalSession, type AttentionState, type CostSummary, type Provider, type Session, type LibraryCategory } from '@shared/types'
+import { attentionBadge, costChip } from './costChip'
 
 export type ProviderHealth = 'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'
 
@@ -9,6 +10,10 @@ export interface CockpitProps {
   reconnect?: Set<string>
   /** last-known connection health per provider (F8/F9). */
   health?: Partial<Record<Provider, ProviderHealth>>
+  /** S5: ephemeral attention flags per session id (flagged sessions only). */
+  attention?: Map<string, Exclude<AttentionState, null>>
+  /** S5: last-known cost summary per session id (absent → no chip). */
+  costs?: Map<string, CostSummary>
   /** Library item counts per category (D14). Undefined → not loaded yet. */
   libraryCounts?: { prompts: number; skills: number; workflows: number; agents: number }
   /** Clicking a library pill opens that category's list. */
@@ -36,7 +41,9 @@ function sessionCard(
   active: boolean,
   needsReconnect: boolean,
   onSelect: (id: string) => void,
-  onMenu?: (session: Session, x: number, y: number) => void
+  onMenu?: (session: Session, x: number, y: number) => void,
+  att?: Exclude<AttentionState, null>,
+  cost?: CostSummary
 ): HTMLElement {
   const card = document.createElement('div')
   const cls = ['scard']
@@ -84,6 +91,11 @@ function sessionCard(
     const status = document.createElement('span')
     status.textContent = s.status === 'archived' ? 'archived' : s.status
     meta.appendChild(status)
+    // S5: attention badge + per-session cost chip (each hidden when absent).
+    const badge = attentionBadge(att)
+    if (badge) meta.appendChild(badge)
+    const chip = costChip(cost)
+    if (chip) meta.appendChild(chip)
     card.appendChild(meta)
   }
 
@@ -204,7 +216,7 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     group.appendChild(row)
 
     for (const s of provSessions) {
-      group.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu))
+      group.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu, p.attention?.get(s.id), p.costs?.get(s.id)))
     }
     list.appendChild(group)
   }
@@ -227,7 +239,7 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   trow.append(tdot, document.createTextNode('Terminal'), tgrow, tadd)
   tgroup.appendChild(trow)
   for (const s of termSessions) {
-    tgroup.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu))
+    tgroup.appendChild(sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu, p.attention?.get(s.id), p.costs?.get(s.id)))
   }
   list.appendChild(tgroup)
 

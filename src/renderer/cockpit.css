@@ -321,3 +321,21 @@
 .as-actions { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; }
 .as-actions .hsync-result { font-size: 11px; color: var(--text-muted); }
 .as-actions .hsync-result.err { color: #ff7b72; }
+
+/* S5 — attention badges + cost chips. Attention 'input' is the actionable state
+ * (warning colour + soft pulse); 'idle' is a muted, non-urgent marker. */
+.att-badge { font-size: 9px; padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border); white-space: nowrap; }
+.att-badge.input { color: var(--warning); border-color: var(--warning); animation: att-pulse 1.6s ease-in-out infinite; }
+.att-badge.idle { color: var(--text-muted); }
+@keyframes att-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .att-badge.input { animation: none; } }
+
+/* Per-session cost chip (hidden by the component when no summary exists). */
+.cost-chip { font-size: 9px; padding: 2px 6px; border-radius: 5px; color: var(--accent-muted); background: var(--accent-bg10); border: 1px solid var(--accent-border); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Home-board per-project cost rollup on the group header. */
+.as-proj .h .as-rollup { margin-left: auto; font-size: 10px; color: var(--accent-muted); font-weight: 600; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+
+/* Rail attention dot — a project has a session waiting for input. */
+.projrail .pj .att-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--warning); border: 2px solid var(--bg-page); box-shadow: 0 0 6px var(--warning); animation: att-pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .projrail .pj .att-dot { animation: none; } }

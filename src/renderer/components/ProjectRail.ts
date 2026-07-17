@@ -4,6 +4,8 @@ export interface RailProps {
   projects: Project[]
   activeId: string | null
   counts: Record<string, number>
+  /** S5: project ids with a session needing input → attention dot on the avatar. */
+  attentionProjects?: Set<string>
   onSelect: (id: string) => void
   onHome: () => void
   onAdd: () => void
@@ -44,6 +46,13 @@ export function ProjectRail(p: RailProps): HTMLElement {
       c.className = 'cnt' + (pj.id === p.activeId ? ' busy' : '')
       c.textContent = String(n)
       d.appendChild(c)
+    }
+    // S5: attention dot — a session in this project is waiting for the user.
+    if (p.attentionProjects?.has(pj.id)) {
+      const dot = document.createElement('span')
+      dot.className = 'att-dot'
+      dot.title = 'A session needs your input'
+      d.appendChild(dot)
     }
     d.onclick = () => p.onSelect(pj.id)
     el.appendChild(d)
