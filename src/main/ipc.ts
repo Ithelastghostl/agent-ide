@@ -322,10 +322,25 @@ function emitExit(id: string, reason: import('./ptyManager').ExitReason): void {
  *  never lands in a killed/replaced session or interleaves the initial render. A
  *  trailing newline submits it. No-op when there's no prior history. */
 function seedPrimer(mgr: TerminalRuntime, store: Store | undefined, sessionId: string): void {
-  const transcript = store?.getTranscript(sessionId) ?? ''
-  const primer = buildPrimer(transcript)
-  if (!primer) return
-  mgr.primeWhenReady(sessionId, primer + '\n')
+  // Gate 1: on resume / model-swap, re-inject the FULL canonical primer —
+  // harness → agent → objective → prior history — so the uniform protocol is
+  // present after the engine restarts, not just the raw transcript. Falls back to
+  // history-only if there's no session row (defensive).
+  const s = store?.getSession(sessionId)
+  const history = stripAnsi(store?.getTranscript(sessionId) ?? '')
+  if (!s) {
+    const primer = buildPrimer(store?.getTranscript(sessionId) ?? '')
+    if (primer) mgr.primeWhenReady(sessionId, primer + '\n')
+    return
+  }
+  const submitText = composeLaunchPrimer({
+    objective: s.objective,
+    stage: s.effectiveStage ?? s.desiredStage ?? 'discussion',
+    agentRelPath: s.agentRelPath,
+    history,
+    reviewPayloads: store?.reviewPayloadsForSession(sessionId) ?? []
+  })
+  if (submitText.trim()) mgr.primeWhenReady(sessionId, submitText + '\n')
 }
 
 /** Resolve the running container a session belongs to, if any. Looks the session

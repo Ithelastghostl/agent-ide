@@ -31,15 +31,24 @@ export function agentBodyForPrimer(relPath: string | null | undefined): string {
   return content ? stripAgentFrontmatter(content) : ''
 }
 
-/** Compose the fresh-launch primer for a provider session: harness → agent (if
- *  any) → objective, all trusted and auto-submitted. The agent section lands
- *  AFTER the harness section per the P0.D contract. Returns the auto-submit text
- *  (no trailing newline). */
+/** Compose the canonical primer for a provider session: harness → agent (if any)
+ *  → objective → prior history (if any), all trusted and auto-submitted. The
+ *  harness ALWAYS leads so the uniform Discussion→Playback→Fix protocol is injected
+ *  on EVERY provider launch — fresh, resume, model-swap, queue, and preset (gate 1).
+ *  The agent section lands after the harness per the P0.D contract; history (a
+ *  resume/relaunch's cleaned prior transcript) lands last. Returns the auto-submit
+ *  text (no trailing newline); '' when every section is empty. */
 export function composeLaunchPrimer(opts: {
   objective: string
   stage?: string
   agentRelPath?: string | null
   agentLabel?: string
+  /** Cleaned prior transcript for resume/relaunch (already stripAnsi'd). */
+  history?: string
+  /** Review payloads for this session (Linear/handoff): the fail-closed check
+   *  (R19/R22-3) demotes the history section if a previously-inserted review
+   *  block would otherwise be auto-resubmitted from history. */
+  reviewPayloads?: string[]
 }): string {
   const sections: PrimerSection[] = [
     { kind: 'harness', trust: 'trusted', label: 'protocol', body: readHarness() }
@@ -54,5 +63,8 @@ export function composeLaunchPrimer(opts: {
     label: opts.objective || 'session',
     body: `Stage: ${opts.stage ?? 'discussion'}\nObjective: ${opts.objective || '(none)'}`
   })
-  return composePrimer(sections).submitText
+  if (opts.history && opts.history.trim()) {
+    sections.push({ kind: 'history', trust: 'trusted', label: 'prior session', body: opts.history })
+  }
+  return composePrimer(sections, opts.reviewPayloads ?? []).submitText
 }

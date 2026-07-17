@@ -4,8 +4,8 @@ import type { Store } from './store'
 import type { Runtime, TerminalRuntime } from './runtime'
 import { launchArgv } from './providers'
 import { sessionEvents } from './sessionEvents'
-import { composePrimer, type PrimerSection } from './launchPrimer'
-import { readHarness } from './harness'
+import { composeLaunchPrimer } from './agentPreset'
+import { stripAnsi } from './history'
 
 // The canonical session launcher (P0.A). Every provider-session entry point —
 // fresh launch, resume, model swap, stage relaunch, queue, preset — flows
@@ -210,11 +210,11 @@ export class LaunchService {
   }
 
   private deliverPrimer(id: string, opts: LaunchOpts, stage: SessionStage): void {
-    const sections: PrimerSection[] = [
-      { kind: 'harness', trust: 'trusted', label: 'protocol', body: readHarness() },
-      { kind: 'objective', trust: 'trusted', label: opts.objective || 'session', body: `Stage: ${stage}\nObjective: ${opts.objective || '(none)'}` }
-    ]
-    const { submitText } = composePrimer(sections)
+    // Canonical harness→agent→objective primer (gate 1): a queued/preset launch
+    // gets the same uniform harness + agent body every provider launch does.
+    const submitText = composeLaunchPrimer({
+      objective: opts.objective, stage, agentRelPath: opts.agentRelPath
+    })
     if (submitText.trim()) this.mgr.primeWhenReady(id, submitText + '\n')
   }
 
@@ -294,9 +294,20 @@ export class LaunchService {
   }
 
   private seedHistoryPrimer(id: string): void {
-    const raw = this.deps.store.getTranscript(id)
-    const reviewPayloads = this.deps.store.reviewPayloadsForSession(id)
-    const { submitText } = composePrimer([{ kind: 'history', trust: 'trusted', label: 'prior session', body: raw }], reviewPayloads)
+    // A relaunch (model-swap / fix restart) re-injects the FULL canonical primer —
+    // harness → agent → objective → prior history — so the uniform protocol is
+    // present after the engine restarts, not just the raw transcript (gate 1).
+    const s = this.deps.store.getSession(id)
+    const raw = stripAnsi(this.deps.store.getTranscript(id))
+    const submitText = composeLaunchPrimer({
+      objective: s?.objective ?? '',
+      stage: s?.effectiveStage ?? s?.desiredStage ?? 'discussion',
+      agentRelPath: s?.agentRelPath,
+      history: raw,
+      // Fail-closed: if a previously-inserted review block is in history, its
+      // section is demoted so it's never auto-resubmitted (R19/R22-3).
+      reviewPayloads: this.deps.store.reviewPayloadsForSession(id)
+    })
     if (submitText.trim()) this.mgr.primeWhenReady(id, submitText + '\n')
   }
 

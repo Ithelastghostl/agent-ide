@@ -84,6 +84,43 @@ describe('S8 agentPreset — registration + primer', () => {
     expect(primer).not.toContain('BEGIN AGENT')
     expect(primer).toContain('plain work')
   })
+
+  // Gate 1: a RESUME/relaunch primer must ALSO carry the uniform harness (not just
+  // history) — the whole point of "same CLAUDE.md workflow regardless of who they
+  // are". This shape is what launchService.seedHistoryPrimer + ipc.seedPrimer build.
+  it('a resume/relaunch primer injects harness + agent + objective + prior history, in order', () => {
+    writeFileSync(join(harnessDir, 'HARNESS.md'), 'HARNESS_PROTOCOL_MARKER: discussion→playback→fix')
+    const primer = composeLaunchPrimer({
+      objective: 'continue the work',
+      stage: 'playback',
+      agentRelPath: 'agents/release-writer.md',
+      history: 'PRIOR_TRANSCRIPT_MARKER: earlier conversation'
+    })
+    expect(primer).toContain('HARNESS_PROTOCOL_MARKER')      // harness present on resume
+    expect(primer).toContain('AGENT_BODY_MARKER')            // agent re-injected
+    expect(primer).toContain('continue the work')            // objective
+    expect(primer).toContain('PRIOR_TRANSCRIPT_MARKER')      // history last
+    // ordering: harness → agent → objective → history
+    expect(primer.indexOf('HARNESS_PROTOCOL_MARKER')).toBeLessThan(primer.indexOf('AGENT_BODY_MARKER'))
+    expect(primer.indexOf('AGENT_BODY_MARKER')).toBeLessThan(primer.indexOf('continue the work'))
+    expect(primer.indexOf('continue the work')).toBeLessThan(primer.indexOf('PRIOR_TRANSCRIPT_MARKER'))
+  })
+
+  // Gate 1 fail-closed safety (R19/R22-3): a review payload sitting in the resume
+  // history must NOT be auto-resubmitted — its history section is demoted.
+  it('demotes history when a prior review payload would be auto-resubmitted', () => {
+    writeFileSync(join(harnessDir, 'HARNESS.md'), 'HARNESS_PROTOCOL_MARKER')
+    const secret = 'REVIEW_ONLY_LINEAR_TEXT_should_not_autosubmit'
+    const primer = composeLaunchPrimer({
+      objective: 'x',
+      history: `some output\n${secret}\nmore output`,
+      reviewPayloads: [secret]
+    })
+    // harness/objective still auto-submit; the history block (carrying the review
+    // payload) is demoted out of submitText.
+    expect(primer).toContain('HARNESS_PROTOCOL_MARKER')
+    expect(primer).not.toContain(secret)
+  })
 })
 
 describe('S8 validateLaunchRequest — agentRelPath validation (R7)', () => {
