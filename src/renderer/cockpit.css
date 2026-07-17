@@ -1,7 +1,21 @@
 /* Variant-A cockpit styles — ported from the chosen mockup
    (.superpowers/brainstorm/.../cockpit.html), Talentchain-themed. */
 
-.ide-body { display: flex; height: 100vh; }
+/* titlebar — the window's drag surface. titleBarStyle 'hiddenInset' hides the
+   native macOS bar and floats the traffic lights over the top-left inset, so
+   this strip both hosts the drag region and keeps content clear of them.
+   Interactive children (none today) must set -webkit-app-region: no-drag. */
+.titlebar {
+  height: 38px; flex: none; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-page); border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag; user-select: none;
+}
+.titlebar .tb-title {
+  font-size: 10px; letter-spacing: .22em; color: var(--text-muted); font-weight: 700;
+}
+.titlebar button, .titlebar input, .titlebar select, .titlebar .ic { -webkit-app-region: no-drag; }
+
+.ide-body { display: flex; height: calc(100vh - 38px); }
 
 /* project rail (far-left, VS Code activity-bar style) */
 .projrail {

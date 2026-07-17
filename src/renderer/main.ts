@@ -769,6 +769,16 @@ function openSessionMenu(session: Session, x: number, y: number) {
 
 function render() {
   root.innerHTML = ''
+  // Window drag strip: titleBarStyle 'hiddenInset' removes the native macOS
+  // title bar, so the renderer must own the drag surface. Rendered before the
+  // body on every view path (home board and project cockpit).
+  const titlebar = document.createElement('div')
+  titlebar.className = 'titlebar'
+  const tbTitle = document.createElement('span')
+  tbTitle.className = 'tb-title'
+  tbTitle.textContent = "NACHO'S IDE"
+  titlebar.appendChild(tbTitle)
+  root.appendChild(titlebar)
   const body = document.createElement('div')
   body.className = 'ide-body'
 
