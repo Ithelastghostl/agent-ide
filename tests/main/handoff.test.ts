@@ -1,9 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-// Mock electron's ipcMain so handlers register + can be invoked headlessly.
+// Mock electron so handlers register + can be invoked headlessly. The merged
+// attention registrar (S5+S6) also uses ipcMain.on (pty:write), Notification,
+// and BrowserWindow, so the mock covers those too.
 const handlers = new Map<string, (...a: unknown[]) => unknown>()
 vi.mock('electron', () => ({
-  ipcMain: { handle: (ch: string, fn: (...a: unknown[]) => unknown) => handlers.set(ch, fn) }
+  ipcMain: {
+    handle: (ch: string, fn: (...a: unknown[]) => unknown) => handlers.set(ch, fn),
+    on: () => {}
+  },
+  Notification: Object.assign(function () { return { show: () => {} } }, { isSupported: () => false }),
+  BrowserWindow: { getAllWindows: () => [] }
 }))
 
 import { Store } from '../../src/main/store'

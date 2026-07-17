@@ -119,7 +119,9 @@ describe('registerAttentionIpc — bus wiring + cost persistence', () => {
     expect(shown[0].title).toMatch(/needs your input/i)
   })
 
-  it('session:handoff stays stubbed until S6', async () => {
-    expect(await invoke('session:handoff')).toEqual({ error: 'not-implemented' })
+  it('session:handoff is implemented (S6) — rejects a malformed request', async () => {
+    // Full behaviour is covered in handoff.test.ts; here just assert it is no
+    // longer the not-implemented stub (invalid args → a validation error).
+    expect(await invoke('session:handoff', 123, 456)).toEqual({ error: 'invalid request' })
   })
 })
