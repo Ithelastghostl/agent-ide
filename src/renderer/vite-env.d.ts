@@ -64,6 +64,9 @@ interface AgentIDEBridge {
   queueDelete(id: string): Promise<{ ok?: true; error?: string }>
   queueReorder(projectId: string, orderedIds: string[]): Promise<{ ok?: true; error?: string }>
   queueStartNext(projectId: string): Promise<{ ok?: true; sessionId?: string | null; error?: string }>
+  queueGetAutoAdvance(projectId: string): Promise<boolean>
+  queueSetAutoAdvance(projectId: string, on: boolean): Promise<{ ok?: true; autoAdvance?: boolean; error?: string }>
+  onQueueChanged(cb: (p: { projectId: string }) => void): void
   harnessGet(): Promise<string>
   harnessSet(text: string): Promise<{ ok?: true; error?: string }>
   sessionSetStage(id: string, stage: string): Promise<{ ok?: true; error?: string }>
@@ -81,7 +84,7 @@ interface AgentIDEBridge {
   costForSession(sessionId: string): Promise<import('@shared/types').CostSummary | { error: string }>
   onAttention(cb: (p: { sessionId: string; state: 'input' | 'idle' | null }) => void): void
   onCost(cb: (p: { sessionId: string }) => void): void
-  sessionHandoff(fromId: string, toId: string): Promise<{ ok?: true; error?: string }>
+  sessionHandoff(fromId: string, toId: string): Promise<{ ok?: true; targetInFix?: boolean; error?: string }>
   linearStatus(projectId: string): Promise<unknown>
   linearLink(projectId: string, ref: unknown): Promise<{ ok?: true; error?: string }>
   linearPull(projectId: string): Promise<{ ok?: true; count?: number; error?: string }>

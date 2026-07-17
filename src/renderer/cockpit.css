@@ -321,3 +321,84 @@
 .as-actions { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; }
 .as-actions .hsync-result { font-size: 11px; color: var(--text-muted); }
 .as-actions .hsync-result.err { color: #ff7b72; }
+
+/* ============================ S6 orchestration ============================ */
+
+/* Queue drawer (S6): a wider modal with a compose form + queued item list. */
+.queue-modal { width: 560px; }
+.queue-modal .q-autoadvance,
+.queue-modal .q-usecontainer { display: flex; align-items: center; gap: 8px; padding: 4px 18px; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.queue-modal .q-autoadvance { padding: 6px 18px 10px; }
+.q-form { display: flex; flex-direction: column; gap: 8px; padding: 4px 18px 14px; border-top: 1px solid var(--border); }
+.q-form input[type="text"], .q-form select {
+  background: var(--bg-base); border: 1px solid var(--border); color: var(--text-primary);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; outline: none;
+}
+.q-form input[type="text"]:focus, .q-form select:focus { border-color: var(--accent); }
+.q-form .q-add { align-self: flex-start; background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600; padding: 7px 14px; border-radius: 8px; cursor: pointer; }
+.q-form .q-add:hover { background: var(--accent-hover); }
+.q-form .q-add:disabled { opacity: .5; cursor: default; }
+.q-error { color: #ff7b72; font-size: 11.5px; min-height: 14px; }
+
+.q-list { max-height: 260px; overflow: auto; border-top: 1px solid var(--border); }
+.q-empty { padding: 16px 18px; color: var(--text-muted); font-size: 12px; }
+.q-item { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-top: 1px solid var(--border); }
+.q-item:first-child { border-top: none; }
+.q-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.q-item-body b { color: #fff; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-item-meta { color: var(--text-muted); font-size: 11px; }
+.q-item-error { color: #ff7b72; font-size: 11px; }
+.q-item-controls { display: flex; gap: 4px; flex: none; }
+.q-item-controls button {
+  width: 24px; height: 24px; background: var(--bg-surface-alt); border: 1px solid var(--border);
+  color: var(--text-secondary); border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.q-item-controls button:hover { color: #fff; border-color: var(--accent); }
+.q-item-controls button:disabled { opacity: .35; cursor: default; }
+
+/* Queue state chips. */
+.q-chip { font-size: 9px; text-transform: uppercase; letter-spacing: .4px; padding: 3px 8px; border-radius: 6px; flex: none; border: 1px solid var(--border); }
+.q-chip.pending { color: var(--text-secondary); background: var(--bg-surface-alt); }
+.q-chip.launching { color: var(--warning); background: rgba(252,187,0,.1); border-color: rgba(252,187,0,.3); }
+.q-chip.launched { color: var(--success); background: rgba(0,199,88,.1); border-color: rgba(0,199,88,.3); }
+.q-chip.failed { color: var(--red); background: rgba(251,44,54,.1); border-color: rgba(251,44,54,.3); }
+
+.queue-modal .q-startnext:disabled { opacity: .5; cursor: default; }
+
+/* Split view (S6): two session panes side by side. */
+.ed-grow { flex: 1; }
+.ed-split, .ed-handoff {
+  align-self: center; margin-right: 8px; background: var(--bg-surface-alt); border: 1px solid var(--border);
+  color: var(--text-secondary); border-radius: 7px; padding: 4px 10px; font-size: 11px; cursor: pointer;
+}
+.ed-split:hover, .ed-handoff:hover { color: #fff; border-color: var(--accent); }
+.ed-split.on { color: #fff; border-color: var(--accent); background: var(--accent-bg10); }
+
+.sv-split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+.sv-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.sv-split .sv-pane { border-right: 1px solid var(--border); }
+.sv-split .sv-pane:last-child { border-right: none; }
+.sv-split .sv-pane.focused { box-shadow: inset 0 0 0 1px var(--accent-border); }
+.sv-pane .terminal-host { flex: 1; min-height: 0; }
+
+/* Handoff "Review & insert" affordance (S6): pending review material, never
+   auto-submitted; a fix-mode warning banner precedes the insert control. */
+.handoff-review { border-bottom: 1px solid var(--border); background: var(--bg-page-alt); }
+.handoff-review .hr-warn {
+  background: rgba(252,187,0,.12); color: var(--warning); font-size: 11.5px;
+  padding: 8px 14px; border-bottom: 1px solid rgba(252,187,0,.25);
+}
+.handoff-review .hr-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; }
+.handoff-review .hr-label { flex: 1; color: var(--text-secondary); font-size: 11.5px; }
+.handoff-review .hr-insert {
+  background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600;
+  padding: 6px 12px; border-radius: 7px; cursor: pointer; font-size: 11.5px;
+}
+.handoff-review .hr-insert:hover { background: var(--accent-hover); }
+.handoff-review .hr-dismiss {
+  background: var(--bg-surface-alt); border: 1px solid var(--border); color: var(--text-secondary);
+  padding: 6px 12px; border-radius: 7px; cursor: pointer; font-size: 11.5px;
+}
+
+/* Queue activity-bar icon hover affordance. */
+.activity .ic.queue-ic { cursor: pointer; }

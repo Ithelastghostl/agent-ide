@@ -109,6 +109,9 @@ contextBridge.exposeInMainWorld('agentIDE', {
   queueDelete: (id: string) => ipcRenderer.invoke('queue:delete', id),
   queueReorder: (projectId: string, orderedIds: string[]) => ipcRenderer.invoke('queue:reorder', projectId, orderedIds),
   queueStartNext: (projectId: string) => ipcRenderer.invoke('queue:startNext', projectId),
+  queueGetAutoAdvance: (projectId: string) => ipcRenderer.invoke('queue:getAutoAdvance', projectId),
+  queueSetAutoAdvance: (projectId: string, on: boolean) => ipcRenderer.invoke('queue:setAutoAdvance', projectId, on),
+  onQueueChanged: (cb: (p: { projectId: string }) => void) => ipcRenderer.on('queue:changed', (_e, p) => cb(p)),
 
   // Harness (S3). Uniform CLAUDE.md-style protocol.
   harnessGet: () => ipcRenderer.invoke('harness:get'),
