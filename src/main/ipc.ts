@@ -16,6 +16,7 @@ import { loopbackPort } from './portForwarder'
 import type { Runtime, TerminalRuntime, ContainerRuntime, PortForwardService, PortWatchHandle } from './runtime'
 import { historyFile, buildPrimer, stripAnsi } from './history'
 import { hostShell } from './ptyManager'
+import { sessionEvents } from './sessionEvents'
 import { Store } from './store'
 import { confinedPath } from './confine'
 import { validateLaunchRequest, validateResumeSession, validateTaskTransition } from './validate'
@@ -287,6 +288,25 @@ function recordOutput(store: Store | undefined, sessionId: string, data: string)
   // of truth for primers; the file is a convenience/committable mirror.
   store?.appendTranscript(sessionId, data, Date.now())
   appendFile(historyFile(sessionId), data, () => { /* best-effort mirror */ })
+  // Feed the v2 session bus (P0.A): attention/cost (S5) and queue (S6) subscribe
+  // to 'output'. All live pty spawns funnel through here, so this is the single
+  // choke point that keeps the bus fed regardless of launch path.
+  sessionEvents.emitEvent('output', { id: sessionId, chunk: data })
+}
+
+// v2 bridge (foundation deviation #1): the legacy launch/archive handlers still
+// spawn through ipc.ts rather than launchService, so they must feed the session
+// bus themselves until consolidation rewires them. archiveAndEmit archives once
+// and emits 'archived' only on a real transition (queue advancement, S6, keys off
+// it). emitExit mirrors 'exit' for bus subscribers alongside the renderer event.
+function archiveAndEmit(store: Store | undefined, id: string): void {
+  const projectId = store?.getSession(id)?.projectId
+  const wasArchived = store?.getSession(id)?.status === 'archived'
+  store?.archiveSession(id)
+  if (!wasArchived && projectId) sessionEvents.emitEvent('archived', { id, projectId })
+}
+function emitExit(id: string, reason: import('./ptyManager').ExitReason): void {
+  sessionEvents.emitEvent('exit', { id, reason })
 }
 
 /** After a fresh engine starts for an existing session (reconnect or model swap),
@@ -542,7 +562,7 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   // close + archive a session: kill its pty and persist archived status (F6).
   ipcMain.handle('session:archive', (_e, id: string) => {
     mgr.kill(id)
-    store?.archiveSession(id)
+    archiveAndEmit(store, id)
   })
 
   // M-LOG-a (§4.1): advance a task's lifecycle status (open→finished→deployed→
@@ -648,7 +668,7 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
     mgr.spawn(
       { id, shell, args, cwd, env: {} },
       (data) => { sendToRenderer('pty:data', { id, data }); recordOutput(store, id, data) },
-      ({ reason }) => { store?.archiveSession(id); sendToRenderer('session:exit', { id, reason }) }
+      ({ reason }) => { archiveAndEmit(store, id); emitExit(id, reason); sendToRenderer('session:exit', { id, reason }) }
     )
     return session
   })
@@ -806,8 +826,9 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
         ({ reason }) => {
           // History always retained (item 7). Clean close -> archived; crash ->
           // NOT archived (status idle) so it stays reconnectable (F4 / Codex P1).
-          if (reason === 'closed') store?.archiveSession(id)
+          if (reason === 'closed') archiveAndEmit(store, id)
           else store?.setSessionStatus(id, 'idle')
+          emitExit(id, reason)
           stopPortWatch(id)
           sendToRenderer('session:exit', { id, reason })
         }
@@ -870,8 +891,9 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
       },
       ({ reason }) => {
         stopPortWatch(s.id)
-        if (reason === 'closed') store?.archiveSession(s.id)
+        if (reason === 'closed') archiveAndEmit(store, s.id)
         else store?.setSessionStatus(s.id, 'idle')
+        emitExit(s.id, reason)
         sendToRenderer('session:exit', { id: s.id, reason })
       }
     )
