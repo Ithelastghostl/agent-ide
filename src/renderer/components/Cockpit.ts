@@ -1,4 +1,5 @@
 import { PROVIDERS, isTerminalSession, type Provider, type Session, type LibraryCategory } from '@shared/types'
+import { stageChip, approvalIndicator, effectiveStageOf } from './StageChip'
 
 export type ProviderHealth = 'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'
 
@@ -84,6 +85,12 @@ function sessionCard(
     const status = document.createElement('span')
     status.textContent = s.status === 'archived' ? 'archived' : s.status
     meta.appendChild(status)
+    // S3: read-only stage chip + guarded/auto indicator on provider cards.
+    if (!isTerminalSession(s.id)) {
+      meta.appendChild(stageChip(effectiveStageOf(s)))
+      const ind = approvalIndicator(s.spawnedApprovalMode, s.status)
+      if (ind) meta.appendChild(ind)
+    }
     card.appendChild(meta)
   }
 

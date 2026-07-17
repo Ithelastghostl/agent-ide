@@ -1,4 +1,5 @@
-import type { Project, Session } from '@shared/types'
+import { isTerminalSession, type Project, type Session } from '@shared/types'
+import { stageChip, approvalIndicator, effectiveStageOf } from './StageChip'
 
 export interface AllSessionsProps {
   projects: Project[]
@@ -85,6 +86,13 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
       // M-LOG-a (§4.5.2): task label chip + lifecycle status. Terminals/unlabeled
       // sessions have no taskKind → no chip.
       const chips: HTMLElement[] = []
+      // S3: read-only stage chip (effectiveStage) + guarded/auto indicator
+      // (spawnedApprovalMode) for provider sessions. Terminals have no stage.
+      if (!isTerminalSession(s.id)) {
+        chips.push(stageChip(effectiveStageOf(s)))
+        const ind = approvalIndicator(s.spawnedApprovalMode, s.status)
+        if (ind) chips.push(ind)
+      }
       if (s.taskKind) {
         const chip = document.createElement('span')
         chip.className = `task-chip ${s.taskKind}`
