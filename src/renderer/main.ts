@@ -1,6 +1,6 @@
 import './cockpit.css'
 import { isTerminalSession } from '@shared/types'
-import type { Provider, Project, Session, SessionStage, TaskKind, TaskSubkind, GitStatusSummary, GitDiff } from '@shared/types'
+import type { Provider, Project, Session, SessionStage, TaskKind, TaskSubkind, GitStatusSummary, GitDiff, CostSummary, AttentionState } from '@shared/types'
 import { initialState, liveCounts, liveSessionsFor, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit, type ProviderHealth } from './components/Cockpit'
@@ -37,6 +37,22 @@ const containerState = new Map<string, 'none' | 'stopped' | 'starting' | 'runnin
 window.agentIDE.onContainerStatus?.(({ projectId, state: s }) => {
   containerState.set(projectId, s)
   render()
+})
+
+// S5 attention + cost — ephemeral badges. Attention state is main-process only;
+// the map holds only currently-flagged sessions. Cost summaries are pulled per
+// session on a session:cost signal (the event carries only the id).
+const attention = new Map<string, Exclude<AttentionState, null>>()
+const costs = new Map<string, CostSummary>()
+window.agentIDE.onAttention?.(({ sessionId, state: st }) => {
+  if (st === null) attention.delete(sessionId)
+  else attention.set(sessionId, st)
+  render()
+})
+window.agentIDE.onCost?.(({ sessionId }) => {
+  window.agentIDE.costForSession(sessionId).then((c) => {
+    if (c && !('error' in c)) { costs.set(sessionId, c as CostSummary); render() }
+  }).catch(() => { /* cost unavailable — chip stays hidden */ })
 })
 
 // Library contents (D14), loaded once at boot; undefined → pills show "—".
@@ -154,6 +170,18 @@ function agentNameFor(session: Session): string | null {
   const match = library?.agents.find((a) => a.relPath === rel)
   if (match) return match.name
   return rel.replace(/^agents\//, '').replace(/\.md$/, '')
+}
+
+/** S5: project ids that have at least one session flagged 'input' (needs the
+ *  user) — drives the rail attention dot. Idle-only flags don't raise it. */
+function attentionProjectSet(): Set<string> {
+  const out = new Set<string>()
+  for (const [id, st] of attention) {
+    if (st !== 'input') continue
+    const s = state.sessions.find((x) => x.id === id)
+    if (s) out.add(s.projectId)
+  }
+  return out
 }
 
 // File tree per project, loaded lazily from the real filesystem.
@@ -1165,6 +1193,8 @@ function render() {
     activeId: state.currentProjectId,
     counts: liveCounts(state.sessions),
     gitStatus: Object.fromEntries(gitStatus),
+    // S5: projects with a session needing input get an attention dot on the rail.
+    attentionProjects: attentionProjectSet(),
     onSelect: (id) => { setCurrentProject(id); render() },
     onHome: () => { state.view = 'home'; render() },
     onAdd: () => {
@@ -1180,6 +1210,8 @@ function render() {
     const board = AllSessions({
       projects: state.projects,
       sessions: state.sessions,
+      attention,
+      costs,
       onOpen: (projectId, sessionId) => {
         setCurrentProject(projectId)
         state.activeSessionId = sessionId
@@ -1296,6 +1328,8 @@ function render() {
       activeSessionId: state.activeSessionId,
       reconnect,
       health,
+      attention,
+      costs,
       libraryCounts: library
         ? { prompts: library.prompts.length, skills: library.skills.length, workflows: library.workflows.length, agents: library.agents.length }
         : undefined,
@@ -1341,6 +1375,17 @@ async function boot() {
     }
   } catch (err) {
     console.error('boot hydrate failed', err)
+  }
+  // S5: seed the attention map for sessions already flagged in main (re-open).
+  window.agentIDE.attentionState?.().then((m) => {
+    for (const [id, st] of Object.entries(m)) attention.set(id, st)
+    render()
+  }).catch(() => { /* attention unavailable */ })
+  // S5: seed persisted cost summaries for live sessions so chips show on re-open.
+  for (const s of state.sessions.filter((x) => x.status !== 'archived')) {
+    window.agentIDE.costForSession(s.id).then((c) => {
+      if (c && !('error' in c)) { costs.set(s.id, c as CostSummary); render() }
+    }).catch(() => { /* no cost */ })
   }
   loadLibrary() // D14: populate library pill counts (async, re-renders on load)
   render()

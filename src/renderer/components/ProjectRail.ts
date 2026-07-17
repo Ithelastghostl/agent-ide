@@ -7,6 +7,8 @@ export interface RailProps {
   /** S4 git awareness: per-project branch + dirty-count summary (absent for
    *  non-repos / not-yet-loaded). Drives the rail's branch badge. */
   gitStatus?: Record<string, GitStatusSummary>
+  /** S5: project ids with a session needing input → attention dot on the avatar. */
+  attentionProjects?: Set<string>
   onSelect: (id: string) => void
   onHome: () => void
   onAdd: () => void
@@ -64,6 +66,13 @@ export function ProjectRail(p: RailProps): HTMLElement {
       gb.title = `git: ${gitBadgeLabel(g)}` +
         (g.ahead || g.behind ? ` (↑${g.ahead} ↓${g.behind})` : '')
       d.appendChild(gb)
+    }
+    // S5: attention dot — a session in this project is waiting for the user.
+    if (p.attentionProjects?.has(pj.id)) {
+      const dot = document.createElement('span')
+      dot.className = 'att-dot'
+      dot.title = 'A session needs your input'
+      d.appendChild(dot)
     }
     d.onclick = () => p.onSelect(pj.id)
     el.appendChild(d)
