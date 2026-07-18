@@ -1,10 +1,14 @@
 import {
   PROVIDERS,
   isTerminalSession,
+  type AttentionState,
+  type CostSummary,
   type Provider,
   type Session,
   type LibraryCategory
 } from '@shared/types'
+import { stageChip, approvalIndicator, effectiveStageOf } from './StageChip'
+import { attentionBadge, costChip } from './costChip'
 
 export type ProviderHealth = 'healthy' | 'not-logged-in' | 'not-installed' | 'unknown'
 
@@ -15,6 +19,10 @@ export interface CockpitProps {
   reconnect?: Set<string>
   /** last-known connection health per provider (F8/F9). */
   health?: Partial<Record<Provider, ProviderHealth>>
+  /** S5: ephemeral attention flags per session id (flagged sessions only). */
+  attention?: Map<string, Exclude<AttentionState, null>>
+  /** S5: last-known cost summary per session id (absent → no chip). */
+  costs?: Map<string, CostSummary>
   /** Library item counts per category (D14). Undefined → not loaded yet. */
   libraryCounts?: { prompts: number; skills: number; workflows: number; agents: number }
   /** Clicking a library pill opens that category's list. */
@@ -22,6 +30,9 @@ export interface CockpitProps {
   onLaunch: (provider: Provider) => void
   onSelectSession: (id: string) => void
   onSessionMenu?: (session: Session, x: number, y: number) => void
+  /** S8: resolve a session's agent preset relPath → a display name for its chip.
+   *  Returns null/undefined when the session was not launched from an agent. */
+  agentNameFor?: (session: Session) => string | null | undefined
   onProviderMenu?: (provider: Provider, x: number, y: number) => void
   /** F13: open a plain shell session (the Terminal tab). */
   onOpenTerminal?: () => void
@@ -44,7 +55,10 @@ function sessionCard(
   active: boolean,
   needsReconnect: boolean,
   onSelect: (id: string) => void,
-  onMenu?: (session: Session, x: number, y: number) => void
+  onMenu?: (session: Session, x: number, y: number) => void,
+  agentName?: string | null,
+  att?: Exclude<AttentionState, null>,
+  cost?: CostSummary
 ): HTMLElement {
   const card = document.createElement('div')
   const cls = ['scard']
@@ -81,6 +95,16 @@ function sessionCard(
   }
   card.appendChild(top)
 
+  // S8: agent-preset chip — shown when the session was launched from a library
+  // agent. textContent only (no innerHTML) per the P0.D renderer rule.
+  if (agentName) {
+    const chip = document.createElement('span')
+    chip.className = 'agent-chip'
+    chip.textContent = `🤖 ${agentName}`
+    chip.title = 'Launched from a library agent'
+    card.appendChild(chip)
+  }
+
   if (needsReconnect) {
     const tag = document.createElement('div')
     tag.className = 'reconnect-tag'
@@ -92,6 +116,17 @@ function sessionCard(
     const status = document.createElement('span')
     status.textContent = s.status === 'archived' ? 'archived' : s.status
     meta.appendChild(status)
+    // S3: read-only stage chip + guarded/auto indicator on provider cards.
+    if (!isTerminalSession(s.id)) {
+      meta.appendChild(stageChip(effectiveStageOf(s)))
+      const ind = approvalIndicator(s.spawnedApprovalMode, s.status)
+      if (ind) meta.appendChild(ind)
+    }
+    // S5: attention badge + per-session cost chip (each hidden when absent).
+    const badge = attentionBadge(att)
+    if (badge) meta.appendChild(badge)
+    const chip = costChip(cost)
+    if (chip) meta.appendChild(chip)
     card.appendChild(meta)
   }
 
@@ -236,7 +271,16 @@ export function Cockpit(p: CockpitProps): HTMLElement {
 
     for (const s of provSessions) {
       group.appendChild(
-        sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu)
+        sessionCard(
+          s,
+          s.id === p.activeSessionId,
+          reconnect.has(s.id),
+          p.onSelectSession,
+          p.onSessionMenu,
+          p.agentNameFor?.(s),
+          p.attention?.get(s.id),
+          p.costs?.get(s.id)
+        )
       )
     }
     list.appendChild(group)
@@ -260,8 +304,18 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   trow.append(tdot, document.createTextNode('Terminal'), tgrow, tadd)
   tgroup.appendChild(trow)
   for (const s of termSessions) {
+    // Terminals have no agent preset → undefined for the agentName slot.
     tgroup.appendChild(
-      sessionCard(s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu)
+      sessionCard(
+        s,
+        s.id === p.activeSessionId,
+        reconnect.has(s.id),
+        p.onSelectSession,
+        p.onSessionMenu,
+        undefined,
+        p.attention?.get(s.id),
+        p.costs?.get(s.id)
+      )
     )
   }
   list.appendChild(tgroup)

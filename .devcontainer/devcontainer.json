@@ -1,0 +1,42 @@
+{
+  "name": "Agent IDE",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:24",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "forwardPorts": [
+    5173,
+    3000
+  ],
+  "mounts": [
+    "source=nm-agent-ide-agent-ide,target=${containerWorkspaceFolder}/node_modules,type=volume"
+  ],
+  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && sudo chown -R node:node ${containerWorkspaceFolder}/node_modules && npm install --no-audit --no-fund",
+  "remoteUser": "node",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "workbench.colorCustomizations": {
+          "titleBar.activeBackground": "#623822",
+          "titleBar.inactiveBackground": "#452a1c",
+          "titleBar.activeForeground": "#f2f2f2",
+          "titleBar.inactiveForeground": "#bdbdbd",
+          "statusBar.background": "#864727",
+          "statusBar.foreground": "#ffffff",
+          "statusBar.noFolderBackground": "#864727",
+          "statusBar.debuggingBackground": "#864727",
+          "editor.background": "#1e1510",
+          "sideBar.background": "#1e1510",
+          "activityBar.background": "#452a1c",
+          "panel.background": "#1e1510"
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,17 @@
 import './cockpit.css'
-import type { Provider, Project, Session, TaskKind, TaskSubkind } from '@shared/types'
+import { isTerminalSession } from '@shared/types'
+import type {
+  Provider,
+  Project,
+  Session,
+  SessionStage,
+  TaskKind,
+  TaskSubkind,
+  GitStatusSummary,
+  GitDiff,
+  CostSummary,
+  AttentionState
+} from '@shared/types'
 import { initialState, liveCounts, liveSessionsFor, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
 import { Cockpit, type ProviderHealth } from './components/Cockpit'
@@ -7,18 +19,73 @@ import { SupervisionView, type OpenFile, type OpenReport, type ActiveTab } from 
 import { Explorer, type FileNode } from './components/Explorer'
 import { ModelPicker } from './components/ModelPicker'
 import { LibraryPanel } from './components/LibraryPanel'
+import {
+  LinearPanel,
+  type LinearStatus,
+  type LinearBacklogRow,
+  type WritebackPreview
+} from './components/LinearPanel'
 import { AgentForm } from './components/AgentForm'
 import type { LibraryCategory, LibraryContents, LibraryItem } from '@shared/types'
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal } from './components/SessionTerminal'
 import { AllSessions, type BoardMode } from './components/AllSessions'
 import { StatusBar } from './components/StatusBar'
+import { SearchOverlay } from './components/SearchOverlay'
+import { BacklogView, type BacklogLayout } from './components/BacklogView'
+import { BacklogModal } from './components/BacklogModal'
+import type {
+  BacklogItem,
+  BacklogCreateInput,
+  BacklogUpdateInput,
+  BacklogManualStatus,
+  QueueItem
+} from '@shared/types'
+import { runAdvanceFlow, nextStage, effectiveStageOf } from './components/StageChip'
+import { openHarnessEditor } from './components/HarnessEditor'
+import { QueueDrawer } from './components/QueueDrawer'
+import { HandoffReview } from './components/HandoffReview'
 import { modelsFor, loadModels } from './models'
 import { showMenu, promptText, chooseOption, flash } from './ui'
 import type { ServiceName, ServiceStatus } from '@shared/types'
 
 const root = document.getElementById('app')!
 const state: AppState = initialState()
+
+// ---- S6 orchestration: queue, split view, handoff-review state ----------------
+// Split view (S6): show two session panes side by side in the cockpit. The second
+// pane's session id and which pane is focused (writes/inserts target it).
+let splitOn = false
+let secondSessionId: string | null = null
+let focusedPane: 'primary' | 'second' = 'primary'
+// Pending-review counts per session (S6/S2), refreshed from main. sessionId →
+// {count, chars, inFix}. Drives the "Review & insert" affordance on each pane.
+const reviewPending = new Map<string, { count: number; chars: number; inFix: boolean }>()
+
+// Refresh a session's pending-review summary from main, then re-render.
+function refreshReview(sessionId: string, inFix = false): void {
+  window.agentIDE
+    .reviewPending(sessionId)
+    .then((r) => {
+      if (r.totalChars > 0 && r.sections.length > 0) {
+        reviewPending.set(sessionId, { count: r.sections.length, chars: r.totalChars, inFix })
+      } else {
+        reviewPending.delete(sessionId)
+      }
+      render()
+    })
+    .catch(() => {
+      /* store unavailable */
+    })
+}
+
+// Main tells us when a session's pending-review set changes (handoff registered,
+// or review:insert cleared it).
+window.agentIDE.onReviewChanged?.(({ sessionId }) => refreshReview(sessionId))
+// Main tells us when a project's queue changed (advancement, enqueue, etc.).
+window.agentIDE.onQueueChanged?.(({ projectId }) => {
+  if (currentProject()?.id === projectId) render()
+})
 
 // Sessions whose process died (F4). Cleared when reconnected/relaunched.
 const reconnect = new Set<string>()
@@ -35,6 +102,30 @@ window.agentIDE.onContainerStatus?.(({ projectId, state: s }) => {
   render()
 })
 
+// S5 attention + cost — ephemeral badges. Attention state is main-process only;
+// the map holds only currently-flagged sessions. Cost summaries are pulled per
+// session on a session:cost signal (the event carries only the id).
+const attention = new Map<string, Exclude<AttentionState, null>>()
+const costs = new Map<string, CostSummary>()
+window.agentIDE.onAttention?.(({ sessionId, state: st }) => {
+  if (st === null) attention.delete(sessionId)
+  else attention.set(sessionId, st)
+  render()
+})
+window.agentIDE.onCost?.(({ sessionId }) => {
+  window.agentIDE
+    .costForSession(sessionId)
+    .then((c) => {
+      if (c && !('error' in c)) {
+        costs.set(sessionId, c as CostSummary)
+        render()
+      }
+    })
+    .catch(() => {
+      /* cost unavailable — chip stays hidden */
+    })
+})
+
 // Library contents (D14), loaded once at boot; undefined → pills show "—".
 let library: LibraryContents | undefined
 function loadLibrary() {
@@ -47,6 +138,33 @@ function loadLibrary() {
     .catch(() => {
       /* library unavailable */
     })
+}
+
+// ---- S1 Backlog tab state ----------------------------------------------------
+// Items for the current project, loaded on demand. Layout (grid⇄table) persists
+// in localStorage. `backlogSelected` holds "Work on this" selection (per project;
+// cleared when the project changes).
+const backlogItems = new Map<string, BacklogItem[]>() // projectId → items
+const backlogSelected = new Set<string>() // selected item ids
+const BK_LAYOUT_KEY = 'agentide.backlog.layout'
+function backlogLayout(): BacklogLayout {
+  return localStorage.getItem(BK_LAYOUT_KEY) === 'table' ? 'table' : 'grid'
+}
+function setBacklogLayout(next: BacklogLayout) {
+  localStorage.setItem(BK_LAYOUT_KEY, next)
+  render()
+}
+
+function loadBacklog(projectId: string, force = false) {
+  if (backlogItems.has(projectId) && !force) return
+  if (!backlogItems.has(projectId)) backlogItems.set(projectId, [])
+  window.agentIDE
+    .backlogList(projectId)
+    .then((items) => {
+      backlogItems.set(projectId, items)
+      render()
+    })
+    .catch(() => {})
 }
 
 // App-level notices from main (container mount remediation, etc.).
@@ -159,20 +277,68 @@ function disposeTerminal(sessionId: string) {
 function activityBar(): HTMLElement {
   const el = document.createElement('div')
   el.className = 'activity'
-  for (const [icon, on] of [
-    ['🗂', true],
-    ['🔍', false],
-    ['⑂', false],
-    ['▷', false]
-  ] as const) {
-    const d = document.createElement('div')
-    d.className = 'ic' + (on ? ' on' : '')
-    d.textContent = icon
-    el.appendChild(d)
+  // Cockpit + Backlog are clickable top-level views (project-scoped); 🔍 opens
+  // the ⌘K search overlay (S7); ▷ opens the session queue drawer (S6).
+  const cockpitTab = document.createElement('div')
+  cockpitTab.className = 'ic' + (state.view === 'cockpit' ? ' on' : '')
+  cockpitTab.textContent = '🗂'
+  cockpitTab.title = 'Cockpit'
+  cockpitTab.onclick = () => {
+    if (currentProject()) {
+      state.view = 'cockpit'
+      render()
+    }
   }
+  el.appendChild(cockpitTab)
+
+  const backlogTab = document.createElement('div')
+  backlogTab.className = 'ic backlog-tab' + (state.view === 'backlog' ? ' on' : '')
+  backlogTab.textContent = '📋'
+  backlogTab.title = 'Backlog'
+  backlogTab.onclick = () => {
+    if (currentProject()) {
+      state.view = 'backlog'
+      render()
+    }
+  }
+  el.appendChild(backlogTab)
+
+  const searchTab = document.createElement('div')
+  searchTab.className = 'ic'
+  searchTab.textContent = '🔍'
+  searchTab.title = 'Search (⌘K)'
+  searchTab.onclick = () => openSearch()
+  el.appendChild(searchTab)
+
+  const splitTab = document.createElement('div')
+  splitTab.className = 'ic'
+  splitTab.textContent = '⑂'
+  el.appendChild(splitTab)
+
+  const queueTab = document.createElement('div')
+  queueTab.className = 'ic queue-ic'
+  queueTab.textContent = '▷'
+  queueTab.title = 'Session queue'
+  queueTab.onclick = () => {
+    if (currentProject()) void openQueueDrawer()
+  }
+  el.appendChild(queueTab)
   const sp = document.createElement('div')
   sp.className = 'sp'
   el.appendChild(sp)
+  // S3: harness editor — the uniform Discussion→Playback→Fix protocol. Reachable
+  // from the settings cog (home + cockpit both render the activity bar).
+  const harness = document.createElement('div')
+  harness.className = 'ic'
+  harness.textContent = '📜'
+  harness.title = 'Edit session harness'
+  harness.onclick = () => {
+    void openHarnessEditor({
+      get: () => window.agentIDE.harnessGet(),
+      set: (t) => window.agentIDE.harnessSet(t)
+    })
+  }
+  el.appendChild(harness)
   const cog = document.createElement('div')
   cog.className = 'ic'
   cog.textContent = '⚙'
@@ -184,6 +350,29 @@ function currentProject(): Project | null {
   return state.projects.find((p) => p.id === state.currentProjectId) ?? null
 }
 
+// S8: resolve a session's agent preset (session.agentRelPath) to a display name
+// for its chip, from the loaded library. Falls back to the file basename so a
+// chip still renders if the agent was removed from the library after launch.
+function agentNameFor(session: Session): string | null {
+  const rel = session.agentRelPath
+  if (!rel) return null
+  const match = library?.agents.find((a) => a.relPath === rel)
+  if (match) return match.name
+  return rel.replace(/^agents\//, '').replace(/\.md$/, '')
+}
+
+/** S5: project ids that have at least one session flagged 'input' (needs the
+ *  user) — drives the rail attention dot. Idle-only flags don't raise it. */
+function attentionProjectSet(): Set<string> {
+  const out = new Set<string>()
+  for (const [id, st] of attention) {
+    if (st !== 'input') continue
+    const s = state.sessions.find((x) => x.id === id)
+    if (s) out.add(s.projectId)
+  }
+  return out
+}
+
 // File tree per project, loaded lazily from the real filesystem.
 const trees = new Map<string, FileNode[]>()
 function loadTree(projectId: string) {
@@ -193,6 +382,66 @@ function loadTree(projectId: string) {
     trees.set(projectId, t.nodes as FileNode[])
     render()
   })
+}
+
+// ---- S4 git awareness (read-only) --------------------------------------------
+// Per-project branch/dirty summary (rail badge) + working-tree diff (Diff tab).
+// Both are fetched lazily on project open; `gitLoaded` guards against refetching
+// every render. Non-repos resolve to null → no badge, no Diff tab.
+const gitStatus = new Map<string, GitStatusSummary>()
+const gitDiff = new Map<string, GitDiff | null>()
+const gitLoaded = new Set<string>()
+
+/** Fetch a project's git status + working-tree diff once, then re-render. */
+function loadGit(projectId: string) {
+  if (gitLoaded.has(projectId)) return
+  gitLoaded.add(projectId)
+  window.agentIDE
+    .gitStatus(projectId)
+    .then((s) => {
+      if (s && !('error' in s)) {
+        gitStatus.set(projectId, s)
+        render()
+      }
+    })
+    .catch(() => {
+      /* non-repo / git unavailable — leave badge empty */
+    })
+  window.agentIDE
+    .gitDiff(projectId)
+    .then((d) => {
+      gitDiff.set(projectId, d && !('error' in d) ? d : null)
+      render()
+    })
+    .catch(() => {
+      gitDiff.set(projectId, null)
+    })
+}
+
+/** Build the read-only Diff pane (plain <pre>, textContent only — no innerHTML,
+ *  no mutation, no write buttons). Shows the stat summary then the bounded patch;
+ *  a truncation notice when the diff exceeded the 512KB cap. */
+function diffPaneFor(projectId: string): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'diff-pane'
+  const d = gitDiff.get(projectId)
+  const pre = document.createElement('pre')
+  pre.className = 'diff-body'
+  if (d === undefined) {
+    pre.textContent = '› loading diff…'
+  } else if (d === null) {
+    pre.textContent = '› not a git repository'
+  } else if (!d.stat.trim() && !d.patch.trim()) {
+    pre.textContent = '› working tree clean — no changes'
+  } else {
+    const parts: string[] = []
+    if (d.stat.trim()) parts.push(d.stat.trimEnd())
+    if (d.patch) parts.push(d.patch)
+    if (d.truncated) parts.push('\n… diff truncated at 512KB (read-only preview) …')
+    pre.textContent = parts.join('\n')
+  }
+  wrap.appendChild(pre)
+  return wrap
 }
 
 // ---- Explorer expansion + open file tabs (per current project) ----------------
@@ -308,6 +557,7 @@ function setCurrentProject(id: string) {
   expandedDirs.clear()
   dirChildren.clear()
   activeTab = { kind: 'session' }
+  backlogSelected.clear() // selection is per-project
 }
 
 /** Build the editable file pane for the active file tab (textarea + Ctrl+S save).
@@ -480,6 +730,52 @@ function closeOverlay() {
   document.getElementById('picker-overlay')?.remove()
 }
 
+// ---- ⌘K / Ctrl+K search overlay (S7) -----------------------------------------
+function closeSearch() {
+  document.getElementById('search-overlay')?.remove()
+}
+
+/** Enter on a transcript hit: switch to the hit's project and activate the
+ *  session (the same navigation the home board's onOpen performs). */
+function selectSearchTranscript(projectId: string, sessionId: string) {
+  setCurrentProject(projectId)
+  state.activeSessionId = sessionId
+  state.view = 'cockpit'
+  render()
+}
+
+/** Enter on a backlog hit: open the Backlog view focused on that item. The
+ *  Backlog view itself ships in S1; here we route to it (project + focus) so the
+ *  seam is exercised and navigation is observable. */
+function selectSearchBacklog(projectId: string, itemId: string) {
+  setCurrentProject(projectId)
+  state.view = 'backlog'
+  state.backlogFocus = itemId
+  render()
+}
+
+function openSearch() {
+  if (document.getElementById('search-overlay')) return // already open
+  const overlay = SearchOverlay({
+    searchQuery: (q, limit) => window.agentIDE.searchQuery(q, limit),
+    onSelectTranscript: selectSearchTranscript,
+    onSelectBacklog: selectSearchBacklog,
+    onClose: closeSearch
+  })
+  overlay.id = 'search-overlay'
+  document.body.appendChild(overlay)
+}
+
+// Global ⌘K (macOS) / Ctrl+K (elsewhere) toggles the search overlay. Registered
+// once at module load; the overlay owns its own Escape/close handling.
+window.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault()
+    if (document.getElementById('search-overlay')) closeSearch()
+    else openSearch()
+  }
+})
+
 // The session id we can write into right now (focused + has a live pty this run).
 function activeLivePtyId(): string | null {
   const id = state.activeSessionId
@@ -504,6 +800,14 @@ function openLibrary(category: LibraryCategory) {
       void useLibraryItem(item)
       closeOverlay()
     },
+    // S8: launch a new session preset from an agent item.
+    onLaunchAgent:
+      category === 'agents'
+        ? (item) => {
+            closeOverlay()
+            void launchAgentFlow(item)
+          }
+        : undefined,
     onAdd:
       category === 'agents'
         ? () => {
@@ -515,6 +819,56 @@ function openLibrary(category: LibraryCategory) {
   })
   panel.id = 'picker-overlay'
   document.body.appendChild(panel)
+}
+
+// S8: launch a session FROM a library agent. Opens the model picker prefilled
+// with the agent's description as the objective (editable) and a switchable
+// provider; on confirm, launches with the agent's relPath so main primes the
+// agent body after the harness section and persists it for the session chip.
+async function launchAgentFlow(agent: LibraryItem) {
+  const proj = currentProject()
+  if (!proj) return
+  const ctx = await resolveRunContext(proj) // F11/F12
+  if (ctx === null) return // cancelled
+  const label = await chooseTaskLabel() // M-LOG-a
+  if (label === null) return // cancelled
+  const picker = ModelPicker({
+    provider: 'claude',
+    models: modelsFor('claude'),
+    modelsForProvider: (prov) => modelsFor(prov),
+    agentName: agent.name,
+    objective: agent.description || agent.name,
+    onLaunch: async (prov, modelId, objective) => {
+      closeOverlay()
+      try {
+        const session = await window.agentIDE.sessionLaunch({
+          projectId: proj.id,
+          provider: prov,
+          model: modelId,
+          objective: objective || agent.name,
+          cwd: proj.localPath,
+          useContainer: ctx.useContainer,
+          importConfig: ctx.importConfig,
+          taskKind: label.taskKind,
+          taskSubkind: label.taskSubkind,
+          agentRelPath: agent.relPath
+        })
+        launchedSessions.add(session.id)
+        state.sessions.push(session)
+        state.activeSessionId = session.id
+        state.view = 'cockpit'
+        render()
+      } catch (err) {
+        console.error('agent-preset launch failed', err)
+      }
+    },
+    onPick: () => {
+      /* unused: onLaunch takes precedence */
+    },
+    onCancel: closeOverlay
+  })
+  picker.id = 'picker-overlay'
+  document.body.appendChild(picker)
 }
 
 // B2: create a library agent via the modal form; refresh pills on success.
@@ -530,6 +884,158 @@ function openAgentForm() {
   })
   form.id = 'picker-overlay'
   document.body.appendChild(form)
+}
+
+// S2: open the Linear integration panel for the current project. Link/pull/
+// write-back are wired to the frozen linear:* bridge; the panel renders all
+// Linear-sourced text via textContent only.
+async function openLinear() {
+  const proj = currentProject()
+  if (!proj) return
+  const status = (await window.agentIDE
+    .linearStatus(proj.id)
+    .catch(() => ({ connected: false }))) as LinearStatus
+  const backlog = await window.agentIDE.backlogList(proj.id).catch(() => [])
+  const rows: LinearBacklogRow[] = (
+    backlog as Array<{
+      id: string
+      title: string
+      source: string
+      remoteStatus?: string | null
+      linearUrl?: string | null
+    }>
+  )
+    .filter((i) => i.source === 'linear')
+    .map((i) => ({ id: i.id, title: i.title, remoteStatus: i.remoteStatus, linearUrl: i.linearUrl }))
+
+  const panel = LinearPanel({
+    status,
+    rows,
+    onLink: async () => {
+      const label = await promptText('Team or project label (optional)', proj.name)
+      const r = await window.agentIDE.linearLink(proj.id, { label: label ?? proj.name })
+      if ((r as { error?: string }).error) flash(`Linear link failed: ${(r as { error?: string }).error}`)
+      else {
+        flash('Linear linked')
+        closeOverlay()
+        openLinear()
+      }
+    },
+    onPull: async () => {
+      const r = (await window.agentIDE.linearPull(proj.id)) as { ok?: true; count?: number; error?: string }
+      if (r.error) flash(`Pull failed: ${r.error}`)
+      else {
+        flash(`Pulled ${r.count ?? 0} issue(s)`)
+        loadLibrary()
+        closeOverlay()
+        openLinear()
+      }
+    },
+    onLogout: async (accountId) => {
+      const r = (await window.agentIDE.linearLogout(accountId)) as { ok?: true; error?: string }
+      if (r.error) flash(`Logout failed: ${r.error}`)
+      else {
+        flash('Disconnected from Linear')
+        closeOverlay()
+        openLinear()
+      }
+    },
+    onPreview: (itemId, action) =>
+      window.agentIDE.linearWriteback(itemId, {
+        ...action,
+        mode: 'preview',
+        sessionId: state.activeSessionId ?? 'no-session'
+      }) as Promise<WritebackPreview | { error: string }>,
+    onApply: (itemId, action) =>
+      window.agentIDE.linearWriteback(itemId, {
+        ...action,
+        mode: 'apply',
+        sessionId: state.activeSessionId ?? 'no-session'
+      }) as Promise<{ ok?: boolean; outcome?: string; error?: string }>,
+    onCancel: closeOverlay
+  })
+  panel.id = 'picker-overlay'
+  document.body.appendChild(panel)
+}
+
+// S2: Cmd/Ctrl+L opens the Linear panel for the current project.
+window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L') && currentProject()) {
+    e.preventDefault()
+    if (document.getElementById('picker-overlay')) return
+    void openLinear()
+  }
+})
+
+// ---- S1 Backlog: create/edit modal + CRUD + selection --------------------------
+function openBacklogModal(projectId: string, item?: BacklogItem) {
+  const items = backlogItems.get(projectId) ?? []
+  const modal = BacklogModal({
+    item,
+    items,
+    onCreate: async (input: BacklogCreateInput) => {
+      const r = await window.agentIDE.backlogCreate({ ...input, projectId })
+      if (r.error) {
+        flash(r.error)
+        return
+      }
+      closeOverlay()
+      loadBacklog(projectId, true)
+    },
+    onUpdate: async (input: BacklogUpdateInput) => {
+      const r = await window.agentIDE.backlogUpdate(input)
+      if (r.error) {
+        flash(r.error)
+        return
+      }
+      closeOverlay()
+      loadBacklog(projectId, true)
+    },
+    onCancel: closeOverlay
+  })
+  modal.id = 'picker-overlay'
+  document.body.appendChild(modal)
+}
+
+async function deleteBacklogItem(projectId: string, item: BacklogItem) {
+  const ok = await chooseOption<'yes'>(`Delete “${item.title}”?`, [
+    {
+      label: 'Delete',
+      value: 'yes',
+      primary: true,
+      hint: 'Children re-parent; a bound active session blocks deletion'
+    }
+  ])
+  if (!ok) return
+  const r = await window.agentIDE.backlogDelete(item.id)
+  if (r.error) {
+    flash(r.error)
+    return
+  }
+  backlogSelected.delete(item.id)
+  loadBacklog(projectId, true)
+}
+
+async function setBacklogStatus(projectId: string, item: BacklogItem, status: BacklogManualStatus) {
+  const r = await window.agentIDE.backlogUpdate({ id: item.id, manualStatus: status })
+  if (r.error) {
+    flash(r.error)
+    return
+  }
+  loadBacklog(projectId, true)
+}
+
+// "Work on this": pick a provider, then launch a session seeded with the selected
+// backlog items (passed through as backlogItemIds → main binds them).
+async function startWorkOnThis() {
+  if (backlogSelected.size === 0) return
+  const choice = await chooseOption<Provider>('Launch a session for the selected items', [
+    { label: 'Codex', value: 'codex', primary: true },
+    { label: 'Claude', value: 'claude' },
+    { label: 'Gemini', value: 'gemini' }
+  ])
+  if (!choice) return
+  await launchFlow(choice.value, [...backlogSelected])
 }
 
 /** Write library text into a session. Multi-line bodies go ONLY to provider
@@ -628,10 +1134,15 @@ async function chooseTaskLabel(): Promise<{ taskKind: TaskKind; taskSubkind?: Ta
 }
 
 // F3: launch a session — choose run context, prompt for a name, label the task,
-// then pick a model.
-async function launchFlow(provider: Provider) {
+// then pick a model. S1: an optional backlog selection is carried through as
+// backlogItemIds (bound to the new session; item → 'in-session').
+async function launchFlow(provider: Provider, backlogItemIds: string[] = []) {
   const proj = currentProject()
   if (!proj) return
+  if (backlogItemIds.length > 5) {
+    flash('at most 5 backlog items per launch')
+    return
+  }
   const ctx = await resolveRunContext(proj) // F11/F12
   if (ctx === null) return // cancelled
   const name = await promptText(`Name this ${provider} session`, 'e.g. fix auth bug')
@@ -644,7 +1155,9 @@ async function launchFlow(provider: Provider) {
     onPick: async (prov, modelId) => {
       closeOverlay()
       try {
-        const session = await window.agentIDE.sessionLaunch({
+        // S1: backlogItemIds rides along the launch payload (main binds it to the
+        // new session). The frozen bridge type omits the field, so widen the arg.
+        const req = {
           projectId: proj.id,
           provider: prov,
           model: modelId,
@@ -653,11 +1166,19 @@ async function launchFlow(provider: Provider) {
           useContainer: ctx.useContainer,
           importConfig: ctx.importConfig,
           taskKind: label.taskKind,
-          taskSubkind: label.taskSubkind
-        })
+          taskSubkind: label.taskSubkind,
+          backlogItemIds
+        }
+        const session = await window.agentIDE.sessionLaunch(
+          req as unknown as Parameters<typeof window.agentIDE.sessionLaunch>[0]
+        )
         launchedSessions.add(session.id)
         state.sessions.push(session)
         state.activeSessionId = session.id
+        if (backlogItemIds.length) {
+          backlogSelected.clear()
+          loadBacklog(proj.id, true)
+        }
         state.view = 'cockpit'
         render()
       } catch (err) {
@@ -667,6 +1188,25 @@ async function launchFlow(provider: Provider) {
     onCancel: closeOverlay
   })
   picker.id = 'picker-overlay'
+  // S1: show the selected backlog items as chips at the top of the launcher.
+  if (backlogItemIds.length) {
+    const items = backlogItems.get(proj.id) ?? []
+    const strip = document.createElement('div')
+    strip.className = 'bk-launch-chips'
+    const lbl = document.createElement('span')
+    lbl.className = 'bk-launch-label'
+    lbl.textContent = 'Working on:'
+    strip.appendChild(lbl)
+    for (const id of backlogItemIds) {
+      const it = items.find((x) => x.id === id)
+      const chip = document.createElement('span')
+      chip.className = 'bk-launch-chip'
+      chip.textContent = it ? it.title : id
+      strip.appendChild(chip)
+    }
+    const modalEl = picker.querySelector('.modal')
+    if (modalEl) modalEl.insertBefore(strip, modalEl.firstChild?.nextSibling ?? null)
+  }
   document.body.appendChild(picker)
 }
 
@@ -893,6 +1433,47 @@ async function changeModelFlow(session: Session) {
   }
 }
 
+// S3: advance a session's stage (adjacent-only: discussion→playback→fix) via the
+// declarative session:setStage. Advancing to fix on a RUNNING CONTAINER session
+// flips the spawn-baked approval mode, so the foundation relaunches the engine in
+// fix mode — we confirm first ("Playback approved → restart engine in fix mode").
+// Host sessions advance as pure labels (no confirm, no relaunch). Because the
+// reconcile runs asynchronously under the per-project gate, we re-fetch sessions
+// after the call so the chip reflects the applied effectiveStage.
+async function advanceStage(session: Session, to: SessionStage) {
+  try {
+    const res = await runAdvanceFlow(session, to, {
+      confirm: async (message) =>
+        !!(await chooseOption<'yes'>(message, [
+          { label: 'Restart in fix mode', value: 'yes', primary: true }
+        ])),
+      setStage: (id, stage) => window.agentIDE.sessionSetStage(id, stage)
+    })
+    if (res === null) return // user cancelled the fix-restart confirm
+    if (res.error) {
+      flash(res.error)
+      return
+    }
+    await refreshSessions()
+  } catch (err) {
+    flash((err as Error).message)
+  }
+}
+
+/** Re-hydrate sessions from the store (after a declarative stage/model write the
+ *  reconcile settles asynchronously; this pulls the applied state back). */
+async function refreshSessions() {
+  try {
+    const sessions = await window.agentIDE.sessionsAll()
+    // Preserve local-only fields not on the persisted row would live here; the
+    // store is the source of truth for stage/status/spawned* so replace wholesale.
+    state.sessions = sessions
+    render()
+  } catch (err) {
+    console.error('refresh sessions failed', err)
+  }
+}
+
 // Permanently delete an archived session from the home board's Archived view.
 // Confirms first (irreversible from the app), then removes it from the store +
 // its on-disk history (moved to Bin/ per never-rm), and drops it from state.
@@ -967,6 +1548,19 @@ function openSessionMenu(session: Session, x: number, y: number) {
       }
     })
   }
+  // S3: adjacent-only stage advance from the session menu (mirrors the header
+  // control). Only for provider sessions that have a next stage.
+  if (!isTerminalSession(session.id) && session.model !== 'login') {
+    const to = nextStage(effectiveStageOf(session))
+    if (to) {
+      items.push({
+        label: `⏭ Advance to ${to.charAt(0).toUpperCase() + to.slice(1)}`,
+        onClick: () => {
+          void advanceStage(session, to)
+        }
+      })
+    }
+  }
   items.push(
     {
       label: 'Rename…',
@@ -1009,6 +1603,136 @@ function openSessionMenu(session: Session, x: number, y: number) {
   showMenu(x, y, items)
 }
 
+// ---- S6: queue drawer -------------------------------------------------------
+// Cache the current project's queue items; refreshed on open + on queue:changed.
+const queueItems = new Map<string, QueueItem[]>()
+const autoAdvanceByProject = new Map<string, boolean>()
+
+async function openQueueDrawer() {
+  const proj = currentProject()
+  if (!proj) return
+  const [items, auto] = await Promise.all([
+    window.agentIDE.queueList(proj.id),
+    window.agentIDE.queueGetAutoAdvance(proj.id)
+  ])
+  queueItems.set(proj.id, items)
+  autoAdvanceByProject.set(proj.id, auto)
+  mountQueueDrawer(proj.id)
+}
+
+function mountQueueDrawer(projectId: string) {
+  closeOverlay()
+  const proj = state.projects.find((p) => p.id === projectId)
+  if (!proj) return
+  const refresh = async () => {
+    queueItems.set(projectId, await window.agentIDE.queueList(projectId))
+    mountQueueDrawer(projectId)
+  }
+  const drawer = QueueDrawer({
+    projectName: proj.name,
+    items: queueItems.get(projectId) ?? [],
+    autoAdvance: autoAdvanceByProject.get(projectId) ?? false,
+    modelsFor,
+    onEnqueue: async (input) => {
+      const res = await window.agentIDE.queueEnqueue({ projectId, ...input })
+      if (!res.error) await refresh()
+      return res
+    },
+    onDelete: async (id) => {
+      await window.agentIDE.queueDelete(id)
+      await refresh()
+    },
+    onReorder: async (orderedIds) => {
+      await window.agentIDE.queueReorder(projectId, orderedIds)
+      await refresh()
+    },
+    onStartNext: async () => {
+      const r = await window.agentIDE.queueStartNext(projectId)
+      if (r.sessionId) {
+        // A queued session launched — hydrate it into the cockpit list.
+        const s = (await window.agentIDE.sessionsAll()).find((x) => x.id === r.sessionId)
+        if (s) {
+          launchedSessions.add(s.id)
+          if (!state.sessions.find((x) => x.id === s.id)) state.sessions.push(s)
+          state.activeSessionId = s.id
+        }
+      }
+      await refresh()
+    },
+    onToggleAutoAdvance: async (on) => {
+      await window.agentIDE.queueSetAutoAdvance(projectId, on)
+      autoAdvanceByProject.set(projectId, on)
+      await refresh()
+    },
+    onClose: () => {
+      closeOverlay()
+      render()
+    }
+  })
+  drawer.id = 'picker-overlay'
+  document.body.appendChild(drawer)
+}
+
+// ---- S6: split view + handoff ------------------------------------------------
+/** Toggle two-pane split view. On first enable, seed the second pane with another
+ *  live session in this project (if any) so both panes show a terminal. */
+function toggleSplit() {
+  splitOn = !splitOn
+  if (splitOn && !secondSessionId) {
+    const proj = currentProject()
+    const other = proj
+      ? liveSessionsFor(state.sessions, proj.id).find(
+          (s) => s.id !== state.activeSessionId && launchedSessions.has(s.id)
+        )
+      : undefined
+    secondSessionId = other?.id ?? null
+  }
+  render()
+}
+
+/** Hand the FOCUSED pane's session tail off to the OTHER pane as pending review
+ *  (never auto-submitted). Warns first if the target is in fix mode. */
+async function handoffFocused() {
+  if (!splitOn || !secondSessionId) return
+  const fromId = focusedPane === 'primary' ? state.activeSessionId : secondSessionId
+  const toId = focusedPane === 'primary' ? secondSessionId : state.activeSessionId
+  if (!fromId || !toId) return
+  const res = await window.agentIDE.sessionHandoff(fromId, toId)
+  if (res.error) {
+    flash(`handoff failed: ${res.error}`)
+    return
+  }
+  // Record fix-mode so the target pane's affordance can show the warning banner.
+  refreshReview(toId, res.targetInFix === true)
+  flash('handoff registered for review — insert it from the target pane when ready')
+}
+
+/** Bracket-paste a session's pending review material into its pty (never
+ *  auto-submitted). */
+async function insertReview(sessionId: string) {
+  const res = await window.agentIDE.reviewInsert(sessionId)
+  if (res.error) {
+    flash(`insert failed: ${res.error}`)
+    return
+  }
+  reviewPending.delete(sessionId)
+  render()
+}
+
+/** Build the "Review & insert" affordance for a session pane, or null if nothing
+ *  is pending for it. */
+function reviewElFor(sessionId: string | null): HTMLElement | null {
+  if (!sessionId) return null
+  const pend = reviewPending.get(sessionId)
+  if (!pend) return null
+  return HandoffReview({
+    count: pend.count,
+    totalChars: pend.chars,
+    inFix: pend.inFix,
+    onInsert: () => void insertReview(sessionId)
+  })
+}
+
 function render() {
   root.innerHTML = ''
   // Window drag strip: titleBarStyle 'hiddenInset' removes the native macOS
@@ -1028,6 +1752,9 @@ function render() {
     projects: state.projects,
     activeId: state.currentProjectId,
     counts: liveCounts(state.sessions),
+    gitStatus: Object.fromEntries(gitStatus),
+    // S5: projects with a session needing input get an attention dot on the rail.
+    attentionProjects: attentionProjectSet(),
     onSelect: (id) => {
       setCurrentProject(id)
       render()
@@ -1049,6 +1776,8 @@ function render() {
     const board = AllSessions({
       projects: state.projects,
       sessions: state.sessions,
+      attention,
+      costs,
       mode: boardMode,
       onSetMode: (m) => {
         boardMode = m
@@ -1078,12 +1807,50 @@ function render() {
     return
   }
 
+  // S1 Backlog tab — project-scoped bento⇄table view.
+  if (state.view === 'backlog') {
+    const bproj = currentProject()!
+    loadBacklog(bproj.id)
+    body.appendChild(
+      BacklogView({
+        projectName: bproj.name,
+        items: backlogItems.get(bproj.id) ?? [],
+        layout: backlogLayout(),
+        selected: backlogSelected,
+        onToggleLayout: setBacklogLayout,
+        onNew: () => openBacklogModal(bproj.id),
+        onEdit: (it) => openBacklogModal(bproj.id, it),
+        onDelete: (it) => deleteBacklogItem(bproj.id, it),
+        onSetStatus: (it, s) => setBacklogStatus(bproj.id, it, s),
+        onToggleSelect: (it) => {
+          if (backlogSelected.has(it.id)) backlogSelected.delete(it.id)
+          else {
+            if (backlogSelected.size >= 5) {
+              flash('at most 5 backlog items per launch')
+              return
+            }
+            backlogSelected.add(it.id)
+          }
+          render()
+        },
+        onWorkOnThis: () => startWorkOnThis(),
+        // S7 ⌘K navigation target: the search overlay routes here with a focused
+        // item id so the full Backlog view can highlight/scroll to it.
+        focusId: state.backlogFocus ?? null
+      })
+    )
+    root.appendChild(body)
+    return
+  }
+
   const proj = currentProject()!
+
   // The cockpit shows live sessions only; archived ones live on the ⌘ home board.
   const projectSessions = liveSessionsFor(state.sessions, proj.id)
   const activeSession = projectSessions.find((s) => s.id === state.activeSessionId) ?? null
 
   loadTree(proj.id)
+  loadGit(proj.id) // S4: branch/dirty badge + working-tree diff (read-only)
   if (proj.hasDevcontainer) loadContainerStatus(proj.id, proj.localPath)
   body.appendChild(
     Explorer({
@@ -1110,6 +1877,25 @@ function render() {
     activeSession && launchedSessions.has(activeSession.id) ? terminalFor(activeSession.id) : undefined
   const fileEl = activeTab.kind === 'file' ? fileEditorFor(proj.id, activeTab.path) : undefined
   const reportEl = activeTab.kind === 'report' ? reportViewerFor(activeTab.path) : undefined
+  // S4: the Diff tab appears only for git repos (gitDiff resolved to a diff, not
+  // null); its pane is built only when active. gitDiff===undefined = still loading
+  // (repo status unknown) → show the tab optimistically so the user can open it.
+  const isRepo = gitDiff.get(proj.id) !== null
+  const diffEl = isRepo
+    ? activeTab.kind === 'diff'
+      ? diffPaneFor(proj.id)
+      : document.createElement('div')
+    : undefined
+
+  // S6 split view: resolve the SECOND pane's session + terminal. If the remembered
+  // second session is gone (archived/closed), drop it.
+  if (secondSessionId && !projectSessions.some((s) => s.id === secondSessionId)) secondSessionId = null
+  const secondSession = secondSessionId
+    ? (projectSessions.find((s) => s.id === secondSessionId) ?? null)
+    : null
+  const secondTerminalEl =
+    secondSession && launchedSessions.has(secondSession.id) ? terminalFor(secondSession.id) : undefined
+
   body.appendChild(
     SupervisionView({
       session: activeSession,
@@ -1120,12 +1906,41 @@ function render() {
       terminalEl,
       fileEl,
       reportEl,
+      diffEl,
+      reviewEl: reviewElFor(activeSession?.id ?? null),
+      splitOn,
+      secondPane: splitOn
+        ? {
+            session: secondSession,
+            terminalEl: secondTerminalEl,
+            reviewEl: reviewElFor(secondSession?.id ?? null),
+            focused: focusedPane === 'second',
+            onFocus: () => {
+              focusedPane = 'second'
+              render()
+            }
+          }
+        : undefined,
+      onToggleSplit: toggleSplit,
+      onHandoff: () => void handoffFocused(),
+      onFocusPrimary: () => {
+        focusedPane = 'primary'
+        render()
+      },
       onSelectTab: (tab) => {
         activeTab = tab
         render()
       },
       onCloseFile: closeFile,
-      onCloseReport: closeReport
+      onCloseReport: closeReport,
+      agentName: activeSession ? agentNameFor(activeSession) : null,
+      // S3: only provider sessions carry a stage; terminals/logins don't.
+      onAdvanceStage:
+        activeSession && !isTerminalSession(activeSession.id) && activeSession.model !== 'login'
+          ? (session, to) => {
+              void advanceStage(session, to)
+            }
+          : undefined
     })
   )
   body.appendChild(
@@ -1134,6 +1949,8 @@ function render() {
       activeSessionId: state.activeSessionId,
       reconnect,
       health,
+      attention,
+      costs,
       libraryCounts: library
         ? {
             prompts: library.prompts.length,
@@ -1154,6 +1971,7 @@ function render() {
       showContainerButton: proj.hasDevcontainer,
       containerState: containerState.get(proj.id) ?? 'none',
       onStartContainer: startContainer,
+      agentNameFor,
       onStopContainer: stopContainer
     })
   )
@@ -1200,6 +2018,30 @@ async function boot() {
     }
   } catch (err) {
     console.error('boot hydrate failed', err)
+  }
+  // S5: seed the attention map for sessions already flagged in main (re-open).
+  window.agentIDE
+    .attentionState?.()
+    .then((m) => {
+      for (const [id, st] of Object.entries(m)) attention.set(id, st)
+      render()
+    })
+    .catch(() => {
+      /* attention unavailable */
+    })
+  // S5: seed persisted cost summaries for live sessions so chips show on re-open.
+  for (const s of state.sessions.filter((x) => x.status !== 'archived')) {
+    window.agentIDE
+      .costForSession(s.id)
+      .then((c) => {
+        if (c && !('error' in c)) {
+          costs.set(s.id, c as CostSummary)
+          render()
+        }
+      })
+      .catch(() => {
+        /* no cost */
+      })
   }
   loadLibrary() // D14: populate library pill counts (async, re-renders on load)
   render()

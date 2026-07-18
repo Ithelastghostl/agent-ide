@@ -16,6 +16,7 @@ import { allModels, defaultModel } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory, cloneRepo, cloneUrl, pullRepo } from './github'
 import { libraryDir, scanLibrary, readLibraryItem, libraryIsClone, addAgent } from './library'
+import { isRegisteredAgent, composeLaunchPrimer } from './agentPreset'
 // Pure argv/mount builders stay here (platform-agnostic); side-effecting docker
 // ops now go through runtime.container (M1).
 import { containerExecArgv, libraryConfigMount, providerSeedFiles } from './devcontainer'
@@ -31,6 +32,7 @@ import type {
 } from './runtime'
 import { historyFile, buildPrimer, stripAnsi, removeHistory } from './history'
 import { hostShell } from './ptyManager'
+import { sessionEvents } from './sessionEvents'
 import { Store } from './store'
 import { confinedPath } from './confine'
 import {
@@ -42,6 +44,16 @@ import {
 import { writeRawLog, writeTicketFile } from './projectLog'
 import { generateTicket, type HeadlessRunner } from './ticketService'
 import { notEnabledRunner } from './headlessRunner'
+import { LaunchService } from './launchService'
+import { registerBacklogIpc, bindLaunchBacklog } from './ipc/backlog'
+import { registerQueueIpc } from './ipc/queue'
+import { registerSearchIpc } from './ipc/search'
+import { registerHarnessIpc } from './ipc/harness'
+import { registerReviewIpc } from './ipc/review'
+import { registerGitIpc } from './ipc/git'
+import { registerLinearIpc } from './ipc/linear'
+import { registerAttentionIpc } from './ipc/attention'
+import type { IpcDeps } from './ipc/deps'
 import {
   isProvider,
   SERVICES,
@@ -49,6 +61,7 @@ import {
   type Session,
   type TaskKind,
   type TaskSubkind,
+  type SessionStage,
   type ServiceName
 } from '@shared/types'
 
@@ -190,6 +203,10 @@ export interface LaunchRequest {
    *  sessions; `taskSubkind` is required when `taskKind` is 'product'. */
   taskKind?: TaskKind
   taskSubkind?: TaskSubkind
+  /** S8: a library agent preset this session launches from. Validated in main
+   *  (confinedPath(libraryDir) + membership in scanLibrary().agents); its body is
+   *  primed into the session after the harness section. Persisted for the chip. */
+  agentRelPath?: string | null
 }
 
 let seq = 0
@@ -342,6 +359,25 @@ function recordOutput(store: Store | undefined, sessionId: string, data: string)
   appendFile(historyFile(sessionId), data, () => {
     /* best-effort mirror */
   })
+  // Feed the v2 session bus (P0.A): attention/cost (S5) and queue (S6) subscribe
+  // to 'output'. All live pty spawns funnel through here, so this is the single
+  // choke point that keeps the bus fed regardless of launch path.
+  sessionEvents.emitEvent('output', { id: sessionId, chunk: data })
+}
+
+// v2 bridge (foundation deviation #1): the legacy launch/archive handlers still
+// spawn through ipc.ts rather than launchService, so they must feed the session
+// bus themselves until consolidation rewires them. archiveAndEmit archives once
+// and emits 'archived' only on a real transition (queue advancement, S6, keys off
+// it). emitExit mirrors 'exit' for bus subscribers alongside the renderer event.
+function archiveAndEmit(store: Store | undefined, id: string): void {
+  const projectId = store?.getSession(id)?.projectId
+  const wasArchived = store?.getSession(id)?.status === 'archived'
+  store?.archiveSession(id)
+  if (!wasArchived && projectId) sessionEvents.emitEvent('archived', { id, projectId })
+}
+function emitExit(id: string, reason: import('./ptyManager').ExitReason): void {
+  sessionEvents.emitEvent('exit', { id, reason })
 }
 
 /** After a fresh engine starts for an existing session (reconnect or model swap),
@@ -352,10 +388,25 @@ function recordOutput(store: Store | undefined, sessionId: string, data: string)
  *  never lands in a killed/replaced session or interleaves the initial render. A
  *  trailing newline submits it. No-op when there's no prior history. */
 function seedPrimer(mgr: TerminalRuntime, store: Store | undefined, sessionId: string): void {
-  const transcript = store?.getTranscript(sessionId) ?? ''
-  const primer = buildPrimer(transcript)
-  if (!primer) return
-  mgr.primeWhenReady(sessionId, primer + '\n')
+  // Gate 1: on resume / model-swap, re-inject the FULL canonical primer —
+  // harness → agent → objective → prior history — so the uniform protocol is
+  // present after the engine restarts, not just the raw transcript. Falls back to
+  // history-only if there's no session row (defensive).
+  const s = store?.getSession(sessionId)
+  const history = stripAnsi(store?.getTranscript(sessionId) ?? '')
+  if (!s) {
+    const primer = buildPrimer(store?.getTranscript(sessionId) ?? '')
+    if (primer) mgr.primeWhenReady(sessionId, primer + '\n')
+    return
+  }
+  const submitText = composeLaunchPrimer({
+    objective: s.objective,
+    stage: s.effectiveStage ?? s.desiredStage ?? 'discussion',
+    agentRelPath: s.agentRelPath,
+    history,
+    reviewPayloads: store?.reviewPayloadsForSession(sessionId) ?? []
+  })
+  if (submitText.trim()) mgr.primeWhenReady(sessionId, submitText + '\n')
 }
 
 /** Resolve the running container a session belongs to, if any. Looks the session
@@ -389,6 +440,49 @@ export function registerIpc(
   const mgr = runtime.terminal
   const { container, host, ports } = runtime
   ipcMain.handle('ping', () => 'pong')
+
+  // ---- v2 foundation: canonical launcher + feature IPC registrars ----------
+  const projectRoot = (id: string): string | undefined => store?.getProject(id)?.localPath
+  const launch = new LaunchService({
+    runtime,
+    store: store!,
+    e2eMode: process.env.AGENT_IDE_E2E === '1',
+    onData: (id, chunk) => {
+      sendToRenderer('pty:data', { id, data: chunk })
+    },
+    onExit: (id, reason) => sendToRenderer('session:exit', { id, reason })
+  })
+  const ipcDeps: IpcDeps = { store, runtime, launch, projectRoot, send: sendToRenderer }
+  // All v2 registrars register their handlers unconditionally (no-store handlers
+  // return typed errors/empties, matching the degraded-mode contract).
+  registerBacklogIpc(ipcDeps)
+  registerQueueIpc(ipcDeps)
+  registerSearchIpc(ipcDeps)
+  registerReviewIpc(ipcDeps)
+  registerHarnessIpc(ipcDeps)
+  registerGitIpc(ipcDeps)
+  registerLinearIpc(ipcDeps)
+  registerAttentionIpc(ipcDeps)
+  if (store) {
+    // Reconcile queue + interrupted sessions on startup (R8/R34/R36).
+    try {
+      launch.reconcileOnBoot()
+    } catch (err) {
+      console.error('[boot reconcile]', (err as Error).message)
+    }
+  }
+
+  // Declarative stage/model writes (R27/R28): persist desired, request reconcile.
+  ipcMain.handle('session:setStage', (_e, id: unknown, stage: unknown) => {
+    if (typeof id !== 'string' || typeof stage !== 'string' || !store) return { error: 'invalid request' }
+    if (!['discussion', 'playback', 'fix'].includes(stage)) return { error: 'invalid stage' }
+    return launch.setDesiredStage(id, stage as SessionStage)
+  })
+  ipcMain.handle('session:setModel', (_e, id: unknown, provider: unknown, model: unknown) => {
+    if (typeof id !== 'string' || !isProvider(String(provider)) || typeof model !== 'string' || !store)
+      return { error: 'invalid request' }
+    return launch.setDesiredModel(id, provider as Provider, model)
+  })
 
   // Terminal copy/paste goes through the OS clipboard here in main, NOT the
   // renderer's navigator.clipboard: the async web clipboard needs document focus
@@ -498,7 +592,7 @@ export function registerIpc(
 
   // B1: the renderer names the project by id; main resolves the confined root
   // from its own Store (never a renderer-supplied filesystem path).
-  const projectRoot = (id: string): string | undefined => store?.getProject(id)?.localPath
+  // (projectRoot is declared once at the top of registerIpc for the v2 deps.)
 
   // Top level of a project's file tree. Confined by projectId: an unknown project
   // (or one whose root can't be resolved) yields an empty tree, never a host path.
@@ -610,7 +704,7 @@ export function registerIpc(
   // close + archive a session: kill its pty and persist archived status (F6).
   ipcMain.handle('session:archive', (_e, id: string) => {
     mgr.kill(id)
-    store?.archiveSession(id)
+    archiveAndEmit(store, id)
   })
 
   // M-LOG-a (§4.1): advance a task's lifecycle status (open→finished→deployed→
@@ -720,7 +814,8 @@ export function registerIpc(
     removeHistory(id)
   })
 
-  // F13: open a plain shell session (no agent) in the project's context.
+  // F13: open a plain shell session (no agent) in the project's context. Uses the
+  // v2 bus-emitting exit path (archiveAndEmit/emitExit) + S1 backlog binding.
   ipcMain.handle(
     'terminal:open',
     async (
@@ -758,6 +853,9 @@ export function registerIpc(
         useContainer: req.useContainer === true
       }
       store?.saveSession(session)
+      // S1: a plain terminal can also carry a "Work on this" backlog selection.
+      if (store)
+        bindLaunchBacklog(store, id, req.projectId, (req as { backlogItemIds?: unknown }).backlogItemIds)
       mgr.spawn(
         { id, shell, args, cwd, env: {} },
         (data) => {
@@ -765,7 +863,8 @@ export function registerIpc(
           recordOutput(store, id, data)
         },
         ({ reason }) => {
-          store?.archiveSession(id)
+          archiveAndEmit(store, id)
+          emitExit(id, reason)
           sendToRenderer('session:exit', { id, reason })
         }
       )
@@ -925,7 +1024,11 @@ export function registerIpc(
   ipcMain.handle('session:launch', async (_e, raw: unknown): Promise<Session> => {
     // B9: validate the renderer payload in main (types don't cross IPC). Enforces
     // provider/model membership, project ownership, field types + length caps.
-    const req: LaunchRequest = validateLaunchRequest(raw, (id) => !!store?.getProject(id))
+    const req: LaunchRequest = validateLaunchRequest(
+      raw,
+      (id) => !!store?.getProject(id),
+      (rel) => isRegisteredAgent(rel)
+    )
     const id = newSessionId()
 
     // Build the provider invocation. autoApprove == running in a container.
@@ -974,7 +1077,10 @@ export function registerIpc(
       taskKind: req.taskKind ?? null,
       taskSubkind: req.taskSubkind ?? null,
       taskStatus: req.taskKind ? 'open' : null,
-      useContainer: req.useContainer
+      useContainer: req.useContainer,
+      // S8: persist the agent preset so the session chip can render its name and
+      // resume/relaunch carry it forward.
+      agentRelPath: req.agentRelPath ?? null
     }
     // Spawn FIRST; only persist once the pty actually started (Codex P2 — a
     // failed spawn must not leave a persisted "running" ghost session).
@@ -990,8 +1096,9 @@ export function registerIpc(
         ({ reason }) => {
           // History always retained (item 7). Clean close -> archived; crash ->
           // NOT archived (status idle) so it stays reconnectable (F4 / Codex P1).
-          if (reason === 'closed') store?.archiveSession(id)
+          if (reason === 'closed') archiveAndEmit(store, id)
           else store?.setSessionStatus(id, 'idle')
+          emitExit(id, reason)
           stopPortWatch(id)
           sendToRenderer('session:exit', { id, reason })
         }
@@ -1000,6 +1107,23 @@ export function registerIpc(
       throw new Error(`failed to start ${req.provider} session: ${(err as Error).message}`)
     }
     store?.saveSession(session)
+    // S1: bind any "Work on this" backlog selection to the new session. The field
+    // rides along the launch payload (bridge passes req through untouched); binding
+    // moves each item to sessionState 'in-session' (Store recompute).
+    if (store)
+      bindLaunchBacklog(store, id, req.projectId, (raw as { backlogItemIds?: unknown }).backlogItemIds)
+
+    // P0.D primer: seed the session with the harness protocol, the agent preset
+    // body (S8 — trusted, auto-submitted AFTER the harness section), and the
+    // objective. Delivered once the terminal settles (primeWhenReady) so it never
+    // interleaves the CLI's initial render. Only agent launches add the agent
+    // section; a plain launch primes harness + objective.
+    const primer = composeLaunchPrimer({
+      objective: session.objective,
+      agentRelPath: req.agentRelPath,
+      agentLabel: session.objective
+    })
+    if (primer.trim()) mgr.primeWhenReady(id, primer + '\n')
 
     // Auto-forward any localhost port the in-container agent opens (OAuth :1455,
     // dev servers, …) so the host browser can reach it — VS Code-style.
@@ -1081,8 +1205,9 @@ export function registerIpc(
         },
         ({ reason }) => {
           stopPortWatch(s.id)
-          if (reason === 'closed') store?.archiveSession(s.id)
+          if (reason === 'closed') archiveAndEmit(store, s.id)
           else store?.setSessionStatus(s.id, 'idle')
+          emitExit(s.id, reason)
           sendToRenderer('session:exit', { id: s.id, reason })
         }
       )

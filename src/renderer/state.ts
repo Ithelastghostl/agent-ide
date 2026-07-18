@@ -6,7 +6,10 @@ export interface AppState {
   sessions: Session[]
   currentProjectId: string | null
   activeSessionId: string | null
-  view: 'cockpit' | 'home'
+  view: 'cockpit' | 'home' | 'backlog'
+  /** Backlog item to focus when view === 'backlog' (S7 ⌘K navigation seam);
+   *  the full Backlog view (S1) reads it to open focused on the routed item. */
+  backlogFocus?: string | null
 }
 
 // B13: sample/mock data moved to tests/fixtures/mockData.ts — it was unused at

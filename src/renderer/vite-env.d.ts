@@ -20,6 +20,8 @@ interface AgentIDEBridge {
     importConfig?: boolean
     taskKind?: import('@shared/types').TaskKind
     taskSubkind?: import('@shared/types').TaskSubkind
+    // S8: agent preset relPath; main validates + primes the agent body.
+    agentRelPath?: string | null
   }): Promise<import('@shared/types').Session>
   sessionRename(id: string, name: string): Promise<void>
   sessionArchive(id: string): Promise<void>
@@ -104,6 +106,56 @@ interface AgentIDEBridge {
     provider: string,
     model: string
   ): Promise<import('@shared/types').Session>
+
+  // ---- v2 backlog-driven harness (predeclared for all streams) ----
+  backlogList(projectId: string): Promise<import('@shared/types').BacklogItem[]>
+  backlogCreate(
+    input: import('@shared/types').BacklogCreateInput
+  ): Promise<{ item?: import('@shared/types').BacklogItem; error?: string }>
+  backlogUpdate(
+    input: import('@shared/types').BacklogUpdateInput
+  ): Promise<{ item?: import('@shared/types').BacklogItem; error?: string }>
+  backlogDelete(id: string): Promise<{ ok?: true; error?: string }>
+  backlogForSession(sessionId: string): Promise<string[]>
+  backlogUnbind(sessionId: string, itemId: string): Promise<{ ok?: true; error?: string }>
+  queueList(projectId: string): Promise<import('@shared/types').QueueItem[]>
+  queueEnqueue(
+    item: Partial<import('@shared/types').QueueItem>
+  ): Promise<{ item?: import('@shared/types').QueueItem; error?: string }>
+  queueDelete(id: string): Promise<{ ok?: true; error?: string }>
+  queueReorder(projectId: string, orderedIds: string[]): Promise<{ ok?: true; error?: string }>
+  queueStartNext(projectId: string): Promise<{ ok?: true; sessionId?: string | null; error?: string }>
+  queueGetAutoAdvance(projectId: string): Promise<boolean>
+  queueSetAutoAdvance(
+    projectId: string,
+    on: boolean
+  ): Promise<{ ok?: true; autoAdvance?: boolean; error?: string }>
+  onQueueChanged(cb: (p: { projectId: string }) => void): void
+  harnessGet(): Promise<string>
+  harnessSet(text: string): Promise<{ ok?: true; error?: string }>
+  sessionSetStage(id: string, stage: string): Promise<{ ok?: true; error?: string }>
+  sessionSetModel(id: string, provider: string, model: string): Promise<{ ok?: true; error?: string }>
+  searchQuery(query: string, limit?: number): Promise<import('@shared/types').SearchHit[]>
+  reviewPending(
+    sessionId: string
+  ): Promise<{ sections: { label: string; chars: number }[]; totalChars: number }>
+  reviewInsert(sessionId: string): Promise<{ ok?: true; error?: string }>
+  onReviewChanged(cb: (p: { sessionId: string }) => void): void
+  gitStatus(projectId: string): Promise<import('@shared/types').GitStatusSummary | { error: string }>
+  gitDiff(projectId: string, sessionId?: string): Promise<import('@shared/types').GitDiff | { error: string }>
+  snapshotList(projectId: string): Promise<import('@shared/types').Snapshot[] | { error: string }>
+  gitRollbackPreview(snapshotId: string): Promise<import('@shared/types').RollbackPreview | { error: string }>
+  gitRollbackApply(previewToken: string): Promise<{ ok?: true; error?: string }>
+  attentionState(): Promise<Record<string, 'input' | 'idle'>>
+  costForSession(sessionId: string): Promise<import('@shared/types').CostSummary | { error: string }>
+  onAttention(cb: (p: { sessionId: string; state: 'input' | 'idle' | null }) => void): void
+  onCost(cb: (p: { sessionId: string }) => void): void
+  sessionHandoff(fromId: string, toId: string): Promise<{ ok?: true; targetInFix?: boolean; error?: string }>
+  linearStatus(projectId: string): Promise<unknown>
+  linearLink(projectId: string, ref: unknown): Promise<{ ok?: true; error?: string }>
+  linearPull(projectId: string): Promise<{ ok?: true; count?: number; error?: string }>
+  linearWriteback(itemId: string, action: unknown): Promise<{ ok?: true; error?: string }>
+  linearLogout(accountId: string): Promise<{ ok?: true; error?: string }>
 }
 
 interface Window {

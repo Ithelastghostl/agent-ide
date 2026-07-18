@@ -77,6 +77,66 @@ describe('AllSessions (NN4 global board)', () => {
     expect(opened!.sessionId).toBe('s2')
     expect(opened!.projectId).toBe('p1')
   })
+
+  it('S3: renders a read-only stage chip per provider row from effectiveStage', () => {
+    const staged: Session[] = [
+      {
+        id: 's1',
+        projectId: 'p1',
+        provider: 'codex',
+        model: 'x',
+        objective: 'a',
+        status: 'running',
+        createdAt: 1,
+        updatedAt: 1,
+        effectiveStage: 'fix',
+        spawnedApprovalMode: 'guarded'
+      }
+    ]
+    const el = AllSessions({ projects, sessions: staged, mode: 'live', onSetMode: () => {}, onOpen: () => {} })
+    const chip = el.querySelector('.as-row .stage-chip.fix')
+    expect(chip).toBeTruthy()
+    expect(chip!.textContent).toBe('Fix')
+  })
+
+  it('S3: guarded/auto indicator reads spawnedApprovalMode independently of stage', () => {
+    // effectiveStage=fix but the pty still runs guarded (container not yet relaunched).
+    const staged: Session[] = [
+      {
+        id: 's1',
+        projectId: 'p1',
+        provider: 'codex',
+        model: 'x',
+        objective: 'a',
+        status: 'running',
+        createdAt: 1,
+        updatedAt: 1,
+        useContainer: true,
+        effectiveStage: 'fix',
+        spawnedApprovalMode: 'guarded'
+      }
+    ]
+    const el = AllSessions({ projects, sessions: staged, mode: 'live', onSetMode: () => {}, onOpen: () => {} })
+    expect(el.querySelector('.as-row .stage-chip.fix')).toBeTruthy()
+    expect(el.querySelector('.as-row .approval-ind.guarded')!.textContent).toBe('guarded')
+  })
+
+  it('S3: terminal sessions get no stage chip', () => {
+    const withTerm: Session[] = [
+      {
+        id: 'term-1-x',
+        projectId: 'p1',
+        provider: 'codex',
+        model: 'shell',
+        objective: 't',
+        status: 'running',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ]
+    const el = AllSessions({ projects, sessions: withTerm, mode: 'live', onSetMode: () => {}, onOpen: () => {} })
+    expect(el.querySelector('.stage-chip')).toBeNull()
+  })
 })
 
 describe('AllSessions — archived mode (view + delete)', () => {

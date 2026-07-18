@@ -15,6 +15,10 @@ export interface LibraryPanelProps {
   hasActiveSession: boolean
   /** Primary action for a Prompt: insert its body into the active session. */
   onUse: (item: LibraryItem) => void
+  /** Agents only (S8): launch a NEW session preset from this agent — opens the
+   *  model picker prefilled from the agent's description, then launches with the
+   *  agent's relPath so its body is primed. Independent of any active session. */
+  onLaunchAgent?: (item: LibraryItem) => void
   /** Agents only: open the add-agent form. */
   onAdd?: () => void
   onCancel: () => void
@@ -85,6 +89,21 @@ export function LibraryPanel(p: LibraryPanelProps): HTMLElement {
       const span = document.createElement('span')
       span.textContent = it.description || it.relPath
       ti.append(b, span)
+      const actions = document.createElement('div')
+      actions.className = 'lib-actions'
+      // S8: agents get a "Launch session" action that starts a NEW session from
+      // the agent (no active session required) — rendered as the primary action.
+      if (p.category === 'agents' && p.onLaunchAgent) {
+        const launch = document.createElement('button')
+        launch.className = 'lib-launch primary'
+        launch.textContent = 'Launch session'
+        launch.title = 'Start a new session preset from this agent'
+        launch.onclick = (e) => {
+          e.stopPropagation()
+          p.onLaunchAgent!(it)
+        }
+        actions.appendChild(launch)
+      }
       const action = document.createElement('button')
       action.className = 'lib-use'
       action.textContent = p.category === 'prompts' ? 'Insert' : 'Use'
@@ -94,7 +113,8 @@ export function LibraryPanel(p: LibraryPanelProps): HTMLElement {
         e.stopPropagation()
         p.onUse(it)
       }
-      opt.append(ti, action)
+      actions.appendChild(action)
+      opt.append(ti, actions)
       // Clicking the row (not just the button) also inserts, when enabled.
       if (p.hasActiveSession) opt.onclick = () => p.onUse(it)
       scroll.appendChild(opt)

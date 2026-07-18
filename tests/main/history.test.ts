@@ -15,6 +15,14 @@ describe('stripAnsi', () => {
   it('collapses carriage-return rewrites to the final state', () => {
     expect(stripAnsi('loading...\rdone     ')).toBe('done     ')
   })
+  it('preserves CRLF-terminated lines (regression: prompts were erased)', () => {
+    // A pty emits CRLF; the CR must NOT be treated as a mid-line redraw that
+    // erases the line. Independently found by S5 (attention) + S6 (handoff).
+    expect(stripAnsi('Do you want to proceed?\r\ny/n')).toBe('Do you want to proceed?\ny/n')
+    expect(stripAnsi('line one\r\nline two\r\n')).toBe('line one\nline two\n')
+    // A genuine mid-line CR redraw (no following LF) still collapses.
+    expect(stripAnsi('50%\r100%')).toBe('100%')
+  })
   it('drops stray control bytes but keeps tabs and newlines', () => {
     expect(stripAnsi('a\x00b\tc\nd')).toBe('ab\tc\nd')
   })
