@@ -1788,19 +1788,12 @@ function render() {
         state.activeSessionId = sessionId
         render()
       },
+      // F1: prominent "Open project" CTA lives in the board header; anchor the
+      // add-project menu to the button's rect (left/bottom), as before.
+      onOpenProject: (anchor) => openAddProjectMenu(anchor.left, anchor.bottom),
       onSyncHistory: () => window.agentIDE.historySync(new Date().toISOString()),
       onDelete: deleteArchivedSession
     })
-    // F1: prominent "Open project" CTA at the top of the board
-    const cta = document.createElement('button')
-    cta.className = 'open-cta'
-    cta.textContent = '+ Open project'
-    cta.onclick = (e) =>
-      openAddProjectMenu(
-        (e.target as HTMLElement).getBoundingClientRect().left,
-        (e.target as HTMLElement).getBoundingClientRect().bottom
-      )
-    board.insertBefore(cta, board.querySelector('.sub')!.nextSibling)
     body.appendChild(board)
     root.appendChild(body)
     appendStatusBar()

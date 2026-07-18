@@ -974,6 +974,7 @@
 .prompt-input {
   width: 100%; background: var(--bg-page); border: 1px solid var(--border); border-radius: 8px;
   padding: 9px 11px; color: var(--text-primary); font-size: 13px; outline: none;
+}
 .modal-wrap {
   position: fixed;
   inset: 0;
@@ -1242,6 +1243,82 @@
   font-size: 12px;
   margin: 0 0 18px;
 }
+
+/* Home-board header bar: title left, control cluster right. */
+.as-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+  margin: 0 0 4px;
+}
+.as-header h2 {
+  margin: 0;
+}
+.as-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+/* Neutralize the standalone margins these controls carry elsewhere so they sit
+   flush in the header row. */
+.as-header-actions .as-toggle {
+  margin: 0;
+}
+.as-header-actions .open-cta {
+  margin: 0;
+}
+/* Sync affordance + its result live together, apart from the compact cluster so
+   a long failure message can't stretch the header. */
+.as-sync {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.as-sync .hsync {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.as-sync .hsync:hover {
+  color: #fff;
+  border-color: var(--accent);
+}
+.as-sync .hsync:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.as-sync .hsync-result {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.as-sync .hsync-result.err {
+  color: #ff7b72;
+}
+
+/* Section heading for the active board ("Live Sessions" / "Project History"). */
+.as-section {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-secondary);
+}
 .as-proj {
   margin-bottom: 18px;
 }
@@ -1371,11 +1448,6 @@
   margin: 4px 14px;
   min-height: 14px;
 }
-
-/* AllSessions: history sync action + per-step result line. */
-.as-actions { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; }
-.as-actions .hsync-result { font-size: 11px; color: var(--text-muted); }
-.as-actions .hsync-result.err { color: #ff7b72; }
 
 /* ⌘K search overlay (S7) — a top-anchored command palette over the app. Reuses
    the .modal-wrap dimmer; the panel sits near the top like a spotlight box. */
@@ -1616,19 +1688,6 @@
 
 /* Queue activity-bar icon hover affordance. */
 .activity .ic.queue-ic { cursor: pointer; }
-.as-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 0 12px;
-}
-.as-actions .hsync-result {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.as-actions .hsync-result.err {
-  color: #ff7b72;
-}
 /* Archived rows aren't clickable-to-open; the delete action is the point. */
 .as-row.arch {
   cursor: default;

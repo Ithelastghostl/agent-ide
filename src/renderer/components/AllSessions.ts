@@ -21,6 +21,9 @@ export interface AllSessionsProps {
   mode: BoardMode
   onSetMode: (mode: BoardMode) => void
   onOpen: (projectId: string, sessionId: string) => void
+  /** F1 home-board invariant: open the add-project menu, anchored to the CTA.
+   *  The header owns the button; main.ts owns the menu (openAddProjectMenu). */
+  onOpenProject: (anchor: DOMRectReadOnly) => void
   /** B8: commit+push the IDE-owned history repo; resolves per-step results. */
   onSyncHistory?: () => Promise<{ step: string; ok: boolean; skipped?: boolean; error?: string }[]>
   /** Permanently delete an archived session (shown only in archived mode). */
@@ -62,39 +65,50 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
     .filter((s) => (archived ? s.status === 'archived' : s.status !== 'archived'))
     .sort((a, b) => b.createdAt - a.createdAt)
 
+  // Themed header bar: board title on the left; the Live|Archived toggle, the
+  // Open Project CTA, and Sync history grouped as a control cluster on the right.
+  const header = document.createElement('div')
+  header.className = 'as-header'
+
   const h2 = document.createElement('h2')
   h2.textContent = 'All sessions'
-  el.appendChild(h2)
+  header.appendChild(h2)
 
-  // Live | Archived toggle.
+  const headerActions = document.createElement('div')
+  headerActions.className = 'as-header-actions'
+
+  // Live | Archived segmented toggle (order fixed: Live then Archived).
   const seg = document.createElement('div')
   seg.className = 'as-toggle'
+  seg.setAttribute('role', 'tablist')
   for (const m of ['live', 'archived'] as const) {
     const b = document.createElement('button')
     b.className = 'as-seg' + (p.mode === m ? ' on' : '')
     b.textContent = m === 'live' ? 'Live' : 'Archived'
+    b.setAttribute('role', 'tab')
+    b.setAttribute('aria-pressed', String(p.mode === m))
     b.onclick = () => {
       if (p.mode !== m) p.onSetMode(m)
     }
     seg.appendChild(b)
   }
-  el.appendChild(seg)
+  headerActions.appendChild(seg)
 
-  const sub = document.createElement('div')
-  sub.className = 'sub'
-  sub.textContent = archived
-    ? `${shown.length} archived across ${p.projects.length} projects`
-    : `${shown.length} live across ${p.projects.length} projects`
-  el.appendChild(sub)
+  // F1 CTA — kept as `.open-cta` with text "Open project" (pinned by boot.spec).
+  // The header owns the button; main.ts owns the menu via onOpenProject.
+  const cta = document.createElement('button')
+  cta.className = 'open-cta'
+  cta.textContent = '+ Open project'
+  cta.onclick = () => p.onOpenProject(cta.getBoundingClientRect())
+  headerActions.appendChild(cta)
 
   if (p.onSyncHistory) {
-    const actions = document.createElement('div')
-    actions.className = 'as-actions'
     const btn = document.createElement('button')
     btn.className = 'hsync'
     btn.textContent = 'Sync history'
     const result = document.createElement('span')
     result.className = 'hsync-result'
+    result.setAttribute('aria-live', 'polite')
     btn.onclick = async () => {
       btn.disabled = true
       result.className = 'hsync-result'
@@ -114,9 +128,30 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
       }
       btn.disabled = false
     }
-    actions.append(btn, result)
-    el.appendChild(actions)
+    // Keep the sync affordance and its (potentially long) result together, but
+    // outside the compact cluster so a failure message can't stretch the header.
+    const sync = document.createElement('div')
+    sync.className = 'as-sync'
+    sync.append(btn, result)
+    headerActions.appendChild(sync)
   }
+
+  header.appendChild(headerActions)
+  el.appendChild(header)
+
+  const sub = document.createElement('div')
+  sub.className = 'sub'
+  sub.textContent = archived
+    ? `${shown.length} archived across ${p.projects.length} projects`
+    : `${shown.length} live across ${p.projects.length} projects`
+  el.appendChild(sub)
+
+  // Section heading for the active board — rendered before the empty-state
+  // return so an empty archived board still reads as "Project History".
+  const section = document.createElement('h3')
+  section.className = 'as-section'
+  section.textContent = archived ? 'Project History' : 'Live Sessions'
+  el.appendChild(section)
 
   if (shown.length === 0) {
     const empty = document.createElement('div')
