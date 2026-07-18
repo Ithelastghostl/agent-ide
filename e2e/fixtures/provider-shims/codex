@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Inert provider shim for e2e (R3-4): prints a banner, echoes stdin, idles.
+# Guarantees no e2e ever reaches a real authenticated CLI or submits a billed prompt.
+echo "SHIM_PROVIDER_READY $(basename "$0") args: $*"
+# echo any stdin back so primer/paste assertions can observe it, then idle.
+cat &
+while true; do sleep 3600; done

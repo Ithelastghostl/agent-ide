@@ -8,7 +8,19 @@ import { execFileSync } from 'node:child_process'
 
 // The transcript helpers live in TS; bundle them on the fly via esbuild (a
 // devDependency of the toolchain) so this script always tests current code.
-execFileSync('npx', ['--no-install', 'esbuild', 'src/main/history.ts', '--bundle', '--platform=node', '--format=esm', '--outfile=/tmp/agent-ide-history.mjs'], { stdio: 'inherit' })
+execFileSync(
+  'npx',
+  [
+    '--no-install',
+    'esbuild',
+    'src/main/history.ts',
+    '--bundle',
+    '--platform=node',
+    '--format=esm',
+    '--outfile=/tmp/agent-ide-history.mjs'
+  ],
+  { stdio: 'inherit' }
+)
 const { stripAnsi, buildPrimer } = await import('/tmp/agent-ide-history.mjs')
 
 const PICKS = {
@@ -26,16 +38,27 @@ for (const name of providers) {
   const marker = `MARKER_${name.toUpperCase()}_${process.pid}`
   process.stdout.write(`\n=== ${name}: ${cmd} ${args.join(' ')} ===\n`)
   let raw = ''
-  const proc = spawn(cmd, args, { name: 'xterm-256color', cols: 120, rows: 40, cwd: process.env.HOME, env: process.env })
+  const proc = spawn(cmd, args, {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 40,
+    cwd: process.env.HOME,
+    env: process.env
+  })
   // Minimal terminal-emulator responses: TUIs (claude/gemini) query the
   // terminal and stall without answers — in the app, xterm.js provides them.
   const answered = new Set()
-  const answer = (key, reply) => { if (!answered.has(key)) { answered.add(key); proc.write(reply) } }
+  const answer = (key, reply) => {
+    if (!answered.has(key)) {
+      answered.add(key)
+      proc.write(reply)
+    }
+  }
   proc.onData((d) => {
     raw += d
-    if (d.includes('\x1b[6n')) proc.write('\x1b[1;1R')                    // cursor position (repeatable)
-    if (/\x1b\[[>=]?c/.test(d)) answer('da', '\x1b[?62;22c')              // device attributes
-    if (d.includes('\x1b[?u')) answer('kitty', '\x1b[?0u')                // kitty keyboard
+    if (d.includes('\x1b[6n')) proc.write('\x1b[1;1R') // cursor position (repeatable)
+    if (/\x1b\[[>=]?c/.test(d)) answer('da', '\x1b[?62;22c') // device attributes
+    if (d.includes('\x1b[?u')) answer('kitty', '\x1b[?0u') // kitty keyboard
     if (d.includes('\x1b]10;?')) answer('fg', '\x1b]10;rgb:ffff/ffff/ffff\x1b\\')
     if (d.includes('\x1b]11;?')) answer('bg', '\x1b]11;rgb:0000/0000/0000\x1b\\')
   })
@@ -68,7 +91,9 @@ for (const name of providers) {
   const primer = buildPrimer(raw)
   const inClean = cleaned.includes(marker)
   const inPrimer = primer.includes(marker)
-  console.log(`${name}: model accepted=${raw.length > 300} markerInStripAnsi=${inClean} markerInPrimer=${inPrimer}`)
+  console.log(
+    `${name}: model accepted=${raw.length > 300} markerInStripAnsi=${inClean} markerInPrimer=${inPrimer}`
+  )
   if (!inClean || !inPrimer) {
     failures++
     console.log(`${name}: FAIL — cleaned tail:\n${cleaned.slice(-800)}`)

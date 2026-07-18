@@ -1,10 +1,22 @@
-import type { Project, Session } from '@shared/types'
+import {
+  isTerminalSession,
+  type AttentionState,
+  type CostSummary,
+  type Project,
+  type Session
+} from '@shared/types'
+import { stageChip, approvalIndicator, effectiveStageOf } from './StageChip'
+import { attentionBadge, costChip, formatCost } from './costChip'
 
 export type BoardMode = 'live' | 'archived'
 
 export interface AllSessionsProps {
   projects: Project[]
   sessions: Session[]
+  /** S5: ephemeral attention flags, per session id (flagged sessions only). */
+  attention?: Map<string, Exclude<AttentionState, null>>
+  /** S5: last-known cost summary, per session id (absent → no chip). */
+  costs?: Map<string, CostSummary>
   /** Which set to show: live (default board) or archived (for cleanup). */
   mode: BoardMode
   onSetMode: (mode: BoardMode) => void
@@ -15,9 +27,32 @@ export interface AllSessionsProps {
   onDelete?: (session: Session) => void
 }
 
+/** Sum the dollar cost across a project's sessions for the home-board rollup.
+ *  Returns undefined when NO session has any cost figure (rollup hidden, never
+ *  "$0"). Token-only summaries (no dollar figure) don't contribute a dollar
+ *  total, so a project with only those shows no rollup. */
+function projectCostRollup(
+  costs: Map<string, CostSummary> | undefined,
+  sessionIds: string[]
+): string | undefined {
+  if (!costs) return undefined
+  let total = 0
+  let any = false
+  for (const id of sessionIds) {
+    const c = costs.get(id)
+    if (c?.costUSD != null) {
+      total += c.costUSD
+      any = true
+    }
+  }
+  if (!any) return undefined
+  return `Σ ${formatCost({ costUSD: total } as CostSummary)}`
+}
+
 /** ⌘ home: sessions across every project, grouped by project, newest first (NN4).
  *  A Live | Archived toggle switches between the live board and the archived
- *  sessions (where they can be permanently deleted). */
+ *  sessions (where they can be permanently deleted). Live sessions show S5
+ *  attention badges + cost chips. */
 export function AllSessions(p: AllSessionsProps): HTMLElement {
   const el = document.createElement('div')
   el.className = 'allsessions'
@@ -100,6 +135,18 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
     const head = document.createElement('div')
     head.className = 'h'
     head.textContent = proj.name
+    // S5: per-project cost rollup on the home board (hidden when no dollar cost).
+    const rollup = projectCostRollup(
+      p.costs,
+      projSessions.map((s) => s.id)
+    )
+    if (rollup) {
+      const r = document.createElement('span')
+      r.className = 'as-rollup'
+      r.textContent = rollup
+      r.title = 'Total session cost this project'
+      head.appendChild(r)
+    }
     group.appendChild(head)
 
     for (const s of projSessions) {
@@ -116,6 +163,13 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
       // M-LOG-a (§4.5.2): task label chip + lifecycle status. Terminals/unlabeled
       // sessions have no taskKind → no chip.
       const chips: HTMLElement[] = []
+      // S3: read-only stage chip (effectiveStage) + guarded/auto indicator
+      // (spawnedApprovalMode) for provider sessions. Terminals have no stage.
+      if (!isTerminalSession(s.id)) {
+        chips.push(stageChip(effectiveStageOf(s)))
+        const ind = approvalIndicator(s.spawnedApprovalMode, s.status)
+        if (ind) chips.push(ind)
+      }
       if (s.taskKind) {
         const chip = document.createElement('span')
         chip.className = `task-chip ${s.taskKind}`
@@ -131,7 +185,10 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
       const stt = document.createElement('span')
       stt.className = 'stt'
       stt.textContent = s.status
-      row.append(pv, nm, ...chips, mdl, stt)
+      // S5: attention badge + cost chip (each hidden when absent).
+      const att = attentionBadge(p.attention?.get(s.id))
+      const cost = costChip(p.costs?.get(s.id))
+      row.append(pv, nm, ...chips, ...(att ? [att] : []), mdl, ...(cost ? [cost] : []), stt)
 
       if (archived && p.onDelete) {
         // Delete action — opening the row is not useful for archived chats; the

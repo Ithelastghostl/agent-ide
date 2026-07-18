@@ -24,7 +24,10 @@ app.whenReady().then(async () => {
     const row = db.prepare('SELECT v FROM t WHERE id = 1').get()
     db.close()
     if (row && row.v === 'hello') results.push('better-sqlite3: OK')
-    else { ok = false; results.push('better-sqlite3: FAIL (unexpected read)') }
+    else {
+      ok = false
+      results.push('better-sqlite3: FAIL (unexpected read)')
+    }
   } catch (err) {
     ok = false
     results.push('better-sqlite3: FAIL — ' + (err && err.message))
@@ -37,11 +40,15 @@ app.whenReady().then(async () => {
       const p = pty.spawn('sh', ['-c', 'echo pty-ok'], { cwd: process.cwd(), env: process.env })
       let out = ''
       const timer = setTimeout(() => reject(new Error('pty timeout')), 5000)
-      p.onData((d) => { out += d })
+      p.onData((d) => {
+        out += d
+      })
       p.onExit(() => {
         clearTimeout(timer)
-        if (out.includes('pty-ok')) { results.push('node-pty: OK'); resolve() }
-        else reject(new Error('pty produced no expected output'))
+        if (out.includes('pty-ok')) {
+          results.push('node-pty: OK')
+          resolve()
+        } else reject(new Error('pty produced no expected output'))
       })
     })
   } catch (err) {
