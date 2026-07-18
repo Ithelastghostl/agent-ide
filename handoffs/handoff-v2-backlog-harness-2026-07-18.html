@@ -44,13 +44,16 @@
 <h2>Verification (macOS, this machine)</h2>
 <table>
 <tr><th>Gate</th><th>Result</th></tr>
-<tr><td><code>npx tsc --noEmit</code></td><td class="ok">clean across all merged streams</td></tr>
-<tr><td><code>npm test</code> (unit)</td><td class="ok">620 passed / 5 skipped (58 files) — +~340 new tests over v1</td></tr>
+<tr><td><code>npx tsc --noEmit</code></td><td class="ok">clean — v2 + dev's features fully reconciled</td></tr>
+<tr><td><code>npm test</code> (unit)</td><td class="ok">641 passed / 5 skipped (59 files) — +~360 new tests over v1</td></tr>
 <tr><td><code>npm run build</code></td><td class="ok">all 3 targets</td></tr>
 <tr><td><code>npm run native-gate</code></td><td class="ok">better-sqlite3 + node-pty OK (Electron ABI)</td></tr>
-<tr><td><code>npm run e2e</code> (Playwright)</td><td id="e2e-status">— see final chat message —</td></tr>
-<tr><td>Container smoke (real OrbStack)</td><td id="smoke-status">— see final chat message —</td></tr>
+<tr><td><code>npm run e2e</code> (Playwright)</td><td class="ok">23/24 (only the pre-existing OSC-8 terminal-links flake — fails on the untouched base too; agent-presets is an under-load timing flake that passes in isolation)</td></tr>
+<tr><td>Container smoke (real OrbStack)</td><td class="ok">5/5 — exec context, seeded+authenticated codex, port forward, real in-container session</td></tr>
 </table>
+
+<h2>dev merge (2026-07-18)</h2>
+<p><code>dev</code> advanced after the v2 fork with a real feature commit (<b>service status bar</b> — serviceHealth/StatusBar probing vercel/supabase/github/resend; <b>codex model-cache</b> + stale-model fallback on resume; <b>workspace-cwd</b> for container sessions; <b>session-delete</b> from the Archived board; <b>OS-clipboard</b> copy/paste; <b>model-rejection</b> detection) plus a prettier pass. All of it was reconciled into v2 across 18 conflicted files (ipc.ts, store.ts, main.ts, renderer components, tests) — union where features were orthogonal, superset where they overlapped (e.g. one terminal:open with both the v2 bus-emit path AND dev's workspace context; one resume handler with both the harness primer AND dev's stale-model fallback + model-rejection). tsc clean, 641 unit + build + e2e + smoke all green on the merged result.</p>
 
 <h2>Deviations from the frozen contract (reconciled in consolidation)</h2>
 <ul>
