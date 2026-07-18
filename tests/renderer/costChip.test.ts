@@ -89,6 +89,7 @@ describe('AllSessions — attention badges, cost chips, and per-project rollup',
       costs,
       mode: 'live',
       onSetMode: () => {},
+      onOpenProject: () => {},
       onOpen: () => {}
     })
     expect(el.querySelector('.att-badge.input')).not.toBeNull()
@@ -99,7 +100,15 @@ describe('AllSessions — attention badges, cost chips, and per-project rollup',
 
   it('hides the rollup when no session has a dollar figure (never $0)', () => {
     const costs = new Map<string, CostSummary>([['s1', cost({ inputTokens: 100 })]]) // token-only
-    const el = AllSessions({ projects, sessions, costs, mode: 'live', onSetMode: () => {}, onOpen: () => {} })
+    const el = AllSessions({
+      projects,
+      sessions,
+      costs,
+      mode: 'live',
+      onSetMode: () => {},
+      onOpenProject: () => {},
+      onOpen: () => {}
+    })
     expect(el.querySelector('.as-rollup')).toBeNull()
     // the token-only chip still renders on the row
     expect(el.querySelectorAll('.cost-chip').length).toBe(1)

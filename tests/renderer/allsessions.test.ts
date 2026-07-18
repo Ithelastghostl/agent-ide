@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import { AllSessions } from '../../src/renderer/components/AllSessions'
+import { AllSessions, type BoardMode, type AllSessionsProps } from '../../src/renderer/components/AllSessions'
 import type { Project, Session } from '@shared/types'
 
 const projects: Project[] = [
@@ -52,7 +52,14 @@ const sessions: Session[] = [
 
 describe('AllSessions (NN4 global board)', () => {
   it('renders only LIVE sessions across projects, grouped by project (archived hidden)', () => {
-    const el = AllSessions({ projects, sessions, mode: 'live', onSetMode: () => {}, onOpen: () => {} })
+    const el = AllSessions({
+      projects,
+      sessions,
+      mode: 'live',
+      onSetMode: () => {},
+      onOpenProject: () => {},
+      onOpen: () => {}
+    })
     expect(el.querySelectorAll('.as-proj').length).toBe(2)
     // 3 live sessions; the archived s4 is excluded.
     expect(el.querySelectorAll('.as-row').length).toBe(3)
@@ -67,6 +74,7 @@ describe('AllSessions (NN4 global board)', () => {
       sessions,
       mode: 'live',
       onSetMode: () => {},
+      onOpenProject: () => {},
       onOpen: (projectId, sessionId) => {
         opened = { projectId, sessionId }
       }
@@ -98,6 +106,7 @@ describe('AllSessions (NN4 global board)', () => {
       sessions: staged,
       mode: 'live',
       onSetMode: () => {},
+      onOpenProject: () => {},
       onOpen: () => {}
     })
     const chip = el.querySelector('.as-row .stage-chip.fix')
@@ -127,6 +136,7 @@ describe('AllSessions (NN4 global board)', () => {
       sessions: staged,
       mode: 'live',
       onSetMode: () => {},
+      onOpenProject: () => {},
       onOpen: () => {}
     })
     expect(el.querySelector('.as-row .stage-chip.fix')).toBeTruthy()
@@ -151,6 +161,7 @@ describe('AllSessions (NN4 global board)', () => {
       sessions: withTerm,
       mode: 'live',
       onSetMode: () => {},
+      onOpenProject: () => {},
       onOpen: () => {}
     })
     expect(el.querySelector('.stage-chip')).toBeNull()
@@ -165,6 +176,7 @@ describe('AllSessions — archived mode (view + delete)', () => {
       sessions,
       mode: 'archived',
       onSetMode: () => {},
+      onOpenProject: () => {},
       onOpen: () => {
         opened = true
       },
@@ -190,6 +202,7 @@ describe('AllSessions — archived mode (view + delete)', () => {
       sessions,
       mode: 'archived',
       onSetMode: () => {},
+      onOpenProject: () => {},
       onOpen: () => {
         opened = true
       },
@@ -209,6 +222,7 @@ describe('AllSessions — archived mode (view + delete)', () => {
       sessions,
       mode: 'live',
       onSetMode: (m) => seen.push(m),
+      onOpenProject: () => {},
       onOpen: () => {}
     })
     const segs = el.querySelectorAll('.as-seg')
@@ -224,9 +238,71 @@ describe('AllSessions — archived mode (view + delete)', () => {
       sessions: liveOnly,
       mode: 'archived',
       onSetMode: () => {},
+      onOpenProject: () => {},
       onOpen: () => {}
     })
     expect(el.querySelector('.as-empty')?.textContent).toContain('No archived')
     expect(el.querySelectorAll('.as-row').length).toBe(0)
+  })
+})
+
+describe('AllSessions — themed header + labeled sections', () => {
+  const mk = (mode: BoardMode, sess: Session[] = sessions, extra: Partial<AllSessionsProps> = {}) =>
+    AllSessions({
+      projects,
+      sessions: sess,
+      mode,
+      onSetMode: () => {},
+      onOpenProject: () => {},
+      onOpen: () => {},
+      ...extra
+    })
+
+  it('keeps exactly one board h2 "All sessions" (boot.spec strict-locator contract)', () => {
+    const el = mk('live')
+    const h2s = el.querySelectorAll('.allsessions h2, h2')
+    // The board itself has no .allsessions ancestor in this fragment, so match h2 directly.
+    expect(el.querySelectorAll('h2').length).toBe(1)
+    expect(h2s[0].textContent).toBe('All sessions')
+    // The h2 lives inside the themed header, alongside the action cluster.
+    expect(el.querySelector('.as-header h2')).not.toBeNull()
+  })
+
+  it('labels the live board "Live Sessions" and the archived board "Project History"', () => {
+    expect(mk('live').querySelector('h3.as-section')?.textContent).toBe('Live Sessions')
+    expect(mk('archived').querySelector('h3.as-section')?.textContent).toBe('Project History')
+  })
+
+  it('renders the section heading even when the board is empty', () => {
+    // Archived heading must survive the empty-state early return.
+    const liveOnly = sessions.filter((s) => s.status !== 'archived')
+    const el = mk('archived', liveOnly)
+    expect(el.querySelector('h3.as-section')?.textContent).toBe('Project History')
+    expect(el.querySelector('.as-empty')).not.toBeNull()
+  })
+
+  it('hosts the Open Project CTA in the header and reports its anchor rect', () => {
+    let anchor: DOMRectReadOnly | null = null
+    const el = mk('live', sessions, { onOpenProject: (a) => (anchor = a) })
+    const cta = el.querySelector('.as-header-actions .open-cta') as HTMLElement
+    expect(cta).not.toBeNull()
+    expect(cta.textContent).toContain('Open project')
+    cta.click()
+    expect(anchor).not.toBeNull()
+  })
+
+  it('groups the Live | Archived toggle and Sync history inside the header actions', () => {
+    let synced = false
+    const el = mk('live', sessions, {
+      onSyncHistory: async () => {
+        synced = true
+        return [{ step: 'push', ok: true }]
+      }
+    })
+    expect(el.querySelector('.as-header-actions .as-toggle')).not.toBeNull()
+    const sync = el.querySelector('.as-header-actions .as-sync .hsync') as HTMLElement
+    expect(sync).not.toBeNull()
+    sync.click()
+    expect(synced).toBe(true)
   })
 })

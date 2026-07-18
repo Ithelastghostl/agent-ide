@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Handoff — All Sessions board redesign + macOS icon fix (2026-07-18)</title>
+    <style>
+      body { font-family: -apple-system, Segoe UI, sans-serif; max-width: 820px; margin: 24px auto; padding: 0 18px; color: #1a1a1a; line-height: 1.5; }
+      h1 { font-size: 20px; } h2 { font-size: 15px; margin-top: 22px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+      code { background: #f2f2f2; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+      .ok { color: #0a7d33; font-weight: 600; } .warn { color: #b26a00; font-weight: 600; }
+      ul { margin: 6px 0; } li { margin: 3px 0; }
+      table { border-collapse: collapse; width: 100%; font-size: 13px; } td, th { border: 1px solid #ddd; padding: 5px 8px; text-align: left; }
+      .root { background: #fff8e6; border: 1px solid #f0d488; padding: 10px 12px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <h1>Handoff — All Sessions board redesign + macOS icon fix</h1>
+    <p><strong>Date:</strong> 2026-07-18 · <strong>Repo:</strong> agent-ide · <strong>Branch:</strong> dev → merged to main</p>
+
+    <h2>Scope</h2>
+    <p>Two user-reported bugs: (1) the home "All Sessions" board controls (Live/Archived, Open Project,
+      Sync history) were collapsed/unthemed with no proper section structure; (2) the macOS app icon
+      didn't fit the icon grid and showed unwanted margins/border.</p>
+
+    <h2 class="root">Root cause (the important part)</h2>
+    <div class="root">
+      The board looked broken because of a <strong>pre-existing CSS syntax error</strong>:
+      <code>src/renderer/cockpit.css:974</code> had an <strong>unclosed <code>.prompt-input {</code></strong>
+      rule (missing <code>}</code>). A CSS parse error makes the browser silently drop every rule after it —
+      which included the entire <code>.allsessions</code> board section. Result: browser-default white buttons
+      stacked in a ~287px column. This was already on <code>dev</code> at HEAD (brace balance 422/421), so the
+      redesign alone could not render until the brace was fixed. Fixing it restored <strong>194 → 471</strong>
+      applied rules and also un-breaks other CSS after line 974 (modals, prompt inputs) app-wide.
+    </div>
+
+    <h2>Work done</h2>
+    <ul>
+      <li><code>cockpit.css</code> — added the missing <code>}</code>; new themed <code>.as-header</code> bar
+        (flex, wrap, margin resets), <code>.as-sync</code> themed Sync-history button, <code>.as-section</code>
+        heading; consolidated duplicate dead <code>.as-actions</code> blocks (component no longer emits it).</li>
+      <li><code>AllSessions.ts</code> — header bar: title left; Live|Archived toggle + <strong>+ Open project</strong>
+        (accent) + <strong>Sync history</strong> grouped right. Labeled sections <strong>"Live Sessions"</strong> /
+        <strong>"Project History"</strong> (as <code>h3.as-section</code>, rendered before the empty-state return).
+        Added required <code>onOpenProject(anchor: DOMRectReadOnly)</code> prop; toggle got <code>aria-pressed</code>,
+        result span got <code>aria-live</code>.</li>
+      <li><code>main.ts</code> — removed the imperative CTA + <code>board.insertBefore</code> hack; wired
+        <code>onOpenProject: (a) =&gt; openAddProjectMenu(a.left, a.bottom)</code> (identical anchor behavior).</li>
+      <li><code>assets/icon.svg</code> — single inset rounded-rect tile (~80% of canvas, transparent margin,
+        no inner stroke); the sparkle converted from a <code>&lt;text&gt;</code> glyph to an outlined
+        <code>&lt;path&gt;</code> (deterministic — no font substitution), centered on the tile.</li>
+      <li><code>allsessions.test.ts</code> / <code>costChip.test.ts</code> — added <code>onOpenProject</code> to
+        the 11 existing call sites; added 5 tests for the header/section structure (single h2, section labels,
+        empty-board heading, CTA in header, toggle+sync grouping).</li>
+    </ul>
+
+    <h2>Changed files</h2>
+    <table>
+      <tr><th>File</th><th>Change</th></tr>
+      <tr><td>src/renderer/cockpit.css</td><td>brace fix + themed header/section CSS</td></tr>
+      <tr><td>src/renderer/components/AllSessions.ts</td><td>header bar + labeled sections + onOpenProject</td></tr>
+      <tr><td>src/renderer/main.ts</td><td>wire onOpenProject; drop insertBefore CTA</td></tr>
+      <tr><td>assets/icon.svg</td><td>macOS-grid tile + outlined sparkle path</td></tr>
+      <tr><td>tests/renderer/allsessions.test.ts</td><td>onOpenProject on call sites + 5 new tests</td></tr>
+      <tr><td>tests/renderer/costChip.test.ts</td><td>onOpenProject on call sites</td></tr>
+    </table>
+
+    <h2>Verification</h2>
+    <ul>
+      <li><span class="ok">PASS</span> <code>npx tsc --noEmit</code> — exit 0.</li>
+      <li><span class="ok">PASS</span> <code>npm test</code> (vitest) — 646 passed / 5 skipped (baseline 641; +5 new).</li>
+      <li><span class="ok">PASS</span> <code>npm run build</code> (electron-vite) — clean; CSS hash changed
+        <code>BRWfivbu → B_pY_o8z</code> (confirms rebuild picked up the fix).</li>
+      <li><span class="ok">PASS</span> <code>postcss.parse(cockpit.css)</code> — 424 rules, no error (was swallowing).</li>
+      <li><span class="ok">PASS</span> Visual — launched the real Electron app against a <em>copy</em> of the user's
+        store; screenshots confirm Live ("LIVE SESSIONS") and Archived ("PROJECT HISTORY") views render themed,
+        full-width, with correct rows/chips. Computed styles: <code>.as-header</code> display=flex,
+        <code>.as-seg</code> bg=accent (was white), stylesheet rules 194→471.</li>
+      <li><span class="ok">PASS</span> Icon rasterized via <code>qlmanage</code> at 1024/128/32 — symmetric sparkle,
+        transparent margin, alpha OK.</li>
+      <li>Earlier full Playwright e2e was green (exit 0); per user instruction, <strong>e2e was skipped on the
+        final pass</strong> — visual confirmation stands in.</li>
+      <li>Codex review gate run on the plan before implementation; all blocking findings addressed
+        (h3 heading, tsc --noEmit + e2e in verification, outlined glyph, heading-before-empty-return).</li>
+    </ul>
+
+    <h2>Deviations / open items</h2>
+    <ul>
+      <li><span class="warn">App-wide side effect:</span> the brace fix un-breaks all CSS after cockpit.css:974
+        (modals, <code>.prompt-input</code>, etc.), so more of the app's appearance changes than just the board.
+        Net positive, but worth a broader glance.</li>
+      <li><span class="warn">Installed .icns NOT regenerated:</span> the dock icon updates only when
+        <code>scripts/install-macos-app.sh</code> is run manually. The SVG source is fixed; run that script to
+        refresh the installed app icon.</li>
+      <li><span class="warn">Deferred (out of scope):</span> Codex suggested removing the nonstandard 64×64
+        iconset entries in <code>install-macos-app.sh</code> (Apple's set uses 16/32/128/256/512). Not done —
+        not part of the requested fix.</li>
+    </ul>
+
+    <h2>Landing</h2>
+    <p>Committed on <code>dev</code> → pushed <code>origin/dev</code> → merged <code>dev → main</code> →
+      pushed <code>origin/main</code> (user-approved). See git log for the commit hash.</p>
+  </body>
+</html>

@@ -5,8 +5,18 @@
       <stop offset="1" stop-color="#ac4bff"/>
     </linearGradient>
   </defs>
-  <rect width="256" height="256" rx="56" fill="#07080a"/>
-  <rect x="8" y="8" width="240" height="240" rx="50" fill="none" stroke="#222e2b" stroke-width="2"/>
-  <text x="128" y="170" font-family="-apple-system, Segoe UI, sans-serif" font-size="150"
-        font-weight="700" fill="url(#g)" text-anchor="middle">✦</text>
+  <!-- Icon tile: inset ~20% of the canvas so it matches the macOS icon grid
+       (transparent margin around the squircle). Single rounded rect, no inner
+       stroke. -->
+  <rect x="26" y="26" width="204" height="204" rx="46" fill="#07080a"/>
+  <!-- Four-pointed sparkle (formerly a ✦ text glyph, now outlined for
+       deterministic rasterization — no font substitution). Centered on the tile
+       at (128,128); tips at radius 62; concave waist via quadratic curves whose
+       control points sit on the diagonals at radius 16. -->
+  <path fill="url(#g)"
+        d="M128 66
+           Q139.3 116.7 190 128
+           Q139.3 139.3 128 190
+           Q116.7 139.3 66 128
+           Q116.7 116.7 128 66 Z"/>
 </svg>
