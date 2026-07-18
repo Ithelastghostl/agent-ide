@@ -22,7 +22,7 @@ describe('looksLikeNeedsInput — true/false-positive matrix', () => {
     'Wrote 42 files.',
     'Here is the summary of the change.',
     'The build succeeded.',
-    'def approve_request(user):',   // "approve" inside code, no prompt shape — still matched by /approve/? guard below
+    'def approve_request(user):', // "approve" inside code, no prompt shape — still matched by /approve/? guard below
     '',
     '   ',
     'All done. Nothing left to do.'
@@ -144,7 +144,11 @@ describe('AttentionMonitor — notifications (one per episode, debounced, unfocu
     const notify = vi.fn()
     let clock = 0
     const m = new AttentionMonitor(emit, {
-      quietMs: 100, providerOf: () => 'claude', isUnfocused: () => true, now: () => clock, notify
+      quietMs: 100,
+      providerOf: () => 'claude',
+      isUnfocused: () => true,
+      now: () => clock,
+      notify
     })
     m.onOutput('s1', 'Proceed?\n')
     vi.advanceTimersByTime(100)
@@ -154,8 +158,8 @@ describe('AttentionMonitor — notifications (one per episode, debounced, unfocu
     // episode by re-arming without clearing — not possible via API, so assert a
     // second episode after clearing is debounced.
     clock += 5_000 // within the 30s debounce
-    m.onOutput('s1', 'thinking…\n')  // clears + ends episode
-    vi.advanceTimersByTime(100)      // re-flags (idle → no notify anyway)
+    m.onOutput('s1', 'thinking…\n') // clears + ends episode
+    vi.advanceTimersByTime(100) // re-flags (idle → no notify anyway)
     expect(notify).toHaveBeenCalledTimes(1)
     m.dispose()
   })
@@ -163,7 +167,12 @@ describe('AttentionMonitor — notifications (one per episode, debounced, unfocu
   it('does not notify when the app is focused', () => {
     const { emit } = makeEmit()
     const notify = vi.fn()
-    const m = new AttentionMonitor(emit, { quietMs: 100, providerOf: () => 'claude', isUnfocused: () => false, notify })
+    const m = new AttentionMonitor(emit, {
+      quietMs: 100,
+      providerOf: () => 'claude',
+      isUnfocused: () => false,
+      notify
+    })
     m.onOutput('s1', 'Proceed?\n')
     vi.advanceTimersByTime(100)
     expect(notify).not.toHaveBeenCalled()
@@ -175,18 +184,25 @@ describe('AttentionMonitor — notifications (one per episode, debounced, unfocu
     const notify = vi.fn()
     let clock = 0
     const m = new AttentionMonitor(emit, {
-      quietMs: 100, providerOf: () => 'claude', isUnfocused: () => true, now: () => clock, notify
+      quietMs: 100,
+      providerOf: () => 'claude',
+      isUnfocused: () => true,
+      now: () => clock,
+      notify
     })
-    m.onOutput('s1', 'Proceed?\n'); vi.advanceTimersByTime(100)   // episode 1 → notify
+    m.onOutput('s1', 'Proceed?\n')
+    vi.advanceTimersByTime(100) // episode 1 → notify
     expect(notify).toHaveBeenCalledTimes(1)
     clock += 10_000
-    m.onInput('s1')                                               // clear (end episode)
-    m.onOutput('s1', 'Confirm and continue?\n'); vi.advanceTimersByTime(100) // episode 2 within 30s
-    expect(notify).toHaveBeenCalledTimes(1)                       // debounced
+    m.onInput('s1') // clear (end episode)
+    m.onOutput('s1', 'Confirm and continue?\n')
+    vi.advanceTimersByTime(100) // episode 2 within 30s
+    expect(notify).toHaveBeenCalledTimes(1) // debounced
     // after the debounce window a new episode notifies again
     clock += 30_000
     m.onInput('s1')
-    m.onOutput('s1', 'Are you sure?\n'); vi.advanceTimersByTime(100)
+    m.onOutput('s1', 'Are you sure?\n')
+    vi.advanceTimersByTime(100)
     expect(notify).toHaveBeenCalledTimes(2)
     m.dispose()
   })
@@ -198,7 +214,8 @@ describe('AttentionMonitor — cost integration', () => {
     const { emit, costEvents } = makeEmit()
     const saved: { id: string; cost: CostSummary }[] = []
     const m = new AttentionMonitor(emit, {
-      quietMs: 100, providerOf: () => 'claude',
+      quietMs: 100,
+      providerOf: () => 'claude',
       saveCost: (id, cost) => saved.push({ id, cost })
     })
     m.onOutput('s1', 'Total cost: $0.42 (100 input, 200 output tokens)\n')

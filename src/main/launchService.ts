@@ -55,7 +55,10 @@ export class AdmissionGate {
     const prev = this.chains.get(projectId) ?? Promise.resolve()
     const next = prev.then(fn, fn)
     // keep the chain alive but swallow rejection so one failure doesn't poison it
-    this.chains.set(projectId, next.catch(() => undefined))
+    this.chains.set(
+      projectId,
+      next.catch(() => undefined)
+    )
     return next
   }
 }
@@ -67,9 +70,9 @@ export interface LaunchOpts {
   provider: Provider
   model: string
   objective: string
-  workspace: string           // main-resolved project root (renderer cwd ignored)
+  workspace: string // main-resolved project root (renderer cwd ignored)
   useContainer: boolean
-  stage?: SessionStage        // fresh sessions default to 'discussion'
+  stage?: SessionStage // fresh sessions default to 'discussion'
   agentRelPath?: string | null
   backlogItemIds?: string[]
   taskKind?: Session['taskKind']
@@ -80,7 +83,10 @@ export interface LaunchOpts {
 }
 
 let seq = 0
-function newSessionId(): string { seq += 1; return `sess-${seq}-${process.pid}` }
+function newSessionId(): string {
+  seq += 1
+  return `sess-${seq}-${process.pid}`
+}
 
 /** A single per-app-run boot id — owns queue claims (R8). */
 export const BOOT_ID = randomUUID()
@@ -121,15 +127,30 @@ export class LaunchService {
     // 1) DURABLE INTENT (before spawn): persist the row as 'starting'/'spawning'
     //    with desired == applied for this launch, plus backlog joins + queue row.
     const session: Session = {
-      id, projectId: opts.projectId, provider: opts.provider, model: opts.model,
-      objective: opts.objective || `${opts.provider} session`, status: 'starting',
-      createdAt: now, updatedAt: now,
-      taskKind: opts.taskKind ?? null, taskSubkind: opts.taskSubkind ?? null,
-      taskStatus: opts.taskKind ? 'open' : null, useContainer: opts.useContainer,
-      desiredStage: stage, desiredProvider: opts.provider, desiredModel: opts.model,
-      effectiveStage: stage, spawnedProvider: opts.provider, spawnedModel: opts.model,
-      spawnedApprovalMode: mode, termState: 'spawning', runtimeVersion: 0, desiredVersion: 0,
-      agentRelPath: opts.agentRelPath ?? null, cost: null
+      id,
+      projectId: opts.projectId,
+      provider: opts.provider,
+      model: opts.model,
+      objective: opts.objective || `${opts.provider} session`,
+      status: 'starting',
+      createdAt: now,
+      updatedAt: now,
+      taskKind: opts.taskKind ?? null,
+      taskSubkind: opts.taskSubkind ?? null,
+      taskStatus: opts.taskKind ? 'open' : null,
+      useContainer: opts.useContainer,
+      desiredStage: stage,
+      desiredProvider: opts.provider,
+      desiredModel: opts.model,
+      effectiveStage: stage,
+      spawnedProvider: opts.provider,
+      spawnedModel: opts.model,
+      spawnedApprovalMode: mode,
+      termState: 'spawning',
+      runtimeVersion: 0,
+      desiredVersion: 0,
+      agentRelPath: opts.agentRelPath ?? null,
+      cost: null
     }
     this.deps.store.saveSession(session)
     if (opts.backlogItemIds?.length) this.deps.store.bindSessionBacklog(id, opts.backlogItemIds)
@@ -144,7 +165,10 @@ export class LaunchService {
     } catch (err) {
       // spawn failed → interrupted (idle), no auto-retry can double-spawn (R10)
       this.deps.store.setSessionStatus(id, 'idle')
-      this.deps.store.saveSession({ ...this.deps.store.getSession(id)!, termState: opts.useContainer ? 'uncertain' : 'terminated' })
+      this.deps.store.saveSession({
+        ...this.deps.store.getSession(id)!,
+        termState: opts.useContainer ? 'uncertain' : 'terminated'
+      })
       throw new Error(`failed to start ${opts.provider} session: ${(err as Error).message}`)
     }
 
@@ -169,21 +193,31 @@ export class LaunchService {
     const s = this.deps.store.getSession(id)
     if (!s || s.status !== 'starting') return false
     this.deps.store.saveSession({
-      ...s, status: 'running', termState: 'live',
-      spawnedApprovalMode: mode, runtimeVersion: (s.runtimeVersion ?? 0) + 1
+      ...s,
+      status: 'running',
+      termState: 'live',
+      spawnedApprovalMode: mode,
+      runtimeVersion: (s.runtimeVersion ?? 0) + 1
     })
     return true
   }
 
   private spawnEngine(session: Session, opts: LaunchOpts, mode: ApprovalMode): void {
-    const { cmd, args } = launchArgv({ provider: opts.provider, model: opts.model, autoApprove: mode === 'auto' })
+    const { cmd, args } = launchArgv({
+      provider: opts.provider,
+      model: opts.model,
+      autoApprove: mode === 'auto'
+    })
     // Mark the process with the session marker so a container process tree is
     // identifiable for confirmed termination (R32). Container id/user/home
     // resolution + docker-exec argv are the caller's (ipc.ts) responsibility in
     // production; the marker travels on the env either way.
     this.mgr.spawn(
       { id: session.id, shell: cmd, args, cwd: opts.workspace, env: { AGENTIDE_SESSION: session.id } },
-      (data) => { this.deps.onData(session.id, data); this.record(session.id, data) },
+      (data) => {
+        this.deps.onData(session.id, data)
+        this.record(session.id, data)
+      },
       ({ reason }) => this.onEngineExit(session.id, session.projectId, reason)
     )
   }
@@ -198,13 +232,20 @@ export class LaunchService {
    *  (R34). Emits exit. Archive is a separate gated path. */
   private onEngineExit(id: string, projectId: string, reason: 'closed' | 'crashed'): void {
     const s = this.deps.store.getSession(id)
-    if (!s) { this.deps.onExit(id, reason); return }
+    if (!s) {
+      this.deps.onExit(id, reason)
+      return
+    }
     if (reason === 'closed') {
       this.deps.store.saveSession({ ...s, status: 'archived', termState: 'terminated' })
       sessionEvents.emitEvent('archived', { id, projectId })
     } else {
       // unexpected loss → interrupted; container sessions are termination-uncertain
-      this.deps.store.saveSession({ ...s, status: 'idle', termState: s.useContainer ? 'uncertain' : 'terminated' })
+      this.deps.store.saveSession({
+        ...s,
+        status: 'idle',
+        termState: s.useContainer ? 'uncertain' : 'terminated'
+      })
     }
     sessionEvents.emitEvent('exit', { id, reason })
   }
@@ -213,7 +254,9 @@ export class LaunchService {
     // Canonical harness→agent→objective primer (gate 1): a queued/preset launch
     // gets the same uniform harness + agent body every provider launch does.
     const submitText = composeLaunchPrimer({
-      objective: opts.objective, stage, agentRelPath: opts.agentRelPath
+      objective: opts.objective,
+      stage,
+      agentRelPath: opts.agentRelPath
     })
     if (submitText.trim()) this.mgr.primeWhenReady(id, submitText + '\n')
   }
@@ -255,29 +298,50 @@ export class LaunchService {
 
   /** Relaunch a running session in place (model swap / fix restart). Quiesce the
    *  old engine first (R14/R20), then re-run the durable-intent→spawn→promote. */
-  private async relaunchAdmitted(sessionId: string, desired: { stage: SessionStage; provider: Provider; model: string }): Promise<void> {
+  private async relaunchAdmitted(
+    sessionId: string,
+    desired: { stage: SessionStage; provider: Provider; model: string }
+  ): Promise<void> {
     const s0 = this.deps.store.getSession(sessionId)
     if (!s0) return
     // running → starting (bump runtimeVersion), then kill old generation
-    this.deps.store.saveSession({ ...s0, status: 'starting', termState: 'spawning', runtimeVersion: (s0.runtimeVersion ?? 0) + 1 })
+    this.deps.store.saveSession({
+      ...s0,
+      status: 'starting',
+      termState: 'spawning',
+      runtimeVersion: (s0.runtimeVersion ?? 0) + 1
+    })
     if (this.mgr.has(sessionId)) this.mgr.kill(sessionId)
     const mode = approvalMode(desired.stage, !!s0.useContainer)
     const opts: LaunchOpts = {
-      projectId: s0.projectId, provider: desired.provider, model: desired.model,
-      objective: s0.objective, workspace: '', useContainer: !!s0.useContainer,
-      stage: desired.stage, agentRelPath: s0.agentRelPath
+      projectId: s0.projectId,
+      provider: desired.provider,
+      model: desired.model,
+      objective: s0.objective,
+      workspace: '',
+      useContainer: !!s0.useContainer,
+      stage: desired.stage,
+      agentRelPath: s0.agentRelPath
     }
     try {
       this.respawnSameId(sessionId, s0, opts, mode)
     } catch {
-      this.deps.store.saveSession({ ...this.deps.store.getSession(sessionId)!, status: 'idle', termState: s0.useContainer ? 'uncertain' : 'terminated' })
+      this.deps.store.saveSession({
+        ...this.deps.store.getSession(sessionId)!,
+        status: 'idle',
+        termState: s0.useContainer ? 'uncertain' : 'terminated'
+      })
       return
     }
     const s1 = this.deps.store.getSession(sessionId)!
     this.deps.store.saveSession({
-      ...s1, status: 'running', termState: 'live',
-      spawnedProvider: desired.provider, spawnedModel: desired.model,
-      spawnedApprovalMode: mode, effectiveStage: desired.stage,
+      ...s1,
+      status: 'running',
+      termState: 'live',
+      spawnedProvider: desired.provider,
+      spawnedModel: desired.model,
+      spawnedApprovalMode: mode,
+      effectiveStage: desired.stage,
       runtimeVersion: (s1.runtimeVersion ?? 0) + 1
     })
     this.seedHistoryPrimer(sessionId)
@@ -285,10 +349,17 @@ export class LaunchService {
   }
 
   private respawnSameId(id: string, s: Session, opts: LaunchOpts, mode: ApprovalMode): void {
-    const { cmd, args } = launchArgv({ provider: opts.provider, model: opts.model, autoApprove: mode === 'auto' })
+    const { cmd, args } = launchArgv({
+      provider: opts.provider,
+      model: opts.model,
+      autoApprove: mode === 'auto'
+    })
     this.mgr.spawn(
       { id, shell: cmd, args, cwd: opts.workspace, env: { AGENTIDE_SESSION: id } },
-      (data) => { this.deps.onData(id, data); this.record(id, data) },
+      (data) => {
+        this.deps.onData(id, data)
+        this.record(id, data)
+      },
       ({ reason }) => this.onEngineExit(id, s.projectId, reason)
     )
   }
@@ -328,7 +399,12 @@ export class LaunchService {
   setDesiredModel(sessionId: string, provider: Provider, model: string): { ok?: true; error?: string } {
     const s = this.deps.store.getSession(sessionId)
     if (!s) return { error: 'unknown session' }
-    this.deps.store.saveSession({ ...s, desiredProvider: provider, desiredModel: model, desiredVersion: (s.desiredVersion ?? 0) + 1 })
+    this.deps.store.saveSession({
+      ...s,
+      desiredProvider: provider,
+      desiredModel: model,
+      desiredVersion: (s.desiredVersion ?? 0) + 1
+    })
     void this.reconcile(sessionId)
     return { ok: true }
   }
@@ -348,10 +424,18 @@ export class LaunchService {
     if (!claimed) return null
     try {
       return await this.launchAdmitted({
-        projectId, provider: claimed.provider, model: claimed.model, objective: claimed.objective,
-        workspace: '', useContainer: claimed.useContainer, taskKind: claimed.taskKind, taskSubkind: claimed.taskSubkind,
-        agentRelPath: claimed.agentRelPath, backlogItemIds: claimed.backlogItemIds,
-        queueItemId: claimed.id, queueLeaseToken: claimed.leaseToken ?? undefined
+        projectId,
+        provider: claimed.provider,
+        model: claimed.model,
+        objective: claimed.objective,
+        workspace: '',
+        useContainer: claimed.useContainer,
+        taskKind: claimed.taskKind,
+        taskSubkind: claimed.taskSubkind,
+        agentRelPath: claimed.agentRelPath,
+        backlogItemIds: claimed.backlogItemIds,
+        queueItemId: claimed.id,
+        queueLeaseToken: claimed.leaseToken ?? undefined
       })
     } catch (err) {
       this.deps.store.markQueueFailed(claimed.id, claimed.leaseToken ?? null, (err as Error).message)

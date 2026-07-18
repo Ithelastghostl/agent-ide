@@ -6,8 +6,15 @@ import type { Session } from '@shared/types'
 
 function session(over: Partial<Session> = {}): Session {
   return {
-    id: 's1', projectId: 'p1', provider: 'claude', model: 'claude-sonnet-4-6',
-    objective: 'x', status: 'running', createdAt: 0, updatedAt: 0, ...over
+    id: 's1',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'claude-sonnet-4-6',
+    objective: 'x',
+    status: 'running',
+    createdAt: 0,
+    updatedAt: 0,
+    ...over
   }
 }
 
@@ -18,8 +25,14 @@ describe('runAdvanceFlow — fix-restart confirm gating', () => {
     let confirmed = false
     let stagedTo = ''
     const res = await runAdvanceFlow(session({ useContainer: false, effectiveStage: 'playback' }), 'fix', {
-      confirm: async () => { confirmed = true; return true },
-      setStage: async (_id, s) => { stagedTo = s; return { ok: true } }
+      confirm: async () => {
+        confirmed = true
+        return true
+      },
+      setStage: async (_id, s) => {
+        stagedTo = s
+        return { ok: true }
+      }
     })
     expect(confirmed).toBe(false)
     expect(stagedTo).toBe('fix')
@@ -30,9 +43,23 @@ describe('runAdvanceFlow — fix-restart confirm gating', () => {
     let message = ''
     let stagedTo = ''
     const res = await runAdvanceFlow(
-      session({ useContainer: true, status: 'running', effectiveStage: 'playback', spawnedApprovalMode: 'guarded' }),
+      session({
+        useContainer: true,
+        status: 'running',
+        effectiveStage: 'playback',
+        spawnedApprovalMode: 'guarded'
+      }),
       'fix',
-      { confirm: async (m) => { message = m; return true }, setStage: async (_id, s) => { stagedTo = s; return { ok: true } } }
+      {
+        confirm: async (m) => {
+          message = m
+          return true
+        },
+        setStage: async (_id, s) => {
+          stagedTo = s
+          return { ok: true }
+        }
+      }
     )
     expect(message).toBe(FIX_RESTART_CONFIRM)
     expect(stagedTo).toBe('fix')
@@ -42,9 +69,20 @@ describe('runAdvanceFlow — fix-restart confirm gating', () => {
   it('running container → fix, user CANCELS: setStage is never called, returns null', async () => {
     let called = false
     const res = await runAdvanceFlow(
-      session({ useContainer: true, status: 'running', effectiveStage: 'playback', spawnedApprovalMode: 'guarded' }),
+      session({
+        useContainer: true,
+        status: 'running',
+        effectiveStage: 'playback',
+        spawnedApprovalMode: 'guarded'
+      }),
       'fix',
-      { confirm: async () => false, setStage: async () => { called = true; return { ok: true } } }
+      {
+        confirm: async () => false,
+        setStage: async () => {
+          called = true
+          return { ok: true }
+        }
+      }
     )
     expect(called).toBe(false)
     expect(res).toBeNull()
@@ -53,25 +91,49 @@ describe('runAdvanceFlow — fix-restart confirm gating', () => {
   it('container discussion→playback: label-only, no confirm', async () => {
     let confirmed = false
     await runAdvanceFlow(
-      session({ useContainer: true, status: 'running', effectiveStage: 'discussion', spawnedApprovalMode: 'guarded' }),
+      session({
+        useContainer: true,
+        status: 'running',
+        effectiveStage: 'discussion',
+        spawnedApprovalMode: 'guarded'
+      }),
       'playback',
-      { confirm: async () => { confirmed = true; return true }, setStage: async () => ({ ok: true }) }
+      {
+        confirm: async () => {
+          confirmed = true
+          return true
+        },
+        setStage: async () => ({ ok: true })
+      }
     )
     expect(confirmed).toBe(false)
   })
 })
 
 describe('runAdvanceFlow wired to the real chooseOption modal', () => {
-  beforeEach(() => { document.body.innerHTML = '' })
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
 
   it('renders the fix-restart confirm modal for a running container advance to fix', async () => {
     let staged = false
     const promise = runAdvanceFlow(
-      session({ useContainer: true, status: 'running', effectiveStage: 'playback', spawnedApprovalMode: 'guarded' }),
+      session({
+        useContainer: true,
+        status: 'running',
+        effectiveStage: 'playback',
+        spawnedApprovalMode: 'guarded'
+      }),
       'fix',
       {
-        confirm: (m) => chooseOption<'yes'>(m, [{ label: 'Restart in fix mode', value: 'yes', primary: true }]).then((r) => !!r),
-        setStage: async () => { staged = true; return { ok: true } }
+        confirm: (m) =>
+          chooseOption<'yes'>(m, [{ label: 'Restart in fix mode', value: 'yes', primary: true }]).then(
+            (r) => !!r
+          ),
+        setStage: async () => {
+          staged = true
+          return { ok: true }
+        }
       }
     )
     await tick()
@@ -79,7 +141,11 @@ describe('runAdvanceFlow wired to the real chooseOption modal', () => {
     expect(modal).toBeTruthy()
     expect(modal!.querySelector('h3')!.textContent).toBe(FIX_RESTART_CONFIRM)
     // Confirm it.
-    ;(Array.from(modal!.querySelectorAll('.foot button')).find((b) => b.textContent === 'Restart in fix mode') as HTMLButtonElement).click()
+    ;(
+      Array.from(modal!.querySelectorAll('.foot button')).find(
+        (b) => b.textContent === 'Restart in fix mode'
+      ) as HTMLButtonElement
+    ).click()
     await promise
     expect(staged).toBe(true)
   })
@@ -87,15 +153,30 @@ describe('runAdvanceFlow wired to the real chooseOption modal', () => {
   it('cancelling the modal aborts the advance', async () => {
     let staged = false
     const promise = runAdvanceFlow(
-      session({ useContainer: true, status: 'running', effectiveStage: 'playback', spawnedApprovalMode: 'guarded' }),
+      session({
+        useContainer: true,
+        status: 'running',
+        effectiveStage: 'playback',
+        spawnedApprovalMode: 'guarded'
+      }),
       'fix',
       {
-        confirm: (m) => chooseOption<'yes'>(m, [{ label: 'Restart in fix mode', value: 'yes', primary: true }]).then((r) => !!r),
-        setStage: async () => { staged = true; return { ok: true } }
+        confirm: (m) =>
+          chooseOption<'yes'>(m, [{ label: 'Restart in fix mode', value: 'yes', primary: true }]).then(
+            (r) => !!r
+          ),
+        setStage: async () => {
+          staged = true
+          return { ok: true }
+        }
       }
     )
     await tick()
-    ;(Array.from(document.querySelectorAll('.foot button')).find((b) => b.textContent === 'Cancel') as HTMLButtonElement).click()
+    ;(
+      Array.from(document.querySelectorAll('.foot button')).find(
+        (b) => b.textContent === 'Cancel'
+      ) as HTMLButtonElement
+    ).click()
     const res = await promise
     expect(staged).toBe(false)
     expect(res).toBeNull()

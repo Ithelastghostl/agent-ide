@@ -28,41 +28,67 @@ test('⌘K finds a seeded transcript and backlog item, and Enter navigates', asy
   const projectId = await win.evaluate(async (p) => (await window.agentIDE.projectsAddLocal(p)).id, proj)
 
   // Seed a BACKLOG item whose title carries the term (backlog_fts indexes title+body).
-  const backlogItemId = await win.evaluate(async ({ projectId, term }) => {
-    const r = await window.agentIDE.backlogCreate({
-      projectId, kind: 'task', title: `${term} migration`, bodyMd: `Investigate the ${term} pipeline.`
-    })
-    return r.item?.id as string
-  }, { projectId, term: TERM })
+  const backlogItemId = await win.evaluate(
+    async ({ projectId, term }) => {
+      const r = await window.agentIDE.backlogCreate({
+        projectId,
+        kind: 'task',
+        title: `${term} migration`,
+        bodyMd: `Investigate the ${term} pipeline.`
+      })
+      return r.item?.id as string
+    },
+    { projectId, term: TERM }
+  )
   expect(backlogItemId).toBeTruthy()
 
   // Seed a TRANSCRIPT: launch a provider session (inert shim), write the term into
   // its pty; the shim echoes stdin, which main records to the transcript + FTS.
-  const sessionId = await win.evaluate(async ({ projectId, cwd, term }) => {
-    const s = await window.agentIDE.sessionLaunch({
-      projectId, provider: 'claude', model: 'claude-opus-4-8', objective: 'search seed',
-      cwd, useContainer: false, taskKind: 'analysis'
-    })
-    // Newline so the shim's `cat` flushes the line back as output.
-    window.agentIDE.ptyWrite(s.id, `${term} in the transcript\n`)
-    return s.id as string
-  }, { projectId, cwd: proj, term: TERM })
+  const sessionId = await win.evaluate(
+    async ({ projectId, cwd, term }) => {
+      const s = await window.agentIDE.sessionLaunch({
+        projectId,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        objective: 'search seed',
+        cwd,
+        useContainer: false,
+        taskKind: 'analysis'
+      })
+      // Newline so the shim's `cat` flushes the line back as output.
+      window.agentIDE.ptyWrite(s.id, `${term} in the transcript\n`)
+      return s.id as string
+    },
+    { projectId, cwd: proj, term: TERM }
+  )
   expect(sessionId).toBeTruthy()
 
   // The transcript write flows through the pty + a flush debounce; poll the store
   // via searchQuery until BOTH hit types are present for the term.
-  await expect.poll(async () => {
-    return win.evaluate(async (term) => {
-      const hits = await window.agentIDE.searchQuery(term, 50)
-      return {
-        transcript: hits.some((h: any) => h.type === 'transcript'),
-        backlog: hits.some((h: any) => h.type === 'backlog')
-      }
-    }, TERM)
-  }, { timeout: 15_000, intervals: [250, 500, 1000] }).toEqual({ transcript: true, backlog: true })
+  await expect
+    .poll(
+      async () => {
+        return win.evaluate(async (term) => {
+          const hits = await window.agentIDE.searchQuery(term, 50)
+          return {
+            transcript: hits.some((h: any) => h.type === 'transcript'),
+            backlog: hits.some((h: any) => h.type === 'backlog')
+          }
+        }, TERM)
+      },
+      { timeout: 15_000, intervals: [250, 500, 1000] }
+    )
+    .toEqual({ transcript: true, backlog: true })
 
   // FTS syntax chars must not error (foundation escapes user input): quotes/parens.
-  const messy = await win.evaluate((term) => window.agentIDE.searchQuery(`"${term}" (foo`, 50).then(() => 'ok').catch((e) => `err:${e}`), TERM)
+  const messy = await win.evaluate(
+    (term) =>
+      window.agentIDE
+        .searchQuery(`"${term}" (foo`, 50)
+        .then(() => 'ok')
+        .catch((e) => `err:${e}`),
+    TERM
+  )
   expect(messy).toBe('ok')
 
   // Reload so the renderer hydrates the seeded project + session from the store
@@ -100,7 +126,9 @@ test('⌘K finds a seeded transcript and backlog item, and Enter navigates', asy
   // S1's full Backlog view highlights the search-routed item (.bk-focused on the
   // element carrying its data-id). (S7's placeholder .backlog-focus was superseded
   // by S1's BacklogView during consolidation.)
-  await expect(win.locator(`.backlog-view [data-id="${backlogItemId}"].bk-focused`)).toBeVisible({ timeout: 10_000 })
+  await expect(win.locator(`.backlog-view [data-id="${backlogItemId}"].bk-focused`)).toBeVisible({
+    timeout: 10_000
+  })
 
   await app.close()
 })

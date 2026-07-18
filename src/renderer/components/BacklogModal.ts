@@ -58,12 +58,16 @@ export function BacklogModal(p: BacklogModalProps): HTMLElement {
   let kind: BacklogKind = p.item?.kind ?? 'task'
   const kindRow = document.createElement('label')
   kindRow.className = 'bk-field'
-  const kindLabel = document.createElement('span'); kindLabel.textContent = 'Kind'
+  const kindLabel = document.createElement('span')
+  kindLabel.textContent = 'Kind'
   kindRow.appendChild(kindLabel)
   const kindSel = document.createElement('select')
   kindSel.className = 'bk-input'
   for (const k of KINDS) {
-    const o = document.createElement('option'); o.value = k; o.textContent = k; if (k === kind) o.selected = true
+    const o = document.createElement('option')
+    o.value = k
+    o.textContent = k
+    if (k === kind) o.selected = true
     kindSel.appendChild(o)
   }
   kindSel.disabled = editing
@@ -73,9 +77,12 @@ export function BacklogModal(p: BacklogModalProps): HTMLElement {
   // --- title ---
   const titleRow = document.createElement('label')
   titleRow.className = 'bk-field'
-  const titleLabel = document.createElement('span'); titleLabel.textContent = 'Title'
+  const titleLabel = document.createElement('span')
+  titleLabel.textContent = 'Title'
   const title = document.createElement('input')
-  title.type = 'text'; title.className = 'bk-input'; title.placeholder = 'Short title'
+  title.type = 'text'
+  title.className = 'bk-input'
+  title.placeholder = 'Short title'
   title.value = p.item?.title ?? ''
   titleRow.append(titleLabel, title)
   body.appendChild(titleRow)
@@ -83,7 +90,8 @@ export function BacklogModal(p: BacklogModalProps): HTMLElement {
   // --- parent selector ---
   const parentRow = document.createElement('label')
   parentRow.className = 'bk-field'
-  const parentLabel = document.createElement('span'); parentLabel.textContent = 'Parent'
+  const parentLabel = document.createElement('span')
+  parentLabel.textContent = 'Parent'
   const parentSel = document.createElement('select')
   parentSel.className = 'bk-input'
   parentRow.append(parentLabel, parentSel)
@@ -92,7 +100,9 @@ export function BacklogModal(p: BacklogModalProps): HTMLElement {
   // Rebuild the parent options whenever the child kind changes (nesting rules).
   const rebuildParents = () => {
     parentSel.replaceChildren()
-    const none = document.createElement('option'); none.value = ''; none.textContent = '— none (top level) —'
+    const none = document.createElement('option')
+    none.value = ''
+    none.textContent = '— none (top level) —'
     parentSel.appendChild(none)
     for (const cand of p.items) {
       if (p.item && cand.id === p.item.id) continue // never self
@@ -107,14 +117,20 @@ export function BacklogModal(p: BacklogModalProps): HTMLElement {
     }
   }
   rebuildParents()
-  kindSel.onchange = () => { kind = kindSel.value as BacklogKind; rebuildParents() }
+  kindSel.onchange = () => {
+    kind = kindSel.value as BacklogKind
+    rebuildParents()
+  }
 
   // --- body markdown ---
   const bodyRow = document.createElement('label')
   bodyRow.className = 'bk-field'
-  const bodyLabel = document.createElement('span'); bodyLabel.textContent = 'Body (markdown)'
+  const bodyLabel = document.createElement('span')
+  bodyLabel.textContent = 'Body (markdown)'
   const bodyMd = document.createElement('textarea')
-  bodyMd.className = 'bk-input bk-textarea'; bodyMd.rows = 6; bodyMd.placeholder = 'Describe the work…'
+  bodyMd.className = 'bk-input bk-textarea'
+  bodyMd.rows = 6
+  bodyMd.placeholder = 'Describe the work…'
   bodyMd.value = p.item?.bodyMd ?? ''
   bodyRow.append(bodyLabel, bodyMd)
   body.appendChild(bodyRow)
@@ -122,16 +138,24 @@ export function BacklogModal(p: BacklogModalProps): HTMLElement {
   modal.appendChild(body)
 
   // --- error line + footer ---
-  const err = document.createElement('div'); err.className = 'bk-modal-err'
+  const err = document.createElement('div')
+  err.className = 'bk-modal-err'
   modal.appendChild(err)
 
   const foot = document.createElement('div')
   foot.className = 'foot'
-  const cancel = document.createElement('button'); cancel.textContent = 'Cancel'; cancel.onclick = () => p.onCancel()
-  const save = document.createElement('button'); save.className = 'primary'; save.textContent = editing ? 'Save' : 'Create'
+  const cancel = document.createElement('button')
+  cancel.textContent = 'Cancel'
+  cancel.onclick = () => p.onCancel()
+  const save = document.createElement('button')
+  save.className = 'primary'
+  save.textContent = editing ? 'Save' : 'Create'
   save.onclick = () => {
     const t = title.value.trim()
-    if (!t) { err.textContent = 'Title is required.'; return }
+    if (!t) {
+      err.textContent = 'Title is required.'
+      return
+    }
     const parentId = parentSel.value || null
     if (editing && p.item) {
       p.onUpdate({ id: p.item.id, title: t, bodyMd: bodyMd.value, parentId })
@@ -143,7 +167,9 @@ export function BacklogModal(p: BacklogModalProps): HTMLElement {
   modal.appendChild(foot)
 
   wrap.appendChild(modal)
-  wrap.onclick = (e) => { if (e.target === wrap) p.onCancel() }
+  wrap.onclick = (e) => {
+    if (e.target === wrap) p.onCancel()
+  }
   setTimeout(() => title.focus(), 0)
   return wrap
 }

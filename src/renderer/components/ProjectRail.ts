@@ -63,8 +63,7 @@ export function ProjectRail(p: RailProps): HTMLElement {
       const gb = document.createElement('span')
       gb.className = 'gitbadge' + (g.dirtyCount > 0 ? ' dirty' : '')
       gb.textContent = gitBadgeLabel(g)
-      gb.title = `git: ${gitBadgeLabel(g)}` +
-        (g.ahead || g.behind ? ` (↑${g.ahead} ↓${g.behind})` : '')
+      gb.title = `git: ${gitBadgeLabel(g)}` + (g.ahead || g.behind ? ` (↑${g.ahead} ↓${g.behind})` : '')
       d.appendChild(gb)
     }
     // S5: attention dot — a session in this project is waiting for the user.

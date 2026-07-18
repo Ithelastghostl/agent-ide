@@ -12,17 +12,34 @@ const modelsFor = (p: string) => models[p] ?? []
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
   return {
-    id: 'q1', projectId: 'p1', objective: 'do a thing', provider: 'claude', model: 'claude-opus-4-8',
-    useContainer: false, backlogItemIds: [], position: 0, state: 'pending', attempts: 0, createdAt: 0, ...over
+    id: 'q1',
+    projectId: 'p1',
+    objective: 'do a thing',
+    provider: 'claude',
+    model: 'claude-opus-4-8',
+    useContainer: false,
+    backlogItemIds: [],
+    position: 0,
+    state: 'pending',
+    attempts: 0,
+    createdAt: 0,
+    ...over
   }
 }
 
 function baseProps(over: Partial<Parameters<typeof QueueDrawer>[0]> = {}) {
   return {
-    projectName: 'proj', items: [] as QueueItem[], autoAdvance: false, modelsFor: modelsFor as any,
+    projectName: 'proj',
+    items: [] as QueueItem[],
+    autoAdvance: false,
+    modelsFor: modelsFor as any,
     onEnqueue: vi.fn(async () => ({ item: item() })),
-    onDelete: vi.fn(), onReorder: vi.fn(), onStartNext: vi.fn(),
-    onToggleAutoAdvance: vi.fn(), onClose: vi.fn(), ...over
+    onDelete: vi.fn(),
+    onReorder: vi.fn(),
+    onStartNext: vi.fn(),
+    onToggleAutoAdvance: vi.fn(),
+    onClose: vi.fn(),
+    ...over
   }
 }
 
@@ -63,14 +80,22 @@ describe('QueueDrawer', () => {
     ;(el.querySelector('.q-objective') as HTMLInputElement).value = 'ship it'
     ;(el.querySelector('.q-backlog') as HTMLInputElement).value = 'bl-1, bl-2'
     ;(el.querySelector('.q-add') as HTMLButtonElement).click()
-    await Promise.resolve(); await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
     expect(onEnqueue).toHaveBeenCalledWith({
-      provider: 'claude', model: 'claude-opus-4-8', objective: 'ship it', useContainer: false, backlogItemIds: ['bl-1', 'bl-2']
+      provider: 'claude',
+      model: 'claude-opus-4-8',
+      objective: 'ship it',
+      useContainer: false,
+      backlogItemIds: ['bl-1', 'bl-2']
     })
   })
 
   it('renders one row per queued item with a state chip and provider/model meta', () => {
-    const items = [item({ id: 'q1', objective: 'A', state: 'pending' }), item({ id: 'q2', position: 1, objective: 'B', state: 'launching' })]
+    const items = [
+      item({ id: 'q1', objective: 'A', state: 'pending' }),
+      item({ id: 'q2', position: 1, objective: 'B', state: 'launching' })
+    ]
     const el = QueueDrawer(baseProps({ items }))
     const rows = el.querySelectorAll('.q-item')
     expect(rows.length).toBe(2)
@@ -86,7 +111,11 @@ describe('QueueDrawer', () => {
 
   it('reorder up/down hands onReorder a swapped id list', () => {
     const onReorder = vi.fn()
-    const items = [item({ id: 'q1', position: 0 }), item({ id: 'q2', position: 1 }), item({ id: 'q3', position: 2 })]
+    const items = [
+      item({ id: 'q1', position: 0 }),
+      item({ id: 'q2', position: 1 }),
+      item({ id: 'q3', position: 2 })
+    ]
     const el = QueueDrawer(baseProps({ items, onReorder }))
     // move the second item up
     const rows = el.querySelectorAll('.q-item')

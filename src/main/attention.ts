@@ -13,18 +13,18 @@ export const NOTIFY_DEBOUNCE_MS = 30_000
  *  A match means the engine is likely waiting on the user → 'input'; plain quiet
  *  with no match → 'idle'. Kept conservative to bound false positives. */
 export const NEEDS_INPUT_PATTERNS: RegExp[] = [
-  /\?\s*$/,                                   // trailing question mark
-  /\(?\s*y\s*\/\s*n\s*\)?\s*[:?]?\s*$/i,      // (y/n) prompt
-  /\[\s*y\s*\/\s*n\s*\]/i,                    // [y/N]
-  /\byes\s*\/\s*no\b/i,                       // yes/no
-  /\bapprove\b/i,                             // approval gate
-  /\bwaiting for (?:your )?input\b/i,         // explicit wait banner
+  /\?\s*$/, // trailing question mark
+  /\(?\s*y\s*\/\s*n\s*\)?\s*[:?]?\s*$/i, // (y/n) prompt
+  /\[\s*y\s*\/\s*n\s*\]/i, // [y/N]
+  /\byes\s*\/\s*no\b/i, // yes/no
+  /\bapprove\b/i, // approval gate
+  /\bwaiting for (?:your )?input\b/i, // explicit wait banner
   /\bawaiting (?:your )?(?:input|response|confirmation)\b/i,
-  /\bpress\s+enter\b/i,                       // "press Enter to continue"
-  /\bdo you want to\b/i,                      // "Do you want to proceed"
-  /\bcontinue\?\s*$/i,                        // "Continue?"
-  /\bconfirm\b.*\?/i,                         // "Confirm ...?"
-  /(?:^|\s)>\s*$/                             // bare prompt caret (provider idle banner)
+  /\bpress\s+enter\b/i, // "press Enter to continue"
+  /\bdo you want to\b/i, // "Do you want to proceed"
+  /\bcontinue\?\s*$/i, // "Continue?"
+  /\bconfirm\b.*\?/i, // "Confirm ...?"
+  /(?:^|\s)>\s*$/ // bare prompt caret (provider idle banner)
 ]
 
 /** True if the cleaned line looks like the engine is waiting for input. */
@@ -58,8 +58,8 @@ export interface AttentionOpts {
 
 interface SessionAtt {
   provider?: Provider
-  buffer: string            // incomplete trailing line not yet closed by \n
-  lastNonEmptyLine: string  // last CLEANED non-empty completed line
+  buffer: string // incomplete trailing line not yet closed by \n
+  lastNonEmptyLine: string // last CLEANED non-empty completed line
   state: AttentionState
   timer: ReturnType<typeof setTimeout> | null
   /** A notification has already fired for the CURRENT episode (quiet→flagged→cleared). */
@@ -82,7 +82,10 @@ export class AttentionMonitor {
   private readonly providerOf: (sessionId: string) => Provider | undefined
   private readonly saveCost: (sessionId: string, cost: CostSummary) => void
 
-  constructor(private emit: AttentionEmit, opts: AttentionOpts = {}) {
+  constructor(
+    private emit: AttentionEmit,
+    opts: AttentionOpts = {}
+  ) {
     const envQuiet = Number(process.env.AGENT_IDE_ATTENTION_QUIET_MS)
     this.quietMs = opts.quietMs ?? (Number.isFinite(envQuiet) && envQuiet > 0 ? envQuiet : DEFAULT_QUIET_MS)
     this.patterns = opts.patterns ?? DEFAULT_COST_PATTERNS
@@ -156,7 +159,10 @@ export class AttentionMonitor {
     if (!s) return
     this.clearFlag(s, id)
     // Input also cancels any pending arm — nothing to flag until fresh output.
-    if (s.timer) { clearTimeout(s.timer); s.timer = null }
+    if (s.timer) {
+      clearTimeout(s.timer)
+      s.timer = null
+    }
   }
 
   /** Session ended: drop its ephemeral state and clear any badge. */
@@ -193,7 +199,7 @@ export class AttentionMonitor {
     s.timer = setTimeout(() => this.flag(s, id), this.quietMs)
     // Node timers keep the process alive; a monitor timer must not.
     if (typeof (s.timer as { unref?: () => void }).unref === 'function') {
-      (s.timer as { unref: () => void }).unref()
+      ;(s.timer as { unref: () => void }).unref()
     }
   }
 
@@ -217,7 +223,10 @@ export class AttentionMonitor {
 
   /** Clear a flag and close the current episode (a new episode can notify again). */
   private clearFlag(s: SessionAtt, id: string): void {
-    if (s.timer) { clearTimeout(s.timer); s.timer = null }
+    if (s.timer) {
+      clearTimeout(s.timer)
+      s.timer = null
+    }
     s.notifiedThisEpisode = false
     if (s.state !== null) {
       s.state = null

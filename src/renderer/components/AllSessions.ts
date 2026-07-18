@@ -1,4 +1,10 @@
-import { isTerminalSession, type AttentionState, type CostSummary, type Project, type Session } from '@shared/types'
+import {
+  isTerminalSession,
+  type AttentionState,
+  type CostSummary,
+  type Project,
+  type Session
+} from '@shared/types'
 import { stageChip, approvalIndicator, effectiveStageOf } from './StageChip'
 import { attentionBadge, costChip, formatCost } from './costChip'
 
@@ -18,13 +24,19 @@ export interface AllSessionsProps {
  *  Returns undefined when NO session has any cost figure (rollup hidden, never
  *  "$0"). Token-only summaries (no dollar figure) don't contribute a dollar
  *  total, so a project with only those shows no rollup. */
-function projectCostRollup(costs: Map<string, CostSummary> | undefined, sessionIds: string[]): string | undefined {
+function projectCostRollup(
+  costs: Map<string, CostSummary> | undefined,
+  sessionIds: string[]
+): string | undefined {
   if (!costs) return undefined
   let total = 0
   let any = false
   for (const id of sessionIds) {
     const c = costs.get(id)
-    if (c?.costUSD != null) { total += c.costUSD; any = true }
+    if (c?.costUSD != null) {
+      total += c.costUSD
+      any = true
+    }
   }
   if (!any) return undefined
   return `Σ ${formatCost({ costUSD: total } as CostSummary)}`
@@ -91,7 +103,10 @@ export function AllSessions(p: AllSessionsProps): HTMLElement {
     head.className = 'h'
     head.textContent = proj.name
     // S5: per-project cost rollup on the home board (hidden when no dollar cost).
-    const rollup = projectCostRollup(p.costs, projSessions.map((s) => s.id))
+    const rollup = projectCostRollup(
+      p.costs,
+      projSessions.map((s) => s.id)
+    )
     if (rollup) {
       const r = document.createElement('span')
       r.className = 'as-rollup'

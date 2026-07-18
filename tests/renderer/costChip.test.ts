@@ -4,7 +4,12 @@ import { formatCost, costChip, attentionBadge } from '../../src/renderer/compone
 import { AllSessions } from '../../src/renderer/components/AllSessions'
 import type { CostSummary, Project, Session } from '@shared/types'
 
-const cost = (over: Partial<CostSummary>): CostSummary => ({ provider: 'claude', updatedAt: 0, raw: 'raw', ...over })
+const cost = (over: Partial<CostSummary>): CostSummary => ({
+  provider: 'claude',
+  updatedAt: 0,
+  raw: 'raw',
+  ...over
+})
 
 describe('formatCost', () => {
   it('prefers dollars, sub-$1 keeps 4 dp', () => {
@@ -49,15 +54,33 @@ describe('AllSessions — attention badges, cost chips, and per-project rollup',
     { id: 'p1', name: 'api', repo: 'e/api', localPath: '/a', hasDevcontainer: false }
   ]
   const sessions: Session[] = [
-    { id: 's1', projectId: 'p1', provider: 'claude', model: 'opus', objective: 'A', status: 'running', createdAt: 2, updatedAt: 2 },
-    { id: 's2', projectId: 'p1', provider: 'codex', model: 'gpt', objective: 'B', status: 'running', createdAt: 1, updatedAt: 1 }
+    {
+      id: 's1',
+      projectId: 'p1',
+      provider: 'claude',
+      model: 'opus',
+      objective: 'A',
+      status: 'running',
+      createdAt: 2,
+      updatedAt: 2
+    },
+    {
+      id: 's2',
+      projectId: 'p1',
+      provider: 'codex',
+      model: 'gpt',
+      objective: 'B',
+      status: 'running',
+      createdAt: 1,
+      updatedAt: 1
+    }
   ]
 
   it('shows badges + chips on rows and a summed dollar rollup on the header', () => {
     const attention = new Map<string, 'input' | 'idle'>([['s1', 'input']])
     const costs = new Map<string, CostSummary>([
-      ['s1', cost({ costUSD: 0.10 })],
-      ['s2', cost({ provider: 'codex', costUSD: 0.40 })]
+      ['s1', cost({ costUSD: 0.1 })],
+      ['s2', cost({ provider: 'codex', costUSD: 0.4 })]
     ])
     const el = AllSessions({ projects, sessions, attention, costs, onOpen: () => {} })
     expect(el.querySelector('.att-badge.input')).not.toBeNull()

@@ -3,7 +3,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  composeLaunchPrimer, agentBodyForPrimer, isRegisteredAgent, stripAgentFrontmatter
+  composeLaunchPrimer,
+  agentBodyForPrimer,
+  isRegisteredAgent,
+  stripAgentFrontmatter
 } from '../../src/main/agentPreset'
 import { validateLaunchRequest } from '../../src/main/validate'
 
@@ -96,10 +99,10 @@ describe('S8 agentPreset — registration + primer', () => {
       agentRelPath: 'agents/release-writer.md',
       history: 'PRIOR_TRANSCRIPT_MARKER: earlier conversation'
     })
-    expect(primer).toContain('HARNESS_PROTOCOL_MARKER')      // harness present on resume
-    expect(primer).toContain('AGENT_BODY_MARKER')            // agent re-injected
-    expect(primer).toContain('continue the work')            // objective
-    expect(primer).toContain('PRIOR_TRANSCRIPT_MARKER')      // history last
+    expect(primer).toContain('HARNESS_PROTOCOL_MARKER') // harness present on resume
+    expect(primer).toContain('AGENT_BODY_MARKER') // agent re-injected
+    expect(primer).toContain('continue the work') // objective
+    expect(primer).toContain('PRIOR_TRANSCRIPT_MARKER') // history last
     // ordering: harness → agent → objective → history
     expect(primer.indexOf('HARNESS_PROTOCOL_MARKER')).toBeLessThan(primer.indexOf('AGENT_BODY_MARKER'))
     expect(primer.indexOf('AGENT_BODY_MARKER')).toBeLessThan(primer.indexOf('continue the work'))
@@ -126,20 +129,31 @@ describe('S8 agentPreset — registration + primer', () => {
 describe('S8 validateLaunchRequest — agentRelPath validation (R7)', () => {
   const known = (id: string) => id === 'p1'
   const base = {
-    projectId: 'p1', provider: 'claude', model: 'claude-sonnet-4-6', objective: 'x',
-    cwd: '/tmp/p1', useContainer: false, taskKind: 'product', taskSubkind: 'feature'
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'claude-sonnet-4-6',
+    objective: 'x',
+    cwd: '/tmp/p1',
+    useContainer: false,
+    taskKind: 'product',
+    taskSubkind: 'feature'
   }
   // model membership: use whatever the registry says is valid — pull a real one.
   // (validate.ts checks isKnownModel; a bad model would throw before agentRelPath.)
 
   it('accepts a registered agentRelPath', () => {
-    const req = validateLaunchRequest({ ...base, agentRelPath: 'agents/release-writer.md' }, known, (r) => r === 'agents/release-writer.md')
+    const req = validateLaunchRequest(
+      { ...base, agentRelPath: 'agents/release-writer.md' },
+      known,
+      (r) => r === 'agents/release-writer.md'
+    )
     expect(req.agentRelPath).toBe('agents/release-writer.md')
   })
 
   it('rejects an unregistered agentRelPath', () => {
-    expect(() => validateLaunchRequest({ ...base, agentRelPath: 'agents/evil.md' }, known, () => false))
-      .toThrow(/not a registered library agent/)
+    expect(() =>
+      validateLaunchRequest({ ...base, agentRelPath: 'agents/evil.md' }, known, () => false)
+    ).toThrow(/not a registered library agent/)
   })
 
   it('leaves agentRelPath null when omitted (plain launch)', () => {
@@ -148,7 +162,8 @@ describe('S8 validateLaunchRequest — agentRelPath validation (R7)', () => {
   })
 
   it('rejects a non-string agentRelPath', () => {
-    expect(() => validateLaunchRequest({ ...base, agentRelPath: 42 }, known, () => true))
-      .toThrow(/agentRelPath/)
+    expect(() => validateLaunchRequest({ ...base, agentRelPath: 42 }, known, () => true)).toThrow(
+      /agentRelPath/
+    )
   })
 })

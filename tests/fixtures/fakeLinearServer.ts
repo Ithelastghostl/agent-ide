@@ -49,8 +49,14 @@ export async function startFakeLinearServer(opts: FakeServerOptions = {}): Promi
   const pageSize = opts.pageSize ?? 2
   const totalIssues = opts.totalIssues ?? 5
   const state: FakeServer['state'] = {
-    registrations: 0, tokenGrants: 0, refreshes: 0, revocations: 0, initializations: 0,
-    toolCalls: [], comments: [], issueStates: new Map()
+    registrations: 0,
+    tokenGrants: 0,
+    refreshes: 0,
+    revocations: 0,
+    initializations: 0,
+    toolCalls: [],
+    comments: [],
+    issueStates: new Map()
   }
   for (let i = 1; i <= totalIssues; i++) state.issueStates.set(`iss-${i}`, ISSUE_STATE_DEFAULT)
 
@@ -58,17 +64,25 @@ export async function startFakeLinearServer(opts: FakeServerOptions = {}): Promi
   let expiryArmed = !!opts.forceSessionExpiryOnce
   let base = ''
 
-  const server = createServer((req, res) => { void handle(req, res) })
+  const server = createServer((req, res) => {
+    void handle(req, res)
+  })
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', base)
     const path = url.pathname
 
     // --- OAuth discovery ---
-    if (path === '/.well-known/oauth-protected-resource' || path.startsWith('/.well-known/oauth-protected-resource')) {
+    if (
+      path === '/.well-known/oauth-protected-resource' ||
+      path.startsWith('/.well-known/oauth-protected-resource')
+    ) {
       return sendJson(res, 200, { resource: `${base}/mcp`, authorization_servers: [base] })
     }
-    if (path === '/.well-known/oauth-authorization-server' || path.startsWith('/.well-known/oauth-authorization-server')) {
+    if (
+      path === '/.well-known/oauth-authorization-server' ||
+      path.startsWith('/.well-known/oauth-authorization-server')
+    ) {
       return sendJson(res, 200, {
         issuer: base,
         authorization_endpoint: `${base}/authorize`,
@@ -88,10 +102,21 @@ export async function startFakeLinearServer(opts: FakeServerOptions = {}): Promi
       const body = await readBody(req)
       if (body.includes('grant_type=refresh_token')) {
         state.refreshes++
-        return sendJson(res, 200, { access_token: `at-${state.refreshes}`, refresh_token: `rt-${state.refreshes}`, expires_in: 3600, token_type: 'Bearer' })
+        return sendJson(res, 200, {
+          access_token: `at-${state.refreshes}`,
+          refresh_token: `rt-${state.refreshes}`,
+          expires_in: 3600,
+          token_type: 'Bearer'
+        })
       }
       state.tokenGrants++
-      return sendJson(res, 200, { access_token: 'at-initial', refresh_token: 'rt-initial', expires_in: 3600, token_type: 'Bearer', scope: 'read write' })
+      return sendJson(res, 200, {
+        access_token: 'at-initial',
+        refresh_token: 'rt-initial',
+        expires_in: 3600,
+        token_type: 'Bearer',
+        scope: 'read write'
+      })
     }
     if (path === '/revoke' && req.method === 'POST') {
       await readBody(req)
@@ -102,17 +127,21 @@ export async function startFakeLinearServer(opts: FakeServerOptions = {}): Promi
     // --- MCP endpoint ---
     if (path === '/mcp' && req.method === 'POST') {
       // Auth challenge: without a Bearer token, respond 401 (protected resource).
-      if (!(/^Bearer .+/i.test(req.headers['authorization'] ?? ''))) {
+      if (!/^Bearer .+/i.test(req.headers['authorization'] ?? '')) {
         return sendJson(res, 401, { error: 'unauthorized' })
       }
-      const rpc = JSON.parse(await readBody(req) || '{}') as { id?: number; method?: string; params?: any }
+      const rpc = JSON.parse((await readBody(req)) || '{}') as { id?: number; method?: string; params?: any }
       return handleMcp(req, res, rpc)
     }
 
     sendJson(res, 404, { error: 'not found' })
   }
 
-  function handleMcp(req: IncomingMessage, res: ServerResponse, rpc: { id?: number; method?: string; params?: any }): void {
+  function handleMcp(
+    req: IncomingMessage,
+    res: ServerResponse,
+    rpc: { id?: number; method?: string; params?: any }
+  ): void {
     const method = rpc.method ?? ''
     const sessionHeader = (req.headers['mcp-session-id'] as string | undefined) ?? null
 
@@ -139,14 +168,22 @@ export async function startFakeLinearServer(opts: FakeServerOptions = {}): Promi
     // All other methods require a matching session.
     if (!currentSession || sessionHeader !== currentSession) {
       // Unknown/expired session → 404 (client reinitializes).
-      return sendJson(res, 404, { jsonrpc: '2.0', id: rpc.id, error: { code: -32001, message: 'session not found' } })
+      return sendJson(res, 404, {
+        jsonrpc: '2.0',
+        id: rpc.id,
+        error: { code: -32001, message: 'session not found' }
+      })
     }
 
     // One-shot forced expiry AFTER a session exists, to exercise reinit.
     if (expiryArmed) {
       expiryArmed = false
       currentSession = null
-      return sendJson(res, 404, { jsonrpc: '2.0', id: rpc.id, error: { code: -32001, message: 'session expired' } })
+      return sendJson(res, 404, {
+        jsonrpc: '2.0',
+        id: rpc.id,
+        error: { code: -32001, message: 'session expired' }
+      })
     }
 
     if (method === 'tools/list') {
@@ -160,7 +197,11 @@ export async function startFakeLinearServer(opts: FakeServerOptions = {}): Promi
       return replyResult(res, rpc.id, runTool(name, args))
     }
 
-    return sendJson(res, 400, { jsonrpc: '2.0', id: rpc.id, error: { code: -32601, message: `method not found: ${method}` } })
+    return sendJson(res, 400, {
+      jsonrpc: '2.0',
+      id: rpc.id,
+      error: { code: -32601, message: `method not found: ${method}` }
+    })
   }
 
   function runTool(name: string, args: Record<string, unknown>): unknown {
@@ -172,17 +213,36 @@ export async function startFakeLinearServer(opts: FakeServerOptions = {}): Promi
       const slice: any[] = []
       for (let i = after + 1; i <= Math.min(after + pageSize, totalIssues); i++) {
         const id = `iss-${i}`
-        slice.push({ id, identifier: `ENG-${i}`, title: `Issue ${i}`, url: `https://linear.app/x/issue/ENG-${i}`, description: `Body ${i}`, state: { name: state.issueStates.get(id) ?? ISSUE_STATE_DEFAULT, type: 'unstarted' } })
+        slice.push({
+          id,
+          identifier: `ENG-${i}`,
+          title: `Issue ${i}`,
+          url: `https://linear.app/x/issue/ENG-${i}`,
+          description: `Body ${i}`,
+          state: { name: state.issueStates.get(id) ?? ISSUE_STATE_DEFAULT, type: 'unstarted' }
+        })
       }
       const end = after + pageSize
       const hasNext = end < totalIssues
-      return toolContent({ issues: slice, pageInfo: { hasNextPage: hasNext, endCursor: hasNext ? String(end) : null } })
+      return toolContent({
+        issues: slice,
+        pageInfo: { hasNextPage: hasNext, endCursor: hasNext ? String(end) : null }
+      })
     }
     if (name === 'get_issue') {
       const id = (args.id ?? args.issueId ?? args.identifier) as string
       const label = state.issueStates.get(id) ?? ISSUE_STATE_DEFAULT
-      const comments = state.comments.filter((c) => c.issueId === id).map((c) => c.body).join('\n')
-      return toolContent({ id, identifier: id, title: `Issue for ${id}`, state: { name: label, type: labelType(label) }, comments })
+      const comments = state.comments
+        .filter((c) => c.issueId === id)
+        .map((c) => c.body)
+        .join('\n')
+      return toolContent({
+        id,
+        identifier: id,
+        title: `Issue for ${id}`,
+        state: { name: label, type: labelType(label) },
+        comments
+      })
     }
     if (name === 'update_issue') {
       const id = (args.id ?? args.issueId) as string
@@ -219,7 +279,10 @@ export async function startFakeLinearServer(opts: FakeServerOptions = {}): Promi
   base = `http://127.0.0.1:${port}`
 
   return {
-    server, url: base, mcpUrl: `${base}/mcp`, state,
+    server,
+    url: base,
+    mcpUrl: `${base}/mcp`,
+    state,
     close: () => new Promise<void>((resolve) => server.close(() => resolve()))
   }
 }
@@ -232,10 +295,22 @@ function labelType(label: string): string {
 }
 
 const TOOLS = [
-  { name: 'list_issues', description: 'List issues', inputSchema: { type: 'object', properties: { teamId: {}, projectId: {}, first: {}, after: {} } } },
+  {
+    name: 'list_issues',
+    description: 'List issues',
+    inputSchema: { type: 'object', properties: { teamId: {}, projectId: {}, first: {}, after: {} } }
+  },
   { name: 'get_issue', description: 'Get an issue', inputSchema: { type: 'object', properties: { id: {} } } },
-  { name: 'update_issue', description: 'Update an issue', inputSchema: { type: 'object', properties: { id: {}, stateName: {}, title: {} } } },
-  { name: 'create_comment', description: 'Comment on an issue', inputSchema: { type: 'object', properties: { issueId: {}, body: {} } } },
+  {
+    name: 'update_issue',
+    description: 'Update an issue',
+    inputSchema: { type: 'object', properties: { id: {}, stateName: {}, title: {} } }
+  },
+  {
+    name: 'create_comment',
+    description: 'Comment on an issue',
+    inputSchema: { type: 'object', properties: { issueId: {}, body: {} } }
+  },
   { name: 'viewer', description: 'Current user', inputSchema: { type: 'object', properties: {} } }
 ]
 
@@ -248,7 +323,9 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     let data = ''
-    req.on('data', (c) => { data += c })
+    req.on('data', (c) => {
+      data += c
+    })
     req.on('end', () => resolve(data))
     req.on('error', () => resolve(data))
   })

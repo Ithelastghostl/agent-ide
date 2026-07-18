@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // Open a URL in the host's default browser (host-side; works from containers).
   // Pass the originating sessionId so main can forward a container localhost port
   // out to the host before opening (OAuth callbacks, in-container dev servers).
-  openExternal: (url: string, sessionId?: string): Promise<boolean> => ipcRenderer.invoke('shell:openExternal', url, sessionId),
+  openExternal: (url: string, sessionId?: string): Promise<boolean> =>
+    ipcRenderer.invoke('shell:openExternal', url, sessionId),
 
   // model registry + session launch
   modelsAll: () => ipcRenderer.invoke('models:all'),
@@ -25,8 +26,10 @@ contextBridge.exposeInMainWorld('agentIDE', {
   terminalOpen: (req: unknown) => ipcRenderer.invoke('terminal:open', req),
 
   // container lifecycle (F14)
-  containerStart: (projectId: string, workspace: string, importConfig: boolean) => ipcRenderer.invoke('container:start', projectId, workspace, importConfig),
-  containerStatus: (projectId: string, workspace: string) => ipcRenderer.invoke('container:status', projectId, workspace),
+  containerStart: (projectId: string, workspace: string, importConfig: boolean) =>
+    ipcRenderer.invoke('container:start', projectId, workspace, importConfig),
+  containerStatus: (projectId: string, workspace: string) =>
+    ipcRenderer.invoke('container:status', projectId, workspace),
   onContainerStatus: (cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void) =>
     ipcRenderer.on('container:status', (_e, p) => cb(p)),
 
@@ -34,13 +37,16 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // main; omit for auto-detection.
   providerHealth: (provider: string, projectId: string, cwd: string, useContainer?: boolean) =>
     ipcRenderer.invoke('provider:health', provider, projectId, cwd, useContainer),
-  providerLogin: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:login', provider, projectId, cwd),
-  providerInstall: (provider: string, projectId: string, cwd: string) => ipcRenderer.invoke('provider:install', provider, projectId, cwd),
+  providerLogin: (provider: string, projectId: string, cwd: string) =>
+    ipcRenderer.invoke('provider:login', provider, projectId, cwd),
+  providerInstall: (provider: string, projectId: string, cwd: string) =>
+    ipcRenderer.invoke('provider:install', provider, projectId, cwd),
 
   // projects
   githubRepos: () => ipcRenderer.invoke('github:repos'),
   openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
-  projectsAddGithub: (repo: string, parentDir?: string) => ipcRenderer.invoke('projects:addGithub', repo, parentDir),
+  projectsAddGithub: (repo: string, parentDir?: string) =>
+    ipcRenderer.invoke('projects:addGithub', repo, parentDir),
   projectsAddLocal: (localPath: string) => ipcRenderer.invoke('projects:addLocal', localPath),
   projectsAddUrl: (url: string, parentDir: string) => ipcRenderer.invoke('projects:addUrl', url, parentDir),
   projectsList: () => ipcRenderer.invoke('projects:list'),
@@ -49,7 +55,8 @@ contextBridge.exposeInMainWorld('agentIDE', {
   fsTree: (projectId: string) => ipcRenderer.invoke('fs:tree', projectId),
   fsDir: (projectId: string, path: string) => ipcRenderer.invoke('fs:dir', projectId, path),
   fileRead: (projectId: string, path: string) => ipcRenderer.invoke('file:read', projectId, path),
-  fileWrite: (projectId: string, path: string, content: string) => ipcRenderer.invoke('file:write', projectId, path, content),
+  fileWrite: (projectId: string, path: string, content: string) =>
+    ipcRenderer.invoke('file:write', projectId, path, content),
 
   // terminal / session pty. No raw spawn from the renderer (NN0): ptys are
   // started in main via session:launch / terminal:open / session:resume.
@@ -66,8 +73,7 @@ contextBridge.exposeInMainWorld('agentIDE', {
   onSessionExit: (cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void) =>
     ipcRenderer.on('session:exit', (_e, p) => cb(p)),
   // App-level notices from main (e.g. a container missing credential mounts).
-  onNotice: (cb: (p: { message: string }) => void) =>
-    ipcRenderer.on('app:notice', (_e, p) => cb(p)),
+  onNotice: (cb: (p: { message: string }) => void) => ipcRenderer.on('app:notice', (_e, p) => cb(p)),
 
   // Replay saved terminal output for a session (chat history) on mount.
   transcriptGet: (id: string): Promise<string> => ipcRenderer.invoke('transcript:get', id),
@@ -87,7 +93,8 @@ contextBridge.exposeInMainWorld('agentIDE', {
 
   // sessions persistence / global board
   sessionsAll: () => ipcRenderer.invoke('sessions:all'),
-  sessionResume: (s: unknown, cwd: string, useContainer: boolean) => ipcRenderer.invoke('session:resume', s, cwd, useContainer),
+  sessionResume: (s: unknown, cwd: string, useContainer: boolean) =>
+    ipcRenderer.invoke('session:resume', s, cwd, useContainer),
   // Move a session's conversation to a different engine: relaunches the same
   // session id under a new provider/model and seeds it with the prior history.
   sessionChangeModel: (s: unknown, cwd: string, useContainer: boolean, provider: string, model: string) =>
@@ -101,17 +108,21 @@ contextBridge.exposeInMainWorld('agentIDE', {
   backlogUpdate: (input: unknown) => ipcRenderer.invoke('backlog:update', input),
   backlogDelete: (id: string) => ipcRenderer.invoke('backlog:delete', id),
   backlogForSession: (sessionId: string) => ipcRenderer.invoke('backlog:forSession', sessionId),
-  backlogUnbind: (sessionId: string, itemId: string) => ipcRenderer.invoke('backlog:unbind', sessionId, itemId),
+  backlogUnbind: (sessionId: string, itemId: string) =>
+    ipcRenderer.invoke('backlog:unbind', sessionId, itemId),
 
   // Queue (S6). CRUD + explicit advancement.
   queueList: (projectId: string) => ipcRenderer.invoke('queue:list', projectId),
   queueEnqueue: (item: unknown) => ipcRenderer.invoke('queue:enqueue', item),
   queueDelete: (id: string) => ipcRenderer.invoke('queue:delete', id),
-  queueReorder: (projectId: string, orderedIds: string[]) => ipcRenderer.invoke('queue:reorder', projectId, orderedIds),
+  queueReorder: (projectId: string, orderedIds: string[]) =>
+    ipcRenderer.invoke('queue:reorder', projectId, orderedIds),
   queueStartNext: (projectId: string) => ipcRenderer.invoke('queue:startNext', projectId),
   queueGetAutoAdvance: (projectId: string) => ipcRenderer.invoke('queue:getAutoAdvance', projectId),
-  queueSetAutoAdvance: (projectId: string, on: boolean) => ipcRenderer.invoke('queue:setAutoAdvance', projectId, on),
-  onQueueChanged: (cb: (p: { projectId: string }) => void) => ipcRenderer.on('queue:changed', (_e, p) => cb(p)),
+  queueSetAutoAdvance: (projectId: string, on: boolean) =>
+    ipcRenderer.invoke('queue:setAutoAdvance', projectId, on),
+  onQueueChanged: (cb: (p: { projectId: string }) => void) =>
+    ipcRenderer.on('queue:changed', (_e, p) => cb(p)),
 
   // Harness (S3). Uniform CLAUDE.md-style protocol.
   harnessGet: () => ipcRenderer.invoke('harness:get'),
@@ -119,7 +130,8 @@ contextBridge.exposeInMainWorld('agentIDE', {
 
   // Session stage / model (S3). Declarative desired-state writes.
   sessionSetStage: (id: string, stage: string) => ipcRenderer.invoke('session:setStage', id, stage),
-  sessionSetModel: (id: string, provider: string, model: string) => ipcRenderer.invoke('session:setModel', id, provider, model),
+  sessionSetModel: (id: string, provider: string, model: string) =>
+    ipcRenderer.invoke('session:setModel', id, provider, model),
 
   // Search (S7). Cross-session FTS.
   searchQuery: (query: string, limit?: number) => ipcRenderer.invoke('search:query', query, limit),
@@ -127,7 +139,8 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // Pending review (S6/S2). Never auto-submitted; inserted only on user action.
   reviewPending: (sessionId: string) => ipcRenderer.invoke('review:pending', sessionId),
   reviewInsert: (sessionId: string) => ipcRenderer.invoke('review:insert', sessionId),
-  onReviewChanged: (cb: (p: { sessionId: string }) => void) => ipcRenderer.on('review:changed', (_e, p) => cb(p)),
+  onReviewChanged: (cb: (p: { sessionId: string }) => void) =>
+    ipcRenderer.on('review:changed', (_e, p) => cb(p)),
 
   // Git awareness + diff (S4). Read-only this run.
   gitStatus: (projectId: string) => ipcRenderer.invoke('git:status', projectId),
@@ -139,7 +152,8 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // Attention + cost (S5).
   attentionState: () => ipcRenderer.invoke('attention:state'),
   costForSession: (sessionId: string) => ipcRenderer.invoke('cost:forSession', sessionId),
-  onAttention: (cb: (p: { sessionId: string; state: 'input' | 'idle' | null }) => void) => ipcRenderer.on('session:attention', (_e, p) => cb(p)),
+  onAttention: (cb: (p: { sessionId: string; state: 'input' | 'idle' | null }) => void) =>
+    ipcRenderer.on('session:attention', (_e, p) => cb(p)),
   onCost: (cb: (p: { sessionId: string }) => void) => ipcRenderer.on('session:cost', (_e, p) => cb(p)),
 
   // Split-view handoff (S6).
@@ -149,6 +163,7 @@ contextBridge.exposeInMainWorld('agentIDE', {
   linearStatus: (projectId: string) => ipcRenderer.invoke('linear:status', projectId),
   linearLink: (projectId: string, ref: unknown) => ipcRenderer.invoke('linear:link', projectId, ref),
   linearPull: (projectId: string) => ipcRenderer.invoke('linear:pull', projectId),
-  linearWriteback: (itemId: string, action: unknown) => ipcRenderer.invoke('linear:writeback', itemId, action),
+  linearWriteback: (itemId: string, action: unknown) =>
+    ipcRenderer.invoke('linear:writeback', itemId, action),
   linearLogout: (accountId: string) => ipcRenderer.invoke('linear:logout', accountId)
 })

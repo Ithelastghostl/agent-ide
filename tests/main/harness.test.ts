@@ -2,12 +2,24 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readHarness, writeHarness, harnessPath, DEFAULT_HARNESS, CONTAINER_HARNESS_PATH } from '../../src/main/harness'
+import {
+  readHarness,
+  writeHarness,
+  harnessPath,
+  DEFAULT_HARNESS,
+  CONTAINER_HARNESS_PATH
+} from '../../src/main/harness'
 
 describe('harness get/set + default', () => {
   let dir: string
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'agide-harness-')); process.env.AGENT_IDE_HARNESS = dir })
-  afterEach(() => { delete process.env.AGENT_IDE_HARNESS; rmSync(dir, { recursive: true, force: true }) })
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'agide-harness-'))
+    process.env.AGENT_IDE_HARNESS = dir
+  })
+  afterEach(() => {
+    delete process.env.AGENT_IDE_HARNESS
+    rmSync(dir, { recursive: true, force: true })
+  })
 
   it('creates the default harness on first read and references the container path', () => {
     const text = readHarness()

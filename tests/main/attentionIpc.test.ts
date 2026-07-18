@@ -17,9 +17,13 @@ vi.mock('electron', () => ({
     }
   },
   Notification: class {
-    static isSupported() { return true }
+    static isSupported() {
+      return true
+    }
     constructor(public opts: { title?: string; body?: string }) {}
-    show() { shown.push(this.opts) }
+    show() {
+      shown.push(this.opts)
+    }
   },
   BrowserWindow: {
     getAllWindows: () => [{ isDestroyed: () => false, isFocused: () => focused }]
@@ -45,8 +49,14 @@ function fireOn(ch: string, ...args: unknown[]) {
 
 function mkSession(store: Store, id: string): Session {
   const s: Session = {
-    id, projectId: 'p1', provider: 'claude', model: 'claude-opus-4-8',
-    objective: 'x', status: 'running', createdAt: 0, updatedAt: 0
+    id,
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'claude-opus-4-8',
+    objective: 'x',
+    status: 'running',
+    createdAt: 0,
+    updatedAt: 0
   }
   store.saveSession(s)
   return s
@@ -57,7 +67,9 @@ function deps(store: Store): IpcDeps {
   const runtime = createFakeRuntime()
   const launch = new LaunchService({ runtime, store, onData: () => {}, onExit: () => {} })
   return {
-    store, runtime, launch,
+    store,
+    runtime,
+    launch,
     projectRoot: (id) => store.getProject(id)?.localPath,
     send: (channel, payload) => sent.push({ channel, payload })
   }
@@ -66,7 +78,11 @@ function deps(store: Store): IpcDeps {
 describe('registerAttentionIpc — bus wiring + cost persistence', () => {
   let store: Store
   beforeEach(() => {
-    handlers.clear(); onListeners.clear(); shown.length = 0; sent = []; focused = true
+    handlers.clear()
+    onListeners.clear()
+    shown.length = 0
+    sent = []
+    focused = true
     sessionEvents.removeAllListeners()
     process.env.AGENT_IDE_ATTENTION_QUIET_MS = '30' // short window for the test
     store = new Store(':memory:')
@@ -81,14 +97,19 @@ describe('registerAttentionIpc — bus wiring + cost persistence', () => {
     await new Promise((r) => setTimeout(r, 60))
     expect(await invoke('attention:state')).toEqual({ s1: 'input' })
     // and the renderer got a session:attention event
-    expect(sent.some((e) => e.channel === 'session:attention' && (e.payload as any).state === 'input')).toBe(true)
+    expect(sent.some((e) => e.channel === 'session:attention' && (e.payload as any).state === 'input')).toBe(
+      true
+    )
   })
 
   it('a cost summary in output is persisted to the Store and signalled', async () => {
     mkSession(store, 's2')
-    sessionEvents.emitEvent('output', { id: 's2', chunk: 'Total cost: $0.42 (100 input, 200 output tokens)\n' })
+    sessionEvents.emitEvent('output', {
+      id: 's2',
+      chunk: 'Total cost: $0.42 (100 input, 200 output tokens)\n'
+    })
     // cost:forSession returns the live summary
-    const c = await invoke('cost:forSession', 's2') as any
+    const c = (await invoke('cost:forSession', 's2')) as any
     expect(c.costUSD).toBeCloseTo(0.42, 6)
     // persisted on the session row
     expect(store.getSession('s2')!.cost!.costUSD).toBeCloseTo(0.42, 6)

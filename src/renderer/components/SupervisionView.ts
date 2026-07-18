@@ -23,10 +23,7 @@ export interface OpenReport {
 /** Which tab is active: the session terminal, a file editor, a rendered report,
  *  or the read-only working-tree diff (S4). */
 export type ActiveTab =
-  | { kind: 'session' }
-  | { kind: 'file'; path: string }
-  | { kind: 'report'; path: string }
-  | { kind: 'diff' }
+  { kind: 'session' } | { kind: 'file'; path: string } | { kind: 'report'; path: string } | { kind: 'diff' }
 
 /** One session pane in the (optionally split) cockpit: its session, the terminal
  *  element to mount, and an optional pending-review affordance to show above it. */
@@ -91,7 +88,9 @@ function sessionPane(
   terminalEl: HTMLElement | undefined,
   reviewEl: HTMLElement | null | undefined,
   opts: {
-    focused?: boolean; onFocus?: () => void; splittable?: boolean
+    focused?: boolean
+    onFocus?: () => void
+    splittable?: boolean
     /** S8: agent-preset chip in the header. */
     agentName?: string | null
     /** S3: adjacent-only stage advance control in the header. */
@@ -186,7 +185,10 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
     close.className = 'close'
     close.textContent = f.dirty ? '●' : '×'
     close.title = f.dirty ? 'Unsaved changes — click to close' : 'Close'
-    close.onclick = (e) => { e.stopPropagation(); p.onCloseFile(f.path) }
+    close.onclick = (e) => {
+      e.stopPropagation()
+      p.onCloseFile(f.path)
+    }
     tab.appendChild(close)
     tab.onclick = () => p.onSelectTab({ kind: 'file', path: f.path })
     tabs.appendChild(tab)
@@ -205,7 +207,10 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
     close.className = 'close'
     close.textContent = '×'
     close.title = 'Close'
-    close.onclick = (e) => { e.stopPropagation(); p.onCloseReport(r.path) }
+    close.onclick = (e) => {
+      e.stopPropagation()
+      p.onCloseReport(r.path)
+    }
     tab.appendChild(close)
     tab.onclick = () => p.onSelectTab({ kind: 'report', path: r.path })
     tabs.appendChild(tab)
@@ -235,7 +240,10 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
       handoff.className = 'ed-handoff'
       handoff.textContent = '⇄ Hand off'
       handoff.title = 'Register the focused session’s tail as review material for the other pane'
-      handoff.onclick = (e) => { e.stopPropagation(); p.onHandoff!() }
+      handoff.onclick = (e) => {
+        e.stopPropagation()
+        p.onHandoff!()
+      }
       tabs.appendChild(handoff)
     }
     if (p.onToggleSplit) {
@@ -243,7 +251,10 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
       split.className = 'ed-split' + (p.splitOn ? ' on' : '')
       split.textContent = p.splitOn ? '▣ Single' : '▥ Split'
       split.title = p.splitOn ? 'Return to a single terminal pane' : 'Show two terminals side by side'
-      split.onclick = (e) => { e.stopPropagation(); p.onToggleSplit!() }
+      split.onclick = (e) => {
+        e.stopPropagation()
+        p.onToggleSplit!()
+      }
       tabs.appendChild(split)
     }
   }
@@ -267,21 +278,30 @@ export function SupervisionView(p: SupervisionProps): HTMLElement {
     grid.className = 'sv-split'
     // Primary pane carries the S3 stage control + S8 agent chip; the second pane
     // is its own session (no preset/stage extras threaded — kept minimal).
-    grid.appendChild(sessionPane(p.session, p.projectName, p.terminalEl, p.reviewEl, {
-      focused: !p.secondPane.focused, onFocus: p.onFocusPrimary,
-      agentName: p.agentName, onAdvanceStage: p.onAdvanceStage
-    }))
-    grid.appendChild(sessionPane(p.secondPane.session, p.projectName, p.secondPane.terminalEl, p.secondPane.reviewEl, {
-      focused: p.secondPane.focused, onFocus: p.secondPane.onFocus
-    }))
+    grid.appendChild(
+      sessionPane(p.session, p.projectName, p.terminalEl, p.reviewEl, {
+        focused: !p.secondPane.focused,
+        onFocus: p.onFocusPrimary,
+        agentName: p.agentName,
+        onAdvanceStage: p.onAdvanceStage
+      })
+    )
+    grid.appendChild(
+      sessionPane(p.secondPane.session, p.projectName, p.secondPane.terminalEl, p.secondPane.reviewEl, {
+        focused: p.secondPane.focused,
+        onFocus: p.secondPane.onFocus
+      })
+    )
     superv.appendChild(grid)
   } else {
     // Single session pane — the primary session's header carries the S3 stage
     // control + S8 agent chip (see sessionPane's header extras).
-    superv.appendChild(sessionPane(p.session, p.projectName, p.terminalEl, p.reviewEl, {
-      agentName: p.agentName,
-      onAdvanceStage: p.onAdvanceStage
-    }))
+    superv.appendChild(
+      sessionPane(p.session, p.projectName, p.terminalEl, p.reviewEl, {
+        agentName: p.agentName,
+        onAdvanceStage: p.onAdvanceStage
+      })
+    )
   }
 
   editor.appendChild(superv)

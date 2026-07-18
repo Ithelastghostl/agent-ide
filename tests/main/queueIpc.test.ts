@@ -41,12 +41,22 @@ describe('queue IPC — S6 autoAdvance flag + advancement triggers', () => {
     // Spy on the gated advancement path so we can assert WHETHER S6 triggered it,
     // without depending on launch internals.
     advanceSpy = vi.spyOn(launch, 'launchNextQueued').mockResolvedValue(null)
-    const deps: IpcDeps = { store, runtime, launch, projectRoot: (id) => store.getProject(id)?.localPath, send: () => {} }
+    const deps: IpcDeps = {
+      store,
+      runtime,
+      launch,
+      projectRoot: (id) => store.getProject(id)?.localPath,
+      send: () => {}
+    }
     registerQueueIpc(deps)
   })
-  afterEach(() => { delete process.env.AGENT_IDE_QUEUE; vi.restoreAllMocks() })
+  afterEach(() => {
+    delete process.env.AGENT_IDE_QUEUE
+    vi.restoreAllMocks()
+  })
 
-  const enqueue = () => invoke('queue:enqueue', { projectId: 'p1', provider: 'claude', model: 'm', objective: 'do it' })
+  const enqueue = () =>
+    invoke('queue:enqueue', { projectId: 'p1', provider: 'claude', model: 'm', objective: 'do it' })
 
   it('autoAdvance defaults to false and round-trips through set/get', async () => {
     expect(await invoke('queue:getAutoAdvance', 'p1')).toBe(false)
@@ -69,10 +79,10 @@ describe('queue IPC — S6 autoAdvance flag + advancement triggers', () => {
   it('enabling autoAdvance false→true triggers advancement (R21); a no-op set does not', async () => {
     await enqueue()
     advanceSpy.mockClear()
-    await invoke('queue:setAutoAdvance', 'p1', true)   // false→true edge
+    await invoke('queue:setAutoAdvance', 'p1', true) // false→true edge
     expect(advanceSpy).toHaveBeenCalledWith('p1')
     advanceSpy.mockClear()
-    await invoke('queue:setAutoAdvance', 'p1', true)   // already true → no edge
+    await invoke('queue:setAutoAdvance', 'p1', true) // already true → no edge
     expect(advanceSpy).not.toHaveBeenCalled()
   })
 
@@ -96,9 +106,13 @@ describe('queue IPC — S6 autoAdvance flag + advancement triggers', () => {
   })
 
   it('rejects binding more than 5 backlog items at selection (primer cap)', async () => {
-    const res = await invoke('queue:enqueue', {
-      projectId: 'p1', provider: 'claude', model: 'm', objective: 'x', backlogItemIds: ['a', 'b', 'c', 'd', 'e', 'f']
-    }) as any
+    const res = (await invoke('queue:enqueue', {
+      projectId: 'p1',
+      provider: 'claude',
+      model: 'm',
+      objective: 'x',
+      backlogItemIds: ['a', 'b', 'c', 'd', 'e', 'f']
+    })) as any
     expect(res.error).toMatch(/5 backlog items/)
   })
 })

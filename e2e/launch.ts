@@ -14,7 +14,7 @@ export function electronArgs(): string[] {
 export function e2eEnv(extra: Record<string, string> = {}): Record<string, string> {
   const shims = join(__dirname, 'fixtures', 'provider-shims')
   return {
-    ...process.env as Record<string, string>,
+    ...(process.env as Record<string, string>),
     AGENT_IDE_E2E: '1',
     PATH: `${shims}:${process.env.PATH ?? ''}`,
     ...extra

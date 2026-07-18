@@ -28,7 +28,9 @@ export function SearchOverlay(p: SearchOverlayProps): HTMLElement {
 
   const wrap = document.createElement('div')
   wrap.className = 'search-overlay modal-wrap show'
-  wrap.onclick = (e) => { if (e.target === wrap) p.onClose() }
+  wrap.onclick = (e) => {
+    if (e.target === wrap) p.onClose()
+  }
 
   const panel = document.createElement('div')
   panel.className = 'search-panel'
@@ -126,7 +128,10 @@ export function SearchOverlay(p: SearchOverlayProps): HTMLElement {
     active = 0
     results.replaceChildren()
 
-    if (input.value.trim() === '') { hits = []; return }
+    if (input.value.trim() === '') {
+      hits = []
+      return
+    }
     if (all.length === 0) {
       hits = []
       const empty = document.createElement('div')
@@ -136,7 +141,9 @@ export function SearchOverlay(p: SearchOverlayProps): HTMLElement {
       return
     }
 
-    const transcripts = all.filter((h): h is Extract<SearchHit, { type: 'transcript' }> => h.type === 'transcript')
+    const transcripts = all.filter(
+      (h): h is Extract<SearchHit, { type: 'transcript' }> => h.type === 'transcript'
+    )
     const backlog = all.filter((h): h is Extract<SearchHit, { type: 'backlog' }> => h.type === 'backlog')
 
     // Rebuild `hits` in the exact visual/nav order (transcripts then backlog).
@@ -146,7 +153,10 @@ export function SearchOverlay(p: SearchOverlayProps): HTMLElement {
       results.appendChild(section('Transcripts'))
       for (const h of transcripts) {
         const row = transcriptRow(h)
-        row.onmouseenter = () => { active = rows.indexOf(row); highlight() }
+        row.onmouseenter = () => {
+          active = rows.indexOf(row)
+          highlight()
+        }
         row.onclick = () => activate(rows.indexOf(row))
         results.appendChild(row)
         rows.push(row)
@@ -156,7 +166,10 @@ export function SearchOverlay(p: SearchOverlayProps): HTMLElement {
       results.appendChild(section('Backlog'))
       for (const h of backlog) {
         const row = backlogRow(h)
-        row.onmouseenter = () => { active = rows.indexOf(row); highlight() }
+        row.onmouseenter = () => {
+          active = rows.indexOf(row)
+          highlight()
+        }
         row.onclick = () => activate(rows.indexOf(row))
         results.appendChild(row)
         rows.push(row)
@@ -168,7 +181,10 @@ export function SearchOverlay(p: SearchOverlayProps): HTMLElement {
   let timer: ReturnType<typeof setTimeout> | null = null
   function runQuery(q: string) {
     const token = ++queryToken
-    if (q.trim() === '') { renderResults([]); return }
+    if (q.trim() === '') {
+      renderResults([])
+      return
+    }
     // Only the search call's rejection maps to an empty render — a render-time
     // error must surface, not be swallowed as "no matches".
     p.searchQuery(q, limit)
@@ -176,7 +192,9 @@ export function SearchOverlay(p: SearchOverlayProps): HTMLElement {
         (all) => all,
         () => [] as SearchHit[]
       )
-      .then((all) => { if (token === queryToken) renderResults(all) })
+      .then((all) => {
+        if (token === queryToken) renderResults(all)
+      })
   }
 
   input.addEventListener('input', () => {
@@ -186,10 +204,19 @@ export function SearchOverlay(p: SearchOverlayProps): HTMLElement {
   })
 
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); move(1) }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
-    else if (e.key === 'Enter') { e.preventDefault(); activate(active) }
-    else if (e.key === 'Escape') { e.preventDefault(); p.onClose() }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      move(1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      move(-1)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      activate(active)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      p.onClose()
+    }
   })
 
   queueMicrotask(() => input.focus())

@@ -57,15 +57,19 @@ export function stageChip(stage: SessionStage): HTMLElement {
 
 /** A guarded/auto indicator reading spawnedApprovalMode — the mode the LIVE pty
  *  actually runs with. Hidden for sessions with no spawned engine yet. */
-export function approvalIndicator(mode: ApprovalMode | null | undefined, status: SessionStatus): HTMLElement | null {
+export function approvalIndicator(
+  mode: ApprovalMode | null | undefined,
+  status: SessionStatus
+): HTMLElement | null {
   // Only meaningful once an engine has been spawned (not archived).
   if (!mode || status === 'archived') return null
   const el = document.createElement('span')
   el.className = `approval-ind ${mode}`
   el.textContent = mode === 'auto' ? 'auto' : 'guarded'
-  el.title = mode === 'auto'
-    ? 'Engine running with auto-approve (fix mode, container)'
-    : 'Engine running guarded (approval required)'
+  el.title =
+    mode === 'auto'
+      ? 'Engine running with auto-approve (fix mode, container)'
+      : 'Engine running guarded (approval required)'
   return el
 }
 
@@ -123,7 +127,10 @@ export function stageControl(p: StageControlProps): HTMLElement {
     btn.title = advanceRequiresRelaunch(p.session, next)
       ? `Advance to ${STAGE_LABEL[next]} — restarts the engine in fix mode`
       : `Advance to ${STAGE_LABEL[next]}`
-    btn.onclick = (e) => { e.stopPropagation(); p.onAdvance(next) }
+    btn.onclick = (e) => {
+      e.stopPropagation()
+      p.onAdvance(next)
+    }
     wrap.appendChild(btn)
   }
 

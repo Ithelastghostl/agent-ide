@@ -17,7 +17,8 @@ test('attention + cost IPC contracts answer through the real bridge', async () =
   // `npm run e2e`, whichever spec runs first) isn't a false failure.
   test.setTimeout(180_000)
   const proj = mkdtempSync(join(tmpdir(), 'agide-att-proj-'))
-  mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
+  mkdirSync(join(proj, 'src'))
+  writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-att-db-')), 'store.sqlite')
   const histDir = mkdtempSync(join(tmpdir(), 'agide-att-hist-'))
 
@@ -30,13 +31,21 @@ test('attention + cost IPC contracts answer through the real bridge', async () =
   const projectId = await win.evaluate(async (p) => (await window.agentIDE.projectsAddLocal(p)).id, proj)
 
   // Launch a provider session (the inert shim — no real CLI, e2eEnv guards PATH).
-  const sessionId = await win.evaluate(async ({ projectId, cwd }) => {
-    const s = await window.agentIDE.sessionLaunch({
-      projectId, provider: 'claude', model: 'claude-opus-4-8',
-      objective: 'attention probe', cwd, useContainer: false, taskKind: 'analysis'
-    })
-    return s.id
-  }, { projectId, cwd: proj })
+  const sessionId = await win.evaluate(
+    async ({ projectId, cwd }) => {
+      const s = await window.agentIDE.sessionLaunch({
+        projectId,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        objective: 'attention probe',
+        cwd,
+        useContainer: false,
+        taskKind: 'analysis'
+      })
+      return s.id
+    },
+    { projectId, cwd: proj }
+  )
 
   // attention:state is a well-formed (empty until something is flagged) map.
   const state = await win.evaluate(() => window.agentIDE.attentionState())
@@ -57,7 +66,8 @@ test('attention + cost IPC contracts answer through the real bridge', async () =
 test('a quiet session ending on a question is flagged as needing input', async () => {
   test.setTimeout(180_000)
   const proj = mkdtempSync(join(tmpdir(), 'agide-att2-proj-'))
-  mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'README.md'), '# x\n')
+  mkdirSync(join(proj, 'src'))
+  writeFileSync(join(proj, 'README.md'), '# x\n')
   const dbPath = join(mkdtempSync(join(tmpdir(), 'agide-att2-db-')), 'store.sqlite')
   const histDir = mkdtempSync(join(tmpdir(), 'agide-att2-hist-'))
 
@@ -76,44 +86,68 @@ test('a quiet session ending on a question is flagged as needing input', async (
     })
   })
 
-  const sessionId = await win.evaluate(async ({ projectId, cwd }) => {
-    const s = await window.agentIDE.sessionLaunch({
-      projectId, provider: 'claude', model: 'claude-opus-4-8',
-      objective: 'attention probe', cwd, useContainer: false, taskKind: 'analysis'
-    })
-    return s.id
-  }, { projectId, cwd: proj })
+  const sessionId = await win.evaluate(
+    async ({ projectId, cwd }) => {
+      const s = await window.agentIDE.sessionLaunch({
+        projectId,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        objective: 'attention probe',
+        cwd,
+        useContainer: false,
+        taskKind: 'analysis'
+      })
+      return s.id
+    },
+    { projectId, cwd: proj }
+  )
 
   // Wait for the shim banner AND for the launch harness primer (gate 1: every
   // provider launch auto-submits the harness, which the shim echoes back) to
   // settle, so the question we inject next is the LAST output line the monitor
   // sees — not a trailing harness line. Poll until the transcript stops growing.
-  await expect.poll(() => win.evaluate((id) => window.agentIDE.transcriptGet(id), sessionId), { timeout: 10_000 })
+  await expect
+    .poll(() => win.evaluate((id) => window.agentIDE.transcriptGet(id), sessionId), { timeout: 10_000 })
     .toContain('SHIM_PROVIDER_READY')
   let prevLen = -1
-  await expect.poll(async () => {
-    const len = (await win.evaluate((id) => window.agentIDE.transcriptGet(id), sessionId)).length
-    const stable = len === prevLen
-    prevLen = len
-    return stable
-  }, { timeout: 10_000, intervals: [400] }).toBe(true)
+  await expect
+    .poll(
+      async () => {
+        const len = (await win.evaluate((id) => window.agentIDE.transcriptGet(id), sessionId)).length
+        const stable = len === prevLen
+        prevLen = len
+        return stable
+      },
+      { timeout: 10_000, intervals: [400] }
+    )
+    .toBe(true)
   await win.evaluate((id) => window.agentIDE.ptyWrite(id, 'Do you want to proceed?\r'), sessionId)
 
-  await expect.poll(
-    () => win.evaluate((id) => window.agentIDE.attentionState().then((m) => m[id] ?? null), sessionId),
-    { timeout: 10_000 }
-  ).toBe('input')
-  await expect.poll(
-    () => win.evaluate((id) => (window as unknown as { __att: Record<string, string | null> }).__att[id] ?? null, sessionId),
-    { timeout: 5_000 }
-  ).toBe('input')
+  await expect
+    .poll(
+      () => win.evaluate((id) => window.agentIDE.attentionState().then((m) => m[id] ?? null), sessionId),
+      { timeout: 10_000 }
+    )
+    .toBe('input')
+  await expect
+    .poll(
+      () =>
+        win.evaluate(
+          (id) => (window as unknown as { __att: Record<string, string | null> }).__att[id] ?? null,
+          sessionId
+        ),
+      { timeout: 5_000 }
+    )
+    .toBe('input')
 
   // Answering (pty:write) clears the flag.
   await win.evaluate((id) => window.agentIDE.ptyWrite(id, 'y\r'), sessionId)
-  await expect.poll(
-    () => win.evaluate((id) => window.agentIDE.attentionState().then((m) => m[id] ?? null), sessionId),
-    { timeout: 5_000 }
-  ).toBe(null)
+  await expect
+    .poll(
+      () => win.evaluate((id) => window.agentIDE.attentionState().then((m) => m[id] ?? null), sessionId),
+      { timeout: 5_000 }
+    )
+    .toBe(null)
 
   await app.close()
 })

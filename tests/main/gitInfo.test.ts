@@ -4,8 +4,14 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  parseStatusPorcelainV2, isDetached, parseDiffStat, sliceToBytes, DIFF_CAP_BYTES,
-  isGitRepo, gitStatusSummary, gitWorkingDiff
+  parseStatusPorcelainV2,
+  isDetached,
+  parseDiffStat,
+  sliceToBytes,
+  DIFF_CAP_BYTES,
+  isGitRepo,
+  gitStatusSummary,
+  gitWorkingDiff
 } from '../../src/main/gitInfo'
 
 // Fixtures modelled on real `git status --porcelain=v2 --branch` output. Header
@@ -27,9 +33,9 @@ describe('parseStatusPorcelainV2', () => {
     const out = [
       '# branch.oid 2222222222222222222222222222222222222222',
       '# branch.head feature/x',
-      '1 M. N... 100644 100644 100644 aaa bbb staged.ts',   // ordinary change (staged)
+      '1 M. N... 100644 100644 100644 aaa bbb staged.ts', // ordinary change (staged)
       '1 .M N... 100644 100644 100644 ccc ddd unstaged.ts', // ordinary change (unstaged)
-      '? untracked.txt',                                    // untracked
+      '? untracked.txt', // untracked
       ''
     ].join('\n')
     expect(parseStatusPorcelainV2(out)).toEqual({ branch: 'feature/x', ahead: 0, behind: 0, dirtyCount: 3 })
@@ -71,11 +77,7 @@ describe('parseStatusPorcelainV2', () => {
   })
 
   it('no upstream → ahead/behind default to 0 (no branch.ab line)', () => {
-    const out = [
-      '# branch.oid 4444444444444444444444444444444444444444',
-      '# branch.head main',
-      ''
-    ].join('\n')
+    const out = ['# branch.oid 4444444444444444444444444444444444444444', '# branch.head main', ''].join('\n')
     expect(parseStatusPorcelainV2(out)).toEqual({ branch: 'main', ahead: 0, behind: 0, dirtyCount: 0 })
   })
 
@@ -85,12 +87,7 @@ describe('parseStatusPorcelainV2', () => {
   })
 
   it('unborn branch (initial commit) still reports the branch head', () => {
-    const out = [
-      '# branch.oid (initial)',
-      '# branch.head main',
-      '? first.ts',
-      ''
-    ].join('\n')
+    const out = ['# branch.oid (initial)', '# branch.head main', '? first.ts', ''].join('\n')
     expect(parseStatusPorcelainV2(out)).toEqual({ branch: 'main', ahead: 0, behind: 0, dirtyCount: 1 })
   })
 })
@@ -165,8 +162,8 @@ describe('git invocation against a real temp repo', () => {
     writeFileSync(join(repo, 'tracked.txt'), 'one\n')
     git(repo, 'add', '-A')
     git(repo, 'commit', '-q', '-m', 'initial')
-    writeFileSync(join(repo, 'tracked.txt'), 'one\ntwo\n')   // unstaged edit
-    writeFileSync(join(repo, 'fresh.txt'), 'new\n')          // untracked
+    writeFileSync(join(repo, 'tracked.txt'), 'one\ntwo\n') // unstaged edit
+    writeFileSync(join(repo, 'fresh.txt'), 'new\n') // untracked
 
     // A plain (non-git) directory.
     plain = mkdtempSync(join(tmpdir(), 'gitinfo-plain-'))

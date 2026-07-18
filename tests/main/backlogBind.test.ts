@@ -29,13 +29,26 @@ function makeDeps(): IpcDeps {
 }
 
 function seedSession(store: Store, id: string, projectId: string) {
-  const s: Session = { id, projectId, provider: 'codex', model: 'gpt-5-codex', objective: 'o', status: 'running', createdAt: 0, updatedAt: 0 }
+  const s: Session = {
+    id,
+    projectId,
+    provider: 'codex',
+    model: 'gpt-5-codex',
+    objective: 'o',
+    status: 'running',
+    createdAt: 0,
+    updatedAt: 0
+  }
   store.saveSession(s)
 }
 
 describe('backlog bind (S1)', () => {
   let d: IpcDeps
-  beforeEach(() => { handlers.clear(); d = makeDeps(); registerBacklogIpc(d) })
+  beforeEach(() => {
+    handlers.clear()
+    d = makeDeps()
+    registerBacklogIpc(d)
+  })
 
   it('binds selected items and moves them to in-session', () => {
     const store = d.store!
@@ -55,12 +68,14 @@ describe('backlog bind (S1)', () => {
   it('refuses more than 5 items', () => {
     const store = d.store!
     seedSession(store, 'sess-2', 'p1')
-    const ids = [1, 2, 3, 4, 5, 6].map((n) => store.createBacklogItem({ projectId: 'p1', kind: 'task', title: `T${n}` }).item!.id)
+    const ids = [1, 2, 3, 4, 5, 6].map(
+      (n) => store.createBacklogItem({ projectId: 'p1', kind: 'task', title: `T${n}` }).item!.id
+    )
     expect((invoke('backlog:bind', 'sess-2', ids) as { error?: string }).error).toMatch(/at most 5/)
     expect(store.itemsForSession('sess-2').length).toBe(0)
   })
 
-  it('only binds items from the session\'s own project (ownership check)', () => {
+  it("only binds items from the session's own project (ownership check)", () => {
     const store = d.store!
     seedSession(store, 'sess-3', 'p1')
     const mine = store.createBacklogItem({ projectId: 'p1', kind: 'task', title: 'Mine' }).item!
@@ -72,8 +87,8 @@ describe('backlog bind (S1)', () => {
   it('is a no-op for an empty selection', () => {
     const store = d.store!
     seedSession(store, 'sess-4', 'p1')
-    expect((bindLaunchBacklog(store, 'sess-4', 'p1', undefined)).ok).toBe(true)
-    expect((bindLaunchBacklog(store, 'sess-4', 'p1', [])).ok).toBe(true)
+    expect(bindLaunchBacklog(store, 'sess-4', 'p1', undefined).ok).toBe(true)
+    expect(bindLaunchBacklog(store, 'sess-4', 'p1', []).ok).toBe(true)
     expect(store.itemsForSession('sess-4').length).toBe(0)
   })
 })

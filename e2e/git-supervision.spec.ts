@@ -34,11 +34,12 @@ test('git supervision: rail branch badge + read-only Diff tab shows the seeded c
 
   // Register the git project via the real IPC, wait for persistence, then reload
   // so boot() re-hydrates it (same pattern as explorer.spec.ts).
-  await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
-  await expect.poll(
-    async () => (await win.evaluate(() => window.agentIDE.projectsList())).length,
-    { timeout: 10_000 }
-  ).toBeGreaterThan(0)
+  await win.evaluate(async (p) => {
+    await window.agentIDE.projectsAddLocal(p)
+  }, proj)
+  await expect
+    .poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 10_000 })
+    .toBeGreaterThan(0)
   await win.reload()
 
   // Open the project from the rail.

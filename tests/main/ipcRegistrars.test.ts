@@ -35,51 +35,80 @@ function deps(): IpcDeps {
 
 describe('backlog IPC — main-enforced source authority (R17)', () => {
   let d: IpcDeps
-  beforeEach(() => { handlers.clear(); d = deps(); registerBacklogIpc(d) })
+  beforeEach(() => {
+    handlers.clear()
+    d = deps()
+    registerBacklogIpc(d)
+  })
 
   it('create forces source=manual and rejects unknown projects', async () => {
-    expect((await invoke('backlog:create', { projectId: 'nope', kind: 'task', title: 'x' }) as any).error).toMatch(/unknown project/)
-    const r = await invoke('backlog:create', { projectId: 'p1', kind: 'epic', title: 'Epic', source: 'linear', linearId: 'HACK' }) as any
+    expect(
+      ((await invoke('backlog:create', { projectId: 'nope', kind: 'task', title: 'x' })) as any).error
+    ).toMatch(/unknown project/)
+    const r = (await invoke('backlog:create', {
+      projectId: 'p1',
+      kind: 'epic',
+      title: 'Epic',
+      source: 'linear',
+      linearId: 'HACK'
+    })) as any
     expect(r.item.source).toBe('manual')
     expect(r.item.linearId).toBeNull()
   })
 
   it('cannot update or delete generated/linear rows through generic CRUD', async () => {
-    d.store!.upsertLinearBacklogItem({ projectId: 'p1', linearId: 'L1', linearUrl: 'u', title: 'L', bodyMd: '', remoteStatus: 'Todo' })
+    d.store!.upsertLinearBacklogItem({
+      projectId: 'p1',
+      linearId: 'L1',
+      linearUrl: 'u',
+      title: 'L',
+      bodyMd: '',
+      remoteStatus: 'Todo'
+    })
     const lin = d.store!.listBacklog('p1').find((i) => i.source === 'linear')!
-    expect((await invoke('backlog:update', { id: lin.id, title: 'x' }) as any).error).toMatch(/read-only/)
-    expect((await invoke('backlog:delete', lin.id) as any).error).toMatch(/read-only/)
+    expect(((await invoke('backlog:update', { id: lin.id, title: 'x' })) as any).error).toMatch(/read-only/)
+    expect(((await invoke('backlog:delete', lin.id)) as any).error).toMatch(/read-only/)
   })
 
   it('lists items for a project', async () => {
     await invoke('backlog:create', { projectId: 'p1', kind: 'task', title: 'A' })
-    expect((await invoke('backlog:list', 'p1') as any[]).length).toBe(1)
+    expect(((await invoke('backlog:list', 'p1')) as any[]).length).toBe(1)
   })
 })
 
 describe('harness + search IPC (implemented)', () => {
-  beforeEach(() => { handlers.clear(); process.env.AGENT_IDE_HARNESS = mkdtempSync(join(tmpdir(), 'agide-hipc-')) })
-  afterEach(() => { delete process.env.AGENT_IDE_HARNESS })
+  beforeEach(() => {
+    handlers.clear()
+    process.env.AGENT_IDE_HARNESS = mkdtempSync(join(tmpdir(), 'agide-hipc-'))
+  })
+  afterEach(() => {
+    delete process.env.AGENT_IDE_HARNESS
+  })
   it('harness get returns text; set round-trips', async () => {
-    const d = deps(); registerHarnessIpc(d)
-    const text = await invoke('harness:get') as string
+    const d = deps()
+    registerHarnessIpc(d)
+    const text = (await invoke('harness:get')) as string
     expect(text).toContain('Discussion')
-    expect((await invoke('harness:set', '# custom') as any).ok).toBe(true)
+    expect(((await invoke('harness:set', '# custom')) as any).ok).toBe(true)
     expect(await invoke('harness:get')).toBe('# custom')
   })
   it('search returns hits', async () => {
-    const d = deps(); registerSearchIpc(d)
+    const d = deps()
+    registerSearchIpc(d)
     d.store!.createBacklogItem({ projectId: 'p1', kind: 'task', title: 'searchable widget' })
-    const hits = await invoke('search:query', 'widget') as any[]
+    const hits = (await invoke('search:query', 'widget')) as any[]
     expect(hits.some((h) => h.type === 'backlog')).toBe(true)
   })
 })
 
 describe('stubbed stream registrars return not-implemented', () => {
-  beforeEach(() => { handlers.clear() })
+  beforeEach(() => {
+    handlers.clear()
+  })
   it('linear (implemented by S2) + deferred git snapshot/rollback stubs', async () => {
     const d = deps()
-    registerLinearIpc(d); registerGitIpc(d)
+    registerLinearIpc(d)
+    registerGitIpc(d)
     // S2 implements linear:pull — an unlinked project reports "project not linked"
     // (no longer the foundation not-implemented stub).
     expect(await invoke('linear:pull', 'p1')).toEqual({ error: 'project not linked' })
@@ -92,7 +121,9 @@ describe('stubbed stream registrars return not-implemented', () => {
 })
 
 describe('git IPC (S4, implemented — read-only)', () => {
-  beforeEach(() => { handlers.clear() })
+  beforeEach(() => {
+    handlers.clear()
+  })
   it('git:status / git:diff return null for a non-repo project (never throw)', async () => {
     const d = deps() // p1.localPath = /tmp/p, not a git repo
     registerGitIpc(d)

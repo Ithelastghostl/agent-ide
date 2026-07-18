@@ -17,7 +17,12 @@ let inbox: BacklogInbox | undefined
  *  belongs to the session's project and enforces the 5-item cap; binding moves
  *  each item to sessionState 'in-session' (Store recompute). Called from the
  *  launch handlers (session:launch / terminal:open) after the row is persisted. */
-export function bindLaunchBacklog(store: Store, sessionId: string, projectId: string, raw: unknown): { ok?: true; error?: string } {
+export function bindLaunchBacklog(
+  store: Store,
+  sessionId: string,
+  projectId: string,
+  raw: unknown
+): { ok?: true; error?: string } {
   if (!Array.isArray(raw) || raw.length === 0) return { ok: true }
   const ids = raw.filter((x): x is string => typeof x === 'string')
   if (ids.length > MAX_BOUND) return { error: `at most ${MAX_BOUND} backlog items per launch` }
@@ -32,16 +37,22 @@ export function bindLaunchBacklog(store: Store, sessionId: string, projectId: st
  *  adds inbox ingestion + explicit session binding. */
 export function registerBacklogIpc({ store }: IpcDeps): void {
   ipcMain.handle('backlog:list', (_e, projectId: unknown) =>
-    typeof projectId === 'string' && store ? store.listBacklog(projectId) : [])
+    typeof projectId === 'string' && store ? store.listBacklog(projectId) : []
+  )
 
   ipcMain.handle('backlog:create', (_e, raw: unknown) => {
     if (!store) return { error: 'no store' }
     const input = raw as BacklogCreateInput
-    if (!input || typeof input.projectId !== 'string' || !store.getProject(input.projectId)) return { error: 'unknown project' }
+    if (!input || typeof input.projectId !== 'string' || !store.getProject(input.projectId))
+      return { error: 'unknown project' }
     if (!['epic', 'goal', 'task', 'ticket'].includes(input.kind)) return { error: 'invalid kind' }
     return store.createBacklogItem({
-      projectId: input.projectId, kind: input.kind, title: String(input.title ?? ''),
-      bodyMd: input.bodyMd ? String(input.bodyMd) : '', manualStatus: input.manualStatus, parentId: input.parentId ?? null
+      projectId: input.projectId,
+      kind: input.kind,
+      title: String(input.title ?? ''),
+      bodyMd: input.bodyMd ? String(input.bodyMd) : '',
+      manualStatus: input.manualStatus,
+      parentId: input.parentId ?? null
     })
   })
 
@@ -50,13 +61,17 @@ export function registerBacklogIpc({ store }: IpcDeps): void {
     const input = raw as BacklogUpdateInput
     if (!input || typeof input.id !== 'string') return { error: 'invalid request' }
     return store.updateBacklogItem({
-      id: input.id, title: input.title, bodyMd: input.bodyMd, manualStatus: input.manualStatus,
+      id: input.id,
+      title: input.title,
+      bodyMd: input.bodyMd,
+      manualStatus: input.manualStatus,
       parentId: input.parentId === undefined ? undefined : input.parentId
     })
   })
 
   ipcMain.handle('backlog:delete', (_e, id: unknown) =>
-    typeof id === 'string' && store ? store.deleteBacklogItem(id) : { error: 'invalid request' })
+    typeof id === 'string' && store ? store.deleteBacklogItem(id) : { error: 'invalid request' }
+  )
 
   // Bind a "Work on this" selection to an existing session (S1). Complements the
   // launch-time binding for selections made against an already-running session.
@@ -69,12 +84,14 @@ export function registerBacklogIpc({ store }: IpcDeps): void {
 
   // bind/unbind a session ↔ backlog item (used by launch selection + UI unlink)
   ipcMain.handle('backlog:unbind', (_e, sessionId: unknown, itemId: unknown) => {
-    if (typeof sessionId !== 'string' || typeof itemId !== 'string' || !store) return { error: 'invalid request' }
+    if (typeof sessionId !== 'string' || typeof itemId !== 'string' || !store)
+      return { error: 'invalid request' }
     store.unbindSessionBacklog(sessionId, itemId)
     return { ok: true }
   })
   ipcMain.handle('backlog:forSession', (_e, sessionId: unknown) =>
-    typeof sessionId === 'string' && store ? store.itemsForSession(sessionId) : [])
+    typeof sessionId === 'string' && store ? store.itemsForSession(sessionId) : []
+  )
 
   // S1: start the inbox watcher(s) once per app run (idempotent). Kept here so
   // the wiring lives inside the backlog stream's own registrar.

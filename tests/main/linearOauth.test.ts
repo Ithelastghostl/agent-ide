@@ -1,9 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
 import {
-  generateCodeVerifier, codeChallengeS256, generateState, safeEqual,
-  validateAuthServerMetadata, buildAuthorizeUrl, parseCallbackQuery,
-  loopbackRedirectUri, redact, commentIdempotencyMarker,
+  generateCodeVerifier,
+  codeChallengeS256,
+  generateState,
+  safeEqual,
+  validateAuthServerMetadata,
+  buildAuthorizeUrl,
+  parseCallbackQuery,
+  loopbackRedirectUri,
+  redact,
+  commentIdempotencyMarker,
   type AuthServerMetadata
 } from '../../src/main/linear/oauth'
 
@@ -27,8 +34,12 @@ describe('PKCE helpers', () => {
 
   it('S256 challenge matches base64url(sha256(verifier))', () => {
     const v = 'test-verifier-123'
-    const expected = createHash('sha256').update(v).digest('base64')
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    const expected = createHash('sha256')
+      .update(v)
+      .digest('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
     expect(codeChallengeS256(v)).toBe(expected)
   })
 
@@ -54,19 +65,30 @@ describe('validateAuthServerMetadata', () => {
     expect(() => validateAuthServerMetadata({ issuer: 'x' })).toThrow(/authorization_endpoint/)
   })
   it('rejects non-https endpoints', () => {
-    expect(() => validateAuthServerMetadata({ ...META, token_endpoint: 'http://insecure/token' })).toThrow(/non-https/)
+    expect(() => validateAuthServerMetadata({ ...META, token_endpoint: 'http://insecure/token' })).toThrow(
+      /non-https/
+    )
   })
   it('rejects a server that declares PKCE methods without S256', () => {
-    expect(() => validateAuthServerMetadata({ ...META, code_challenge_methods_supported: ['plain'] })).toThrow(/S256/)
+    expect(() =>
+      validateAuthServerMetadata({ ...META, code_challenge_methods_supported: ['plain'] })
+    ).toThrow(/S256/)
   })
 })
 
 describe('buildAuthorizeUrl', () => {
   it('embeds response_type, PKCE, state, exact redirect + resource', () => {
-    const url = new URL(buildAuthorizeUrl({
-      meta: META, clientId: 'cid', redirectUri: loopbackRedirectUri(54321),
-      state: 'st8', codeChallenge: 'chal', scope: 'read write', resource: 'https://mcp.linear.app/mcp'
-    }))
+    const url = new URL(
+      buildAuthorizeUrl({
+        meta: META,
+        clientId: 'cid',
+        redirectUri: loopbackRedirectUri(54321),
+        state: 'st8',
+        codeChallenge: 'chal',
+        scope: 'read write',
+        resource: 'https://mcp.linear.app/mcp'
+      })
+    )
     expect(url.origin + url.pathname).toBe(META.authorization_endpoint)
     expect(url.searchParams.get('response_type')).toBe('code')
     expect(url.searchParams.get('client_id')).toBe('cid')
@@ -91,14 +113,21 @@ describe('parseCallbackQuery', () => {
 
 describe('redact', () => {
   it('masks secret-looking keys', () => {
-    const out = redact({ authorization: 'Bearer secret', token: 'abc', nested: { refresh_token: 'r' }, ok: 1 }) as any
+    const out = redact({
+      authorization: 'Bearer secret',
+      token: 'abc',
+      nested: { refresh_token: 'r' },
+      ok: 1
+    }) as any
     expect(out.authorization).toBe('[redacted]')
     expect(out.token).toBe('[redacted]')
     expect(out.nested.refresh_token).toBe('[redacted]')
     expect(out.ok).toBe(1)
   })
   it('strips query/fragment from URLs (may carry code/token)', () => {
-    expect(redact('https://auth.linear.app/oauth/token?code=SECRET#frag')).toBe('https://auth.linear.app/oauth/token')
+    expect(redact('https://auth.linear.app/oauth/token?code=SECRET#frag')).toBe(
+      'https://auth.linear.app/oauth/token'
+    )
   })
   it('masks long opaque blobs', () => {
     const blob = 'A'.repeat(100)

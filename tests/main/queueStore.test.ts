@@ -4,30 +4,52 @@ import type { Session, QueueItem } from '@shared/types'
 
 function enq(store: Store, projectId = 'p1', over: Partial<QueueItem> = {}) {
   return store.enqueue({
-    projectId, objective: 'do a thing', provider: 'claude', model: 'claude-opus-4-8',
-    useContainer: false, taskKind: 'product', taskSubkind: 'feature', agentRelPath: null,
-    backlogItemIds: [], ...over
+    projectId,
+    objective: 'do a thing',
+    provider: 'claude',
+    model: 'claude-opus-4-8',
+    useContainer: false,
+    taskKind: 'product',
+    taskSubkind: 'feature',
+    agentRelPath: null,
+    backlogItemIds: [],
+    ...over
   } as any)
 }
 
 function session(store: Store, over: Partial<Session>): void {
   const now = Date.now()
-  store.saveSession({ id: 'x', projectId: 'p1', provider: 'claude', model: 'm', objective: 'o', status: 'running', createdAt: now, updatedAt: now, ...over })
+  store.saveSession({
+    id: 'x',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'm',
+    objective: 'o',
+    status: 'running',
+    createdAt: now,
+    updatedAt: now,
+    ...over
+  })
 }
 
 describe('queue enqueue + ordering', () => {
   let store: Store
-  beforeEach(() => { store = new Store(':memory:') })
+  beforeEach(() => {
+    store = new Store(':memory:')
+  })
 
   it('assigns increasing positions and lists in order', () => {
-    const a = enq(store); const b = enq(store); const c = enq(store)
+    const a = enq(store)
+    const b = enq(store)
+    const c = enq(store)
     const list = store.listQueue('p1')
     expect(list.map((q) => q.id)).toEqual([a.id, b.id, c.id])
     expect(list.map((q) => q.position)).toEqual([0, 1, 2])
   })
 
   it('reorder updates positions', () => {
-    const a = enq(store); const b = enq(store)
+    const a = enq(store)
+    const b = enq(store)
     store.reorderQueue('p1', [b.id, a.id])
     expect(store.listQueue('p1').map((q) => q.id)).toEqual([b.id, a.id])
   })
@@ -35,10 +57,13 @@ describe('queue enqueue + ordering', () => {
 
 describe('claimNextQueue atomicity + no-overtaking (R8)', () => {
   let store: Store
-  beforeEach(() => { store = new Store(':memory:') })
+  beforeEach(() => {
+    store = new Store(':memory:')
+  })
 
   it('claims the oldest pending row with a fresh lease, bumping attempts', () => {
-    const a = enq(store); enq(store)
+    const a = enq(store)
+    enq(store)
     const claimed = store.claimNextQueue('p1', 'boot-1')
     expect(claimed?.id).toBe(a.id)
     expect(claimed?.state).toBe('launching')
@@ -48,7 +73,8 @@ describe('claimNextQueue atomicity + no-overtaking (R8)', () => {
   })
 
   it('refuses to claim while a launching row exists (no overtaking)', () => {
-    enq(store); enq(store)
+    enq(store)
+    enq(store)
     const first = store.claimNextQueue('p1', 'boot-1')
     expect(first).not.toBeNull()
     // second claim blocked because first is still 'launching'
@@ -56,7 +82,8 @@ describe('claimNextQueue atomicity + no-overtaking (R8)', () => {
   })
 
   it('a repeated claim after marking launched can proceed', () => {
-    const a = enq(store); const b = enq(store)
+    const a = enq(store)
+    const b = enq(store)
     const c1 = store.claimNextQueue('p1', 'boot-1')!
     expect(store.markQueueLaunched(c1.id, c1.leaseToken!, 'sess-a')).toBe(true)
     // now b is claimable
@@ -68,7 +95,9 @@ describe('claimNextQueue atomicity + no-overtaking (R8)', () => {
 
 describe('canAdvanceQueue (R9-1)', () => {
   let store: Store
-  beforeEach(() => { store = new Store(':memory:') })
+  beforeEach(() => {
+    store = new Store(':memory:')
+  })
 
   it('blocks when a session is active', () => {
     enq(store)
@@ -93,7 +122,9 @@ describe('canAdvanceQueue (R9-1)', () => {
 
 describe('lease transitions + recovery (R8/R9-2)', () => {
   let store: Store
-  beforeEach(() => { store = new Store(':memory:') })
+  beforeEach(() => {
+    store = new Store(':memory:')
+  })
 
   it('markQueueLaunched requires a matching lease (CAS)', () => {
     enq(store)
@@ -113,7 +144,7 @@ describe('lease transitions + recovery (R8/R9-2)', () => {
 
   it('reconcileQueueOnBoot fails dead-owner claims at/above the attempt cap', () => {
     enq(store)
-    store.claimNextQueue('p1', 'old-boot')  // attempts=1
+    store.claimNextQueue('p1', 'old-boot') // attempts=1
     // re-pend then re-claim to reach attempts=2
     store.reconcileQueueOnBoot('mid-boot')
     store.claimNextQueue('p1', 'old-boot-2') // attempts=2

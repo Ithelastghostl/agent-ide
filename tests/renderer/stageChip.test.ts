@@ -1,15 +1,27 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
 import {
-  stageChip, approvalIndicator, stageControl, nextStage, effectiveStageOf,
-  approvalModeFor, advanceRequiresRelaunch
+  stageChip,
+  approvalIndicator,
+  stageControl,
+  nextStage,
+  effectiveStageOf,
+  approvalModeFor,
+  advanceRequiresRelaunch
 } from '../../src/renderer/components/StageChip'
 import type { Session } from '@shared/types'
 
 function session(over: Partial<Session> = {}): Session {
   return {
-    id: 's1', projectId: 'p1', provider: 'claude', model: 'claude-sonnet-4-6',
-    objective: 'Ship it', status: 'running', createdAt: 0, updatedAt: 0, ...over
+    id: 's1',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'claude-sonnet-4-6',
+    objective: 'Ship it',
+    status: 'running',
+    createdAt: 0,
+    updatedAt: 0,
+    ...over
   }
 }
 
@@ -74,22 +86,40 @@ describe('advanceRequiresRelaunch', () => {
     expect(advanceRequiresRelaunch(s, 'fix')).toBe(false)
   })
   it('running container → fix flips guarded→auto = relaunch required', () => {
-    const s = session({ useContainer: true, status: 'running', effectiveStage: 'playback', spawnedApprovalMode: 'guarded' })
+    const s = session({
+      useContainer: true,
+      status: 'running',
+      effectiveStage: 'playback',
+      spawnedApprovalMode: 'guarded'
+    })
     expect(advanceRequiresRelaunch(s, 'fix')).toBe(true)
   })
   it('container discussion→playback is label-only (still guarded)', () => {
-    const s = session({ useContainer: true, status: 'running', effectiveStage: 'discussion', spawnedApprovalMode: 'guarded' })
+    const s = session({
+      useContainer: true,
+      status: 'running',
+      effectiveStage: 'discussion',
+      spawnedApprovalMode: 'guarded'
+    })
     expect(advanceRequiresRelaunch(s, 'playback')).toBe(false)
   })
   it('idle container → fix does NOT relaunch (no live engine to swap)', () => {
-    const s = session({ useContainer: true, status: 'idle', effectiveStage: 'playback', spawnedApprovalMode: 'guarded' })
+    const s = session({
+      useContainer: true,
+      status: 'idle',
+      effectiveStage: 'playback',
+      spawnedApprovalMode: 'guarded'
+    })
     expect(advanceRequiresRelaunch(s, 'fix')).toBe(false)
   })
 })
 
 describe('stageControl (header)', () => {
   it('renders chip + indicator + an advance button to the next stage', () => {
-    const el = stageControl({ session: session({ effectiveStage: 'discussion', spawnedApprovalMode: 'guarded' }), onAdvance: () => {} })
+    const el = stageControl({
+      session: session({ effectiveStage: 'discussion', spawnedApprovalMode: 'guarded' }),
+      onAdvance: () => {}
+    })
     expect(el.querySelector('.stage-chip.discussion')).toBeTruthy()
     expect(el.querySelector('.approval-ind.guarded')).toBeTruthy()
     const btn = el.querySelector('.stage-advance') as HTMLButtonElement
@@ -99,7 +129,12 @@ describe('stageControl (header)', () => {
 
   it('fires onAdvance with the next stage', () => {
     let to = ''
-    const el = stageControl({ session: session({ effectiveStage: 'playback' }), onAdvance: (t) => { to = t } })
+    const el = stageControl({
+      session: session({ effectiveStage: 'playback' }),
+      onAdvance: (t) => {
+        to = t
+      }
+    })
     ;(el.querySelector('.stage-advance') as HTMLButtonElement).click()
     expect(to).toBe('fix')
   })
@@ -110,13 +145,22 @@ describe('stageControl (header)', () => {
   })
 
   it('readOnly omits the advance button', () => {
-    const el = stageControl({ session: session({ effectiveStage: 'discussion' }), onAdvance: () => {}, readOnly: true })
+    const el = stageControl({
+      session: session({ effectiveStage: 'discussion' }),
+      onAdvance: () => {},
+      readOnly: true
+    })
     expect(el.querySelector('.stage-advance')).toBeNull()
     expect(el.querySelector('.stage-chip')).toBeTruthy()
   })
 
   it("advance button's title warns about a fix-mode restart for running containers", () => {
-    const s = session({ useContainer: true, status: 'running', effectiveStage: 'playback', spawnedApprovalMode: 'guarded' })
+    const s = session({
+      useContainer: true,
+      status: 'running',
+      effectiveStage: 'playback',
+      spawnedApprovalMode: 'guarded'
+    })
     const el = stageControl({ session: s, onAdvance: () => {} })
     expect((el.querySelector('.stage-advance') as HTMLButtonElement).title).toContain('restart')
   })

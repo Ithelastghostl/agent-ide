@@ -1,4 +1,12 @@
-import { PROVIDERS, isTerminalSession, type AttentionState, type CostSummary, type Provider, type Session, type LibraryCategory } from '@shared/types'
+import {
+  PROVIDERS,
+  isTerminalSession,
+  type AttentionState,
+  type CostSummary,
+  type Provider,
+  type Session,
+  type LibraryCategory
+} from '@shared/types'
 import { stageChip, approvalIndicator, effectiveStageOf } from './StageChip'
 import { attentionBadge, costChip } from './costChip'
 
@@ -210,13 +218,28 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     const live = document.createElement('span')
     const anyDown = provSessions.some((s) => reconnect.has(s.id))
     const anyLive = provSessions.some((s) => s.status === 'running' && !reconnect.has(s.id))
-    let txt = '', down = false
-    if (h === 'healthy') { txt = '● live'; down = false }
-    else if (h === 'not-logged-in') { txt = '● login needed'; down = true }
-    else if (h === 'not-installed') { txt = '● not installed'; down = true }
-    else if (h === 'unknown') { txt = '● ?'; down = false }
-    else if (provSessions.length) { txt = anyDown && !anyLive ? '● reconnect' : '● live'; down = anyDown && !anyLive }
-    if (txt) { live.className = 'live' + (down ? ' down' : ''); live.textContent = txt }
+    let txt = '',
+      down = false
+    if (h === 'healthy') {
+      txt = '● live'
+      down = false
+    } else if (h === 'not-logged-in') {
+      txt = '● login needed'
+      down = true
+    } else if (h === 'not-installed') {
+      txt = '● not installed'
+      down = true
+    } else if (h === 'unknown') {
+      txt = '● ?'
+      down = false
+    } else if (provSessions.length) {
+      txt = anyDown && !anyLive ? '● reconnect' : '● live'
+      down = anyDown && !anyLive
+    }
+    if (txt) {
+      live.className = 'live' + (down ? ' down' : '')
+      live.textContent = txt
+    }
     const grow = document.createElement('span')
     grow.className = 'grow'
     const add = document.createElement('span')
@@ -237,10 +260,18 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     group.appendChild(row)
 
     for (const s of provSessions) {
-      group.appendChild(sessionCard(
-        s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu,
-        p.agentNameFor?.(s), p.attention?.get(s.id), p.costs?.get(s.id)
-      ))
+      group.appendChild(
+        sessionCard(
+          s,
+          s.id === p.activeSessionId,
+          reconnect.has(s.id),
+          p.onSelectSession,
+          p.onSessionMenu,
+          p.agentNameFor?.(s),
+          p.attention?.get(s.id),
+          p.costs?.get(s.id)
+        )
+      )
     }
     list.appendChild(group)
   }
@@ -264,10 +295,18 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   tgroup.appendChild(trow)
   for (const s of termSessions) {
     // Terminals have no agent preset → undefined for the agentName slot.
-    tgroup.appendChild(sessionCard(
-      s, s.id === p.activeSessionId, reconnect.has(s.id), p.onSelectSession, p.onSessionMenu,
-      undefined, p.attention?.get(s.id), p.costs?.get(s.id)
-    ))
+    tgroup.appendChild(
+      sessionCard(
+        s,
+        s.id === p.activeSessionId,
+        reconnect.has(s.id),
+        p.onSelectSession,
+        p.onSessionMenu,
+        undefined,
+        p.attention?.get(s.id),
+        p.costs?.get(s.id)
+      )
+    )
   }
   list.appendChild(tgroup)
 

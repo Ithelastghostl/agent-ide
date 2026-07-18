@@ -6,19 +6,40 @@ import type { BacklogItem } from '@shared/types'
 
 function item(over: Partial<BacklogItem>): BacklogItem {
   return {
-    id: 'bl-' + Math.random().toString(36).slice(2), projectId: 'p1', kind: 'task',
-    title: 'Item', bodyMd: '', manualStatus: 'planned', sessionState: 'none',
-    remoteStatus: null, source: 'manual', parentId: null, linearId: null, linearUrl: null,
-    contentHash: null, createdAt: 0, updatedAt: 0, ...over
+    id: 'bl-' + Math.random().toString(36).slice(2),
+    projectId: 'p1',
+    kind: 'task',
+    title: 'Item',
+    bodyMd: '',
+    manualStatus: 'planned',
+    sessionState: 'none',
+    remoteStatus: null,
+    source: 'manual',
+    parentId: null,
+    linearId: null,
+    linearUrl: null,
+    contentHash: null,
+    createdAt: 0,
+    updatedAt: 0,
+    ...over
   }
 }
 
 const noop = () => {}
 function props(over: Partial<Parameters<typeof BacklogView>[0]> = {}): Parameters<typeof BacklogView>[0] {
   return {
-    projectName: 'proj', items: [], layout: 'grid', selected: new Set<string>(),
-    onToggleLayout: noop, onNew: noop, onEdit: noop, onDelete: noop,
-    onSetStatus: noop, onToggleSelect: noop, onWorkOnThis: noop, ...over
+    projectName: 'proj',
+    items: [],
+    layout: 'grid',
+    selected: new Set<string>(),
+    onToggleLayout: noop,
+    onNew: noop,
+    onEdit: noop,
+    onDelete: noop,
+    onSetStatus: noop,
+    onToggleSelect: noop,
+    onWorkOnThis: noop,
+    ...over
   }
 }
 
@@ -59,7 +80,15 @@ describe('BacklogView layout', () => {
 
   it('the toggle fires onToggleLayout with the other layout', () => {
     let picked = ''
-    const el = BacklogView(props({ items, layout: 'grid', onToggleLayout: (l) => { picked = l } }))
+    const el = BacklogView(
+      props({
+        items,
+        layout: 'grid',
+        onToggleLayout: (l) => {
+          picked = l
+        }
+      })
+    )
     ;(el.querySelector('.bk-tg[data-layout="table"]') as HTMLButtonElement).click()
     expect(picked).toBe('table')
   })
@@ -73,7 +102,13 @@ describe('BacklogView layout', () => {
 describe('BacklogView CRUD callbacks', () => {
   it('the + New button fires onNew', () => {
     let n = false
-    const el = BacklogView(props({ onNew: () => { n = true } }))
+    const el = BacklogView(
+      props({
+        onNew: () => {
+          n = true
+        }
+      })
+    )
     ;(el.querySelector('.bk-new') as HTMLButtonElement).click()
     expect(n).toBe(true)
   })
@@ -81,7 +116,14 @@ describe('BacklogView CRUD callbacks', () => {
   it('selecting an item fires onToggleSelect', () => {
     const it = item({ title: 'Sel' })
     let toggled: string | null = null
-    const el = BacklogView(props({ items: [it], onToggleSelect: (x) => { toggled = x.id } }))
+    const el = BacklogView(
+      props({
+        items: [it],
+        onToggleSelect: (x) => {
+          toggled = x.id
+        }
+      })
+    )
     const box = el.querySelector('.bk-select') as HTMLInputElement
     box.checked = true
     box.dispatchEvent(new Event('change'))
@@ -93,7 +135,15 @@ describe('BacklogView CRUD callbacks', () => {
     const none = BacklogView(props({ items: [it], selected: new Set() }))
     expect(none.querySelector('.bk-work')).toBeNull()
     let worked = false
-    const some = BacklogView(props({ items: [it], selected: new Set([it.id]), onWorkOnThis: () => { worked = true } }))
+    const some = BacklogView(
+      props({
+        items: [it],
+        selected: new Set([it.id]),
+        onWorkOnThis: () => {
+          worked = true
+        }
+      })
+    )
     const work = some.querySelector('.bk-work') as HTMLButtonElement
     expect(work).toBeTruthy()
     work.click()
@@ -136,7 +186,14 @@ describe('BacklogView read-only + status + hierarchy', () => {
 describe('BacklogModal', () => {
   it('create: fires onCreate with kind/title/body/parent', () => {
     let created: unknown = null
-    const el = BacklogModal({ items: [], onCreate: (i) => { created = i }, onUpdate: () => {}, onCancel: () => {} })
+    const el = BacklogModal({
+      items: [],
+      onCreate: (i) => {
+        created = i
+      },
+      onUpdate: () => {},
+      onCancel: () => {}
+    })
     ;(el.querySelector('input[type="text"].bk-input') as HTMLInputElement).value = 'New task'
     ;(el.querySelector('.bk-textarea') as HTMLTextAreaElement).value = 'details'
     ;(el.querySelector('.foot button.primary') as HTMLButtonElement).click()
@@ -145,7 +202,14 @@ describe('BacklogModal', () => {
 
   it('create: requires a title (shows an error, no callback)', () => {
     let created = false
-    const el = BacklogModal({ items: [], onCreate: () => { created = true }, onUpdate: () => {}, onCancel: () => {} })
+    const el = BacklogModal({
+      items: [],
+      onCreate: () => {
+        created = true
+      },
+      onUpdate: () => {},
+      onCancel: () => {}
+    })
     ;(el.querySelector('.foot button.primary') as HTMLButtonElement).click()
     expect(created).toBe(false)
     expect(el.querySelector('.bk-modal-err')!.textContent).toMatch(/required/)
@@ -154,7 +218,15 @@ describe('BacklogModal', () => {
   it('edit: prefills, disables kind, fires onUpdate with the id', () => {
     const it = item({ id: 'bl-x', kind: 'goal', title: 'Old', bodyMd: 'b' })
     let updated: unknown = null
-    const el = BacklogModal({ item: it, items: [it], onCreate: () => {}, onUpdate: (i) => { updated = i }, onCancel: () => {} })
+    const el = BacklogModal({
+      item: it,
+      items: [it],
+      onCreate: () => {},
+      onUpdate: (i) => {
+        updated = i
+      },
+      onCancel: () => {}
+    })
     expect((el.querySelector('select.bk-input') as HTMLSelectElement).disabled).toBe(true)
     ;(el.querySelector('input[type="text"].bk-input') as HTMLInputElement).value = 'Renamed'
     ;(el.querySelector('.foot button.primary') as HTMLButtonElement).click()
@@ -165,7 +237,12 @@ describe('BacklogModal', () => {
     const epic = item({ id: 'e1', kind: 'epic', title: 'Epic' })
     const genEpic = item({ id: 'g1', kind: 'epic', title: 'GenEpic', source: 'generated' })
     // Creating a task: an epic can be its parent; a generated epic cannot.
-    const el = BacklogModal({ items: [epic, genEpic], onCreate: () => {}, onUpdate: () => {}, onCancel: () => {} })
+    const el = BacklogModal({
+      items: [epic, genEpic],
+      onCreate: () => {},
+      onUpdate: () => {},
+      onCancel: () => {}
+    })
     const opts = [...el.querySelectorAll('select.bk-input')].pop()!.querySelectorAll('option')
     const values = [...opts].map((o) => (o as HTMLOptionElement).value)
     expect(values).toContain('e1')

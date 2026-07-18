@@ -45,7 +45,9 @@ export function ticketCmdOverride(env: Record<string, string | undefined> = proc
   try {
     const arr = JSON.parse(raw)
     if (Array.isArray(arr) && arr.length > 0 && arr.every((x) => typeof x === 'string')) return arr
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   throw new Error('AGENT_IDE_TICKET_CMD must be a JSON array of strings')
 }
 
@@ -56,9 +58,7 @@ export function createCliHeadlessRunner(deps: Partial<CliRunnerDeps> = {}): Head
   return (prompt: string) =>
     new Promise<string>((resolve, reject) => {
       const override = ticketCmdOverride()
-      const { cmd, args } = override
-        ? { cmd: override[0], args: override.slice(1) }
-        : claudeHeadlessArgv()
+      const { cmd, args } = override ? { cmd: override[0], args: override.slice(1) } : claudeHeadlessArgv()
       let cwd: string
       try {
         cwd = d.mkWorkDir()
@@ -83,7 +83,8 @@ export function createCliHeadlessRunner(deps: Partial<CliRunnerDeps> = {}): Head
         reject(new Error(msg))
       }
       child.on('error', (err) =>
-        fail(`ticket pass: failed to start ${cmd}: ${err.message} — is the claude CLI installed and on PATH?`))
+        fail(`ticket pass: failed to start ${cmd}: ${err.message} — is the claude CLI installed and on PATH?`)
+      )
       child.stdout?.on('data', (b: Buffer) => {
         out += b.toString('utf8')
         if (out.length > d.maxOutputBytes) {
@@ -91,7 +92,9 @@ export function createCliHeadlessRunner(deps: Partial<CliRunnerDeps> = {}): Head
           fail('ticket pass: output exceeded size cap')
         }
       })
-      child.stderr?.on('data', (b: Buffer) => { errOut = (errOut + b.toString('utf8')).slice(-4000) })
+      child.stderr?.on('data', (b: Buffer) => {
+        errOut = (errOut + b.toString('utf8')).slice(-4000)
+      })
       child.on('close', (code) => {
         if (settled) return
         settled = true
@@ -99,7 +102,9 @@ export function createCliHeadlessRunner(deps: Partial<CliRunnerDeps> = {}): Head
         if (code === 0) resolve(out)
         else reject(new Error(`ticket pass: ${cmd} exited ${code}: ${errOut.trim() || 'no stderr'}`))
       })
-      child.stdin?.on('error', () => { /* EPIPE when the CLI dies early — close() reports it */ })
+      child.stdin?.on('error', () => {
+        /* EPIPE when the CLI dies early — close() reports it */
+      })
       child.stdin?.end(prompt)
     })
 }

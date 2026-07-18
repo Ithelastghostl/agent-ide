@@ -8,11 +8,7 @@
 import type { McpTool } from './mcpClient'
 
 /** The intents S2 needs. Each maps to a name pattern + required-arg predicate. */
-export type LinearIntent =
-  | 'list-issues'
-  | 'get-issue'
-  | 'update-state'
-  | 'create-comment'
+export type LinearIntent = 'list-issues' | 'get-issue' | 'update-state' | 'create-comment'
 
 interface IntentSpec {
   /** Ordered name patterns; earlier = stronger preference. */
@@ -36,7 +32,10 @@ const SPECS: Record<LinearIntent, IntentSpec> = {
   },
   'update-state': {
     patterns: [/^update[_-]?issue([_-]?state)?$/i, /update.*state/i, /^update[_-]?issue$/i],
-    requires: [['id', 'issueId', 'issue_id'], ['state', 'stateId', 'state_id', 'status', 'workflowState', 'stateName']],
+    requires: [
+      ['id', 'issueId', 'issue_id'],
+      ['state', 'stateId', 'state_id', 'status', 'workflowState', 'stateName']
+    ],
     forbid: [/comment|create|delete|list|search|attachment/i]
   },
   'create-comment': {

@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, symlinkSync, rmSync } from 'node:fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  rmSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../../src/main/store'
@@ -50,10 +59,23 @@ describe('BacklogInbox ingestion', () => {
     inboxDir = join(projectRoot, 'backlog', 'inbox')
     mkdirSync(inboxDir, { recursive: true })
     store = new Store(':memory:')
-    store.saveProject({ id: 'p1', name: 'proj', repo: 'me/p', localPath: projectRoot, hasDevcontainer: false })
+    store.saveProject({
+      id: 'p1',
+      name: 'proj',
+      repo: 'me/p',
+      localPath: projectRoot,
+      hasDevcontainer: false
+    })
     inbox = new BacklogInbox(store)
   })
-  afterEach(() => { inbox.stop(); try { rmSync(base, { recursive: true, force: true }) } catch { /* */ } })
+  afterEach(() => {
+    inbox.stop()
+    try {
+      rmSync(base, { recursive: true, force: true })
+    } catch {
+      /* */
+    }
+  })
 
   // The manager's scan is private; exercise it via start() + a settle wait.
   const settle = () => new Promise((r) => setTimeout(r, 120))
@@ -74,7 +96,10 @@ describe('BacklogInbox ingestion', () => {
 
   it('resolves parent-title within the project', async () => {
     const epic = store.createBacklogItem({ projectId: 'p1', kind: 'epic', title: 'Parent Epic' }).item!
-    writeFileSync(join(inboxDir, 'g.md'), '---\nkind: goal\ntitle: Child Goal\nparent-title: Parent Epic\n---\n')
+    writeFileSync(
+      join(inboxDir, 'g.md'),
+      '---\nkind: goal\ntitle: Child Goal\nparent-title: Parent Epic\n---\n'
+    )
     inbox.start()
     await settle()
     const goal = store.listBacklog('p1').find((i) => i.title === 'Child Goal')!
@@ -89,7 +114,8 @@ describe('BacklogInbox ingestion', () => {
     expect(store.listBacklog('p1').length).toBe(1)
     // a second file with identical content → skipped (moved, not re-ingested)
     writeFileSync(join(inboxDir, 'b.md'), md)
-    await settle(); await settle()
+    await settle()
+    await settle()
     expect(store.listBacklog('p1').length).toBe(1)
     expect(store.listBacklog('p1')[0].contentHash).toBe(inboxHash(md))
   })
@@ -110,7 +136,11 @@ describe('BacklogInbox ingestion', () => {
     // Create a real file OUTSIDE the inbox and symlink it in.
     const outside = join(base, 'secret.md')
     writeFileSync(outside, '---\nkind: task\ntitle: Sneaky\n---\n')
-    try { symlinkSync(outside, join(inboxDir, 'link.md')) } catch { return /* platform w/o symlink */ }
+    try {
+      symlinkSync(outside, join(inboxDir, 'link.md'))
+    } catch {
+      return /* platform w/o symlink */
+    }
     inbox.start()
     await settle()
     expect(store.listBacklog('p1').find((i) => i.title === 'Sneaky')).toBeUndefined()

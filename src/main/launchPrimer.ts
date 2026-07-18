@@ -31,8 +31,12 @@ const CAPS: Record<PrimerKind, number> = {
 
 /** Review sentinel markers (R19-2): a review insertion is wrapped in these so it
  *  can be located + stripped from any later history primer (fail-closed). */
-export function reviewOpen(id: string): string { return `⟦AGENTIDE-REVIEW-${id}⟧` }
-export function reviewClose(id: string): string { return `⟦/AGENTIDE-REVIEW-${id}⟧` }
+export function reviewOpen(id: string): string {
+  return `⟦AGENTIDE-REVIEW-${id}⟧`
+}
+export function reviewClose(id: string): string {
+  return `⟦/AGENTIDE-REVIEW-${id}⟧`
+}
 
 const SENTINEL_RE = /⟦AGENTIDE-REVIEW-[^⟧]*⟧[\s\S]*?⟦\/AGENTIDE-REVIEW-[^⟧]*⟧/g
 const SENTINEL_OPEN_RE = /⟦AGENTIDE-REVIEW-[^⟧]*⟧/

@@ -1,5 +1,5 @@
 export const PROVIDERS = ['codex', 'claude', 'gemini'] as const
-export type Provider = typeof PROVIDERS[number]
+export type Provider = (typeof PROVIDERS)[number]
 
 export function isProvider(x: string): x is Provider {
   return (PROVIDERS as readonly string[]).includes(x)
@@ -242,7 +242,15 @@ export type AttentionState = 'input' | 'idle' | null
 // ---------------------------------------------------------------------------
 export type SearchHit =
   | { type: 'transcript'; sessionId: string; projectId: string; snippet: string; ts: number }
-  | { type: 'backlog'; itemId: string; projectId: string; title: string; snippet: string; status: BacklogEffectiveStatus; kind: BacklogKind }
+  | {
+      type: 'backlog'
+      itemId: string
+      projectId: string
+      title: string
+      snippet: string
+      status: BacklogEffectiveStatus
+      kind: BacklogKind
+    }
 
 // ---------------------------------------------------------------------------
 // v2 Linear (S2)

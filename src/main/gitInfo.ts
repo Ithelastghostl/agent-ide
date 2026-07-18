@@ -42,7 +42,10 @@ export function parseStatusPorcelainV2(stdout: string): GitStatusSummary {
       } else if (rest.startsWith('branch.ab ')) {
         // "+<ahead> -<behind>"
         const m = rest.slice('branch.ab '.length).match(/^\+(\d+)\s+-(\d+)/)
-        if (m) { ahead = Number(m[1]); behind = Number(m[2]) }
+        if (m) {
+          ahead = Number(m[1])
+          behind = Number(m[2])
+        }
       }
       continue
     }
@@ -76,7 +79,10 @@ export interface DiffStatSummary {
 export function parseDiffStat(stat: string): DiffStatSummary {
   const out: DiffStatSummary = { filesChanged: 0, insertions: 0, deletions: 0 }
   // The footer is the last non-empty line containing "file(s) changed".
-  const lines = stat.split('\n').map((l) => l.trim()).filter(Boolean)
+  const lines = stat
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
   const footer = [...lines].reverse().find((l) => /files?\s+changed/.test(l))
   if (!footer) return out
   const files = footer.match(/(\d+)\s+files?\s+changed/)

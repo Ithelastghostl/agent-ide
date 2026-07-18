@@ -42,17 +42,25 @@ test('backlog: UI create, inbox ingest, and "work on this" binding', async () =>
 
   // Switch to table view and confirm the created item shows.
   await win.locator('.bk-tg[data-layout="table"]').click()
-  await expect(win.locator('.bk-table .bk-c.title', { hasText: 'Ship the widget' })).toHaveCount(1, { timeout: 5_000 })
+  await expect(win.locator('.bk-table .bk-c.title', { hasText: 'Ship the widget' })).toHaveCount(1, {
+    timeout: 5_000
+  })
 
   // --- drop a markdown file into backlog/inbox and see it ingested ---
   const inboxDir = join(proj, 'backlog', 'inbox')
   mkdirSync(inboxDir, { recursive: true })
-  writeFileSync(join(inboxDir, 'dropped.md'), '---\nkind: goal\ntitle: Dropped from inbox\n---\nInbox body.\n')
+  writeFileSync(
+    join(inboxDir, 'dropped.md'),
+    '---\nkind: goal\ntitle: Dropped from inbox\n---\nInbox body.\n'
+  )
 
   // The watcher settles at 500ms + rescans on an interval; poll the store.
   let ingested = false
   for (let i = 0; i < 20 && !ingested; i++) {
-    ingested = await win.evaluate(async (id) => (await window.agentIDE.backlogList(id)).some((it) => it.title === 'Dropped from inbox'), projectId)
+    ingested = await win.evaluate(
+      async (id) => (await window.agentIDE.backlogList(id)).some((it) => it.title === 'Dropped from inbox'),
+      projectId
+    )
     if (!ingested) await new Promise((r) => setTimeout(r, 1000))
   }
   expect(ingested).toBe(true)
@@ -60,24 +68,35 @@ test('backlog: UI create, inbox ingest, and "work on this" binding', async () =>
   // --- select an item and "work on this" via a plain terminal launch ---
   // Grab the created item's id, then launch a terminal carrying it as a backlog
   // selection (the bridge passes backlogItemIds through; main binds it).
-  const itemId = await win.evaluate(async (id) =>
-    (await window.agentIDE.backlogList(id)).find((i) => i.title === 'Ship the widget')!.id, projectId)
+  const itemId = await win.evaluate(
+    async (id) => (await window.agentIDE.backlogList(id)).find((i) => i.title === 'Ship the widget')!.id,
+    projectId
+  )
 
-  const sessionId = await win.evaluate(async ({ projectId, cwd, itemId }) => {
-    const s = await window.agentIDE.terminalOpen(
-      { projectId, cwd, name: 'work', useContainer: false, backlogItemIds: [itemId] } as unknown as Parameters<typeof window.agentIDE.terminalOpen>[0]
-    )
-    return s.id
-  }, { projectId, cwd: proj, itemId })
+  const sessionId = await win.evaluate(
+    async ({ projectId, cwd, itemId }) => {
+      const s = await window.agentIDE.terminalOpen({
+        projectId,
+        cwd,
+        name: 'work',
+        useContainer: false,
+        backlogItemIds: [itemId]
+      } as unknown as Parameters<typeof window.agentIDE.terminalOpen>[0])
+      return s.id
+    },
+    { projectId, cwd: proj, itemId }
+  )
 
   // the session_backlog join row exists…
   const bound = await win.evaluate(async (sid) => window.agentIDE.backlogForSession(sid), sessionId)
   expect(bound).toContain(itemId)
 
   // …and the item's sessionState is now 'in-session'.
-  const sessionState = await win.evaluate(async ({ projectId, itemId }) =>
-    (await window.agentIDE.backlogList(projectId)).find((i) => i.id === itemId)!.sessionState,
-    { projectId, itemId })
+  const sessionState = await win.evaluate(
+    async ({ projectId, itemId }) =>
+      (await window.agentIDE.backlogList(projectId)).find((i) => i.id === itemId)!.sessionState,
+    { projectId, itemId }
+  )
   expect(sessionState).toBe('in-session')
 
   await app.close()

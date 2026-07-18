@@ -10,8 +10,18 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import {
-  mkdirSync, writeFileSync, readFileSync, renameSync, unlinkSync, existsSync,
-  lstatSync, openSync, fsyncSync, closeSync, chmodSync, readdirSync
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  existsSync,
+  lstatSync,
+  openSync,
+  fsyncSync,
+  closeSync,
+  chmodSync,
+  readdirSync
 } from 'node:fs'
 import type { LinearLink } from '@shared/types'
 import type { AuthServerMetadata, RegisteredClient } from './oauth'
@@ -63,7 +73,11 @@ function ensureRoot(): string {
   assertNotSymlink(root)
   mkdirSync(root, { recursive: true, mode: 0o700 })
   // mkdirSync's mode is subject to umask; force it.
-  try { chmodSync(root, 0o700) } catch { /* best effort on exotic FS */ }
+  try {
+    chmodSync(root, 0o700)
+  } catch {
+    /* best effort on exotic FS */
+  }
   return root
 }
 
@@ -79,9 +93,17 @@ function atomicWrite(dest: string, data: string): void {
   } finally {
     closeSync(fd)
   }
-  try { chmodSync(tmp, 0o600) } catch { /* best effort */ }
+  try {
+    chmodSync(tmp, 0o600)
+  } catch {
+    /* best effort */
+  }
   renameSync(tmp, dest)
-  try { chmodSync(dest, 0o600) } catch { /* best effort */ }
+  try {
+    chmodSync(dest, 0o600)
+  } catch {
+    /* best effort */
+  }
 }
 
 /** File-backed store of connected Linear accounts. Instances are cheap; state
@@ -128,7 +150,9 @@ export class LinearTokenStore {
       try {
         const rec = JSON.parse(readFileSync(join(root, name), 'utf8')) as AccountRecord
         if (rec.accountId) out.push(rec)
-      } catch { /* skip corrupt */ }
+      } catch {
+        /* skip corrupt */
+      }
     }
     return out
   }

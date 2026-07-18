@@ -27,7 +27,9 @@ export interface BacklogViewProps {
 
 /** Effective display status (R34): done-by-ticket > in-session > manualStatus.
  *  Kept in the renderer (Store's helper is main-only) — same precedence. */
-export function effectiveStatusOf(i: Pick<BacklogItem, 'manualStatus' | 'sessionState'>): BacklogEffectiveStatus {
+export function effectiveStatusOf(
+  i: Pick<BacklogItem, 'manualStatus' | 'sessionState'>
+): BacklogEffectiveStatus {
   if (i.sessionState === 'done-by-ticket') return 'done'
   if (i.sessionState === 'in-session') return 'in-session'
   return i.manualStatus
@@ -61,14 +63,18 @@ function hierarchize(items: BacklogItem[]): { item: BacklogItem; depth: number }
   const out: { item: BacklogItem; depth: number }[] = []
   const walk = (parent: string | null, depth: number) => {
     const kids = (byParent.get(parent) ?? []).sort((a, b) => a.createdAt - b.createdAt)
-    for (const k of kids) { out.push({ item: k, depth }); walk(k.id, depth + 1) }
+    for (const k of kids) {
+      out.push({ item: k, depth })
+      walk(k.id, depth + 1)
+    }
   }
   // Roots = items whose parent is null OR whose parent isn't in this project set
   // (orphans surface at top level rather than vanishing).
   walk(null, 0)
   for (const i of items) {
     if (i.parentId && !ids.has(i.parentId) && !out.some((o) => o.item.id === i.id)) {
-      out.push({ item: i, depth: 0 }); walk(i.id, 1)
+      out.push({ item: i, depth: 0 })
+      walk(i.id, 1)
     }
   }
   return out
@@ -90,7 +96,11 @@ function itemMenuButton(item: BacklogViewProps, it: BacklogItem): HTMLElement {
     ]
     showMenu(r.left, r.bottom, [
       { label: 'Edit…', onClick: () => item.onEdit(it), disabled: ro },
-      ...moves.map((m) => ({ label: m.label, onClick: () => item.onSetStatus(it, m.s), disabled: ro || it.manualStatus === m.s })),
+      ...moves.map((m) => ({
+        label: m.label,
+        onClick: () => item.onSetStatus(it, m.s),
+        disabled: ro || it.manualStatus === m.s
+      })),
       { label: 'Delete', danger: true, onClick: () => item.onDelete(it), disabled: ro }
     ])
   }
@@ -110,7 +120,8 @@ function selectBox(p: BacklogViewProps, it: BacklogItem): HTMLElement {
 
 function card(p: BacklogViewProps, it: BacklogItem): HTMLElement {
   const c = document.createElement('div')
-  c.className = `bk-card kind-${it.kind}` + (isReadOnly(it) ? ' readonly' : '') + (p.selected.has(it.id) ? ' sel' : '')
+  c.className =
+    `bk-card kind-${it.kind}` + (isReadOnly(it) ? ' readonly' : '') + (p.selected.has(it.id) ? ' sel' : '')
   c.dataset.id = it.id
   c.dataset.kind = it.kind
 
@@ -144,18 +155,27 @@ function card(p: BacklogViewProps, it: BacklogItem): HTMLElement {
 
 function tableRow(p: BacklogViewProps, it: BacklogItem, depth: number): HTMLElement {
   const row = document.createElement('div')
-  row.className = `bk-row kind-${it.kind}` + (isReadOnly(it) ? ' readonly' : '') + (p.selected.has(it.id) ? ' sel' : '')
+  row.className =
+    `bk-row kind-${it.kind}` + (isReadOnly(it) ? ' readonly' : '') + (p.selected.has(it.id) ? ' sel' : '')
   row.dataset.id = it.id
   row.dataset.kind = it.kind
 
-  const sel = document.createElement('span'); sel.className = 'bk-c sel'; sel.appendChild(selectBox(p, it))
+  const sel = document.createElement('span')
+  sel.className = 'bk-c sel'
+  sel.appendChild(selectBox(p, it))
   const kind = document.createElement('span')
   kind.className = 'bk-c kind'
   kind.style.paddingLeft = `${depth * 18}px`
   kind.textContent = `${KIND_ICON[it.kind]} ${it.kind}`
-  const title = document.createElement('span'); title.className = 'bk-c title'; title.textContent = it.title
-  const status = document.createElement('span'); status.className = 'bk-c status'; status.appendChild(statusBadge(it))
-  const act = document.createElement('span'); act.className = 'bk-c act'; act.appendChild(itemMenuButton(p, it))
+  const title = document.createElement('span')
+  title.className = 'bk-c title'
+  title.textContent = it.title
+  const status = document.createElement('span')
+  status.className = 'bk-c status'
+  status.appendChild(statusBadge(it))
+  const act = document.createElement('span')
+  act.className = 'bk-c act'
+  act.appendChild(itemMenuButton(p, it))
   row.append(sel, kind, title, status, act)
   return row
 }
@@ -174,7 +194,9 @@ export function BacklogView(p: BacklogViewProps): HTMLElement {
   sub.textContent = p.projectName
   header.append(h2, sub)
 
-  const spacer = document.createElement('div'); spacer.className = 'bk-spacer'; header.appendChild(spacer)
+  const spacer = document.createElement('div')
+  spacer.className = 'bk-spacer'
+  header.appendChild(spacer)
 
   if (p.selected.size > 0) {
     const work = document.createElement('button')
@@ -219,8 +241,17 @@ export function BacklogView(p: BacklogViewProps): HTMLElement {
     table.className = 'bk-table'
     const head = document.createElement('div')
     head.className = 'bk-row head'
-    for (const [cls, label] of [['sel', ''], ['kind', 'Kind'], ['title', 'Title'], ['status', 'Status'], ['act', '']] as const) {
-      const c = document.createElement('span'); c.className = `bk-c ${cls}`; c.textContent = label; head.appendChild(c)
+    for (const [cls, label] of [
+      ['sel', ''],
+      ['kind', 'Kind'],
+      ['title', 'Title'],
+      ['status', 'Status'],
+      ['act', '']
+    ] as const) {
+      const c = document.createElement('span')
+      c.className = `bk-c ${cls}`
+      c.textContent = label
+      head.appendChild(c)
     }
     table.appendChild(head)
     for (const { item, depth } of ordered) table.appendChild(tableRow(p, item, depth))

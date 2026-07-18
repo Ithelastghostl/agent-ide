@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { composePrimer, stripReviewSpans, reviewOpen, reviewClose, historyFullyAccountsFor } from '../../src/main/launchPrimer'
+import {
+  composePrimer,
+  stripReviewSpans,
+  reviewOpen,
+  reviewClose,
+  historyFullyAccountsFor
+} from '../../src/main/launchPrimer'
 
 describe('composePrimer trusted/review split (R2-6)', () => {
   it('trusted sections auto-submit; review sections go to reviewText', () => {
@@ -37,7 +43,9 @@ describe('review sentinel stripping (R19/R20)', () => {
   it('history is demoted to review when a logged payload is not accounted for', () => {
     // history that still literally contains the review payload → not accounted for
     const { submitText, reviewText } = composePrimer(
-      [{ kind: 'history', trust: 'trusted', label: 'h', body: 'user pasted PROPRIETARY_TOKEN into the chat' }],
+      [
+        { kind: 'history', trust: 'trusted', label: 'h', body: 'user pasted PROPRIETARY_TOKEN into the chat' }
+      ],
       ['PROPRIETARY_TOKEN']
     )
     expect(submitText).not.toContain('PROPRIETARY_TOKEN')

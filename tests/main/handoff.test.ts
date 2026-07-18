@@ -9,7 +9,12 @@ vi.mock('electron', () => ({
     handle: (ch: string, fn: (...a: unknown[]) => unknown) => handlers.set(ch, fn),
     on: () => {}
   },
-  Notification: Object.assign(function () { return { show: () => {} } }, { isSupported: () => false }),
+  Notification: Object.assign(
+    function () {
+      return { show: () => {} }
+    },
+    { isSupported: () => false }
+  ),
   BrowserWindow: { getAllWindows: () => [] }
 }))
 
@@ -30,8 +35,15 @@ function invoke(ch: string, ...args: unknown[]) {
 function session(store: Store, over: Partial<Session>): Session {
   const now = Date.now()
   const s: Session = {
-    id: 'x', projectId: 'p1', provider: 'claude', model: 'm', objective: 'o',
-    status: 'running', createdAt: now, updatedAt: now, ...over
+    id: 'x',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'm',
+    objective: 'o',
+    status: 'running',
+    createdAt: now,
+    updatedAt: now,
+    ...over
   }
   store.saveSession(s)
   return s
@@ -50,7 +62,13 @@ describe('session:handoff registers pending-review, never writes to the target p
     store = new Store(':memory:')
     store.saveProject({ id: 'p1', name: 'proj', repo: 'me/p', localPath: '/tmp/p', hasDevcontainer: false })
     const launch = new LaunchService({ runtime, store, onData: () => {}, onExit: () => {} })
-    deps = { store, runtime, launch, projectRoot: (id) => store.getProject(id)?.localPath, send: (channel, payload) => sent.push({ channel, payload }) }
+    deps = {
+      store,
+      runtime,
+      launch,
+      projectRoot: (id) => store.getProject(id)?.localPath,
+      send: (channel, payload) => sent.push({ channel, payload })
+    }
     registerAttentionIpc(deps)
     registerReviewIpc(deps)
   })
@@ -68,7 +86,11 @@ describe('session:handoff registers pending-review, never writes to the target p
     runtime.terminal.spawn({ id: b.id, shell: 'bash', args: [], cwd: '/tmp/p', env: {} }, () => {})
 
     // Handoff A -> B
-    const res = await invoke('session:handoff', a.id, b.id) as { ok?: true; targetInFix?: boolean; error?: string }
+    const res = (await invoke('session:handoff', a.id, b.id)) as {
+      ok?: true
+      targetInFix?: boolean
+      error?: string
+    }
     expect(res.error).toBeUndefined()
     expect(res.ok).toBe(true)
 
@@ -78,15 +100,17 @@ describe('session:handoff registers pending-review, never writes to the target p
     expect(store.reviewPayloadsForSession(b.id).length).toBe(0)
 
     // B now has pending review material.
-    const pending = await invoke('review:pending', b.id) as { sections: unknown[]; totalChars: number }
+    const pending = (await invoke('review:pending', b.id)) as { sections: unknown[]; totalChars: number }
     expect(pending.sections.length).toBe(1)
     expect(pending.totalChars).toBeGreaterThan(0)
     // renderer was told the review set changed for B.
-    expect(sent.some((e) => e.channel === 'review:changed' && (e.payload as any).sessionId === b.id)).toBe(true)
+    expect(sent.some((e) => e.channel === 'review:changed' && (e.payload as any).sessionId === b.id)).toBe(
+      true
+    )
 
     // Now the user inserts it: a review-log row IS created, and a bracketed paste
     // (no trailing newline) goes to B's pty.
-    const ins = await invoke('review:insert', b.id) as { ok?: true; error?: string }
+    const ins = (await invoke('review:insert', b.id)) as { ok?: true; error?: string }
     expect(ins.error).toBeUndefined()
     expect(ins.ok).toBe(true)
     expect(store.reviewPayloadsForSession(b.id).length).toBe(1)
@@ -100,7 +124,7 @@ describe('session:handoff registers pending-review, never writes to the target p
     const write = runtime.terminal.writes.find((w) => w.id === b.id)
     expect(write).toBeTruthy()
     expect(write!.data.startsWith('\x1b[200~')).toBe(true) // bracketed paste start
-    expect(write!.data.endsWith('\x1b[201~')).toBe(true)   // bracketed paste end (NO trailing \n)
+    expect(write!.data.endsWith('\x1b[201~')).toBe(true) // bracketed paste end (NO trailing \n)
     expect(write!.data.endsWith('\n')).toBe(false)
   })
 
@@ -109,7 +133,7 @@ describe('session:handoff registers pending-review, never writes to the target p
     session(store, { id: 'sB2', effectiveStage: 'fix' })
     store.appendTranscript(a.id, 'some context', Date.now())
     store.flush()
-    const res = await invoke('session:handoff', 'sA2', 'sB2') as { ok?: true; targetInFix?: boolean }
+    const res = (await invoke('session:handoff', 'sA2', 'sB2')) as { ok?: true; targetInFix?: boolean }
     expect(res.ok).toBe(true)
     expect(res.targetInFix).toBe(true)
   })
@@ -117,8 +141,8 @@ describe('session:handoff registers pending-review, never writes to the target p
   it('refuses a self-handoff and an empty-transcript source', async () => {
     session(store, { id: 'sA3' })
     session(store, { id: 'sB3' })
-    expect((await invoke('session:handoff', 'sA3', 'sA3') as any).error).toMatch(/itself/)
+    expect(((await invoke('session:handoff', 'sA3', 'sA3')) as any).error).toMatch(/itself/)
     // sA3 has no transcript -> refused
-    expect((await invoke('session:handoff', 'sA3', 'sB3') as any).error).toMatch(/nothing to hand off/)
+    expect(((await invoke('session:handoff', 'sA3', 'sB3')) as any).error).toMatch(/nothing to hand off/)
   })
 })

@@ -154,7 +154,13 @@ export function isSecureOrLoopback(url: string): boolean {
   if (/^https:\/\//i.test(url)) return true
   try {
     const u = new URL(url)
-    return u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '::1' || u.hostname === '[::1]')
+    return (
+      u.protocol === 'http:' &&
+      (u.hostname === '127.0.0.1' ||
+        u.hostname === 'localhost' ||
+        u.hostname === '::1' ||
+        u.hostname === '[::1]')
+    )
   } catch {
     return false
   }
@@ -196,7 +202,8 @@ export function buildAuthorizeUrl(a: {
 export function parseCallbackQuery(rawUrl: string): { code?: string; state?: string; error?: string } {
   const q = new URL(rawUrl, 'http://127.0.0.1').searchParams
   const error = q.get('error')
-  if (error) return { error: `${error}${q.get('error_description') ? `: ${q.get('error_description')}` : ''}` }
+  if (error)
+    return { error: `${error}${q.get('error_description') ? `: ${q.get('error_description')}` : ''}` }
   return { code: q.get('code') ?? undefined, state: q.get('state') ?? undefined }
 }
 
@@ -207,7 +214,10 @@ export type FetchLike = typeof fetch
 
 /** Discover the protected-resource metadata for the MCP endpoint (RFC 9728).
  *  Tries the well-known path derived from the resource URL. */
-export async function discoverProtectedResource(resourceUrl: string, f: FetchLike = fetch): Promise<ProtectedResourceMetadata> {
+export async function discoverProtectedResource(
+  resourceUrl: string,
+  f: FetchLike = fetch
+): Promise<ProtectedResourceMetadata> {
   const u = new URL(resourceUrl)
   const wellKnown = `${u.origin}/.well-known/oauth-protected-resource${u.pathname === '/' ? '' : u.pathname}`
   const res = await f(wellKnown, { headers: { Accept: 'application/json' } })
@@ -216,7 +226,10 @@ export async function discoverProtectedResource(resourceUrl: string, f: FetchLik
 }
 
 /** Discover the authorization-server metadata (RFC 8414). */
-export async function discoverAuthServer(issuerUrl: string, f: FetchLike = fetch): Promise<AuthServerMetadata> {
+export async function discoverAuthServer(
+  issuerUrl: string,
+  f: FetchLike = fetch
+): Promise<AuthServerMetadata> {
   const u = new URL(issuerUrl)
   // RFC 8414: well-known is inserted after the origin, before any path component.
   const path = u.pathname === '/' ? '' : u.pathname
@@ -244,7 +257,8 @@ export async function registerClient(a: {
   f?: FetchLike
 }): Promise<RegisteredClient> {
   const f = a.f ?? fetch
-  if (!a.meta.registration_endpoint) throw new Error('auth server has no registration_endpoint (DCR unsupported)')
+  if (!a.meta.registration_endpoint)
+    throw new Error('auth server has no registration_endpoint (DCR unsupported)')
   const body = {
     client_name: 'Agent IDE',
     redirect_uris: [a.redirectUri],
@@ -409,7 +423,11 @@ export function awaitLoopbackCode(a: {
       settled = true
       if (timer) clearTimeout(timer)
       // Tear the listener down unconditionally.
-      try { server.close() } catch { /* ignore */ }
+      try {
+        server.close()
+      } catch {
+        /* ignore */
+      }
       if (err) reject(err)
       else resolve(ok!)
     }

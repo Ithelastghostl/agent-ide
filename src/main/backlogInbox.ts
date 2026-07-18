@@ -13,9 +13,9 @@ import type { BacklogKind } from '@shared/types'
 // inbox/ingested/ and malformed ones to inbox/rejected/ with a .reason.txt.
 // Symlink-confined via confinedPath so a link can't pull in a file from outside.
 
-const MAX_BYTES = 256 * 1024          // 256KB cap per inbox file
-const SETTLE_MS = 500                 // debounce a burst of writes before ingesting
-const RESCAN_MS = 3000                // interval rescan (also picks up new projects)
+const MAX_BYTES = 256 * 1024 // 256KB cap per inbox file
+const SETTLE_MS = 500 // debounce a burst of writes before ingesting
+const RESCAN_MS = 3000 // interval rescan (also picks up new projects)
 const KINDS: readonly BacklogKind[] = ['epic', 'goal', 'task', 'ticket']
 
 interface Parsed {
@@ -38,7 +38,11 @@ export function parseInbox(text: string): { ok: Parsed } | { error: string } {
   const split = splitFrontmatter(text)
   if (!split) return { error: 'missing YAML frontmatter (expected a leading --- … --- block)' }
   let meta: unknown
-  try { meta = parseYaml(split.fm) } catch (err) { return { error: `invalid YAML frontmatter: ${(err as Error).message}` } }
+  try {
+    meta = parseYaml(split.fm)
+  } catch (err) {
+    return { error: `invalid YAML frontmatter: ${(err as Error).message}` }
+  }
   if (!meta || typeof meta !== 'object') return { error: 'frontmatter is not a mapping' }
   const m = meta as Record<string, unknown>
   const kind = m.kind
@@ -76,7 +80,11 @@ class ProjectInbox {
   private scanning = false
   private rescanQueued = false
 
-  constructor(private readonly projectId: string, localPath: string, private readonly store: Store) {
+  constructor(
+    private readonly projectId: string,
+    localPath: string,
+    private readonly store: Store
+  ) {
     this.inboxDir = join(localPath, 'backlog', 'inbox')
     this.ingestedDir = join(this.inboxDir, 'ingested')
     this.rejectedDir = join(this.inboxDir, 'rejected')
@@ -87,7 +95,9 @@ class ProjectInbox {
     // fs.watch: coalesce a burst of events behind a settle timer.
     try {
       this.watcher = watch(this.inboxDir, () => this.scheduleScan())
-    } catch { /* dir may vanish; the interval rescan recovers */ }
+    } catch {
+      /* dir may vanish; the interval rescan recovers */
+    }
     await this.scan()
   }
 
@@ -99,23 +109,37 @@ class ProjectInbox {
 
   scheduleScan(): void {
     if (this.settleTimer) clearTimeout(this.settleTimer)
-    this.settleTimer = setTimeout(() => { void this.scan() }, SETTLE_MS)
+    this.settleTimer = setTimeout(() => {
+      void this.scan()
+    }, SETTLE_MS)
   }
 
   /** Scan the inbox once; ingest or reject every top-level *.md file. */
   async scan(): Promise<void> {
-    if (this.scanning) { this.rescanQueued = true; return }
+    if (this.scanning) {
+      this.rescanQueued = true
+      return
+    }
     this.scanning = true
     try {
       let entries: string[]
-      try { entries = await readdir(this.inboxDir) } catch { return }
+      try {
+        entries = await readdir(this.inboxDir)
+      } catch {
+        return
+      }
       for (const name of entries) {
         if (!name.toLowerCase().endsWith('.md')) continue
-        await this.ingestFile(name).catch((err) => console.error('[inbox] ingest failed', name, (err as Error).message))
+        await this.ingestFile(name).catch((err) =>
+          console.error('[inbox] ingest failed', name, (err as Error).message)
+        )
       }
     } finally {
       this.scanning = false
-      if (this.rescanQueued) { this.rescanQueued = false; void this.scan() }
+      if (this.rescanQueued) {
+        this.rescanQueued = false
+        void this.scan()
+      }
     }
   }
 
@@ -152,7 +176,12 @@ class ProjectInbox {
     let item
     try {
       item = this.store.ingestAgentBacklogItem({
-        projectId: this.projectId, kind: p.kind, title: p.title, bodyMd: p.bodyMd, parentId, contentHash
+        projectId: this.projectId,
+        kind: p.kind,
+        title: p.title,
+        bodyMd: p.bodyMd,
+        parentId,
+        contentHash
       })
     } catch (err) {
       // A hierarchy violation (e.g. parent can't nest this kind) surfaces here.
@@ -166,7 +195,9 @@ class ProjectInbox {
   private async moveTo(dir: string, name: string, srcReal: string, hash: string): Promise<void> {
     await mkdir(dir, { recursive: true }).catch(() => {})
     const dest = join(dir, safeDestName(name, hash))
-    await rename(srcReal, dest).catch((err) => console.error('[inbox] move failed', name, (err as Error).message))
+    await rename(srcReal, dest).catch((err) =>
+      console.error('[inbox] move failed', name, (err as Error).message)
+    )
   }
 
   /** Move a malformed file to rejected/ with a sibling .reason.txt (never delete). */
@@ -177,7 +208,9 @@ class ProjectInbox {
     const destName = safeDestName(name, hash)
     if (real) {
       const dest = join(this.rejectedDir, destName)
-      await rename(real, dest).catch((err) => console.error('[inbox] reject move failed', name, (err as Error).message))
+      await rename(real, dest).catch((err) =>
+        console.error('[inbox] reject move failed', name, (err as Error).message)
+      )
     }
     await writeFile(join(this.rejectedDir, `${destName}.reason.txt`), reason + '\n', 'utf8').catch(() => {})
     console.warn('[inbox] rejected', name, '—', reason)
@@ -196,7 +229,9 @@ export class BacklogInbox {
    *  interval. Returns immediately; per-project scans run in the background. */
   start(): void {
     void this.sync()
-    this.timer = setInterval(() => { void this.sync() }, RESCAN_MS)
+    this.timer = setInterval(() => {
+      void this.sync()
+    }, RESCAN_MS)
     if (this.timer.unref) this.timer.unref()
   }
 
@@ -209,7 +244,11 @@ export class BacklogInbox {
   /** Reconcile watchers against the current project list and rescan each inbox. */
   private async sync(): Promise<void> {
     let projects: { id: string; localPath: string }[] = []
-    try { projects = this.store.listProjects() } catch { return }
+    try {
+      projects = this.store.listProjects()
+    } catch {
+      return
+    }
     const live = new Set<string>()
     for (const p of projects) {
       if (!p.localPath) continue
@@ -225,7 +264,10 @@ export class BacklogInbox {
     }
     // Drop watchers for projects that disappeared.
     for (const [id, pi] of this.byProject) {
-      if (!live.has(id)) { pi.stop(); this.byProject.delete(id) }
+      if (!live.has(id)) {
+        pi.stop()
+        this.byProject.delete(id)
+      }
     }
   }
 }

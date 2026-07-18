@@ -1,5 +1,13 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
-import { existsSync, readFileSync, writeFileSync, statSync, appendFileSync, appendFile, readdirSync } from 'node:fs'
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  statSync,
+  appendFileSync,
+  appendFile,
+  readdirSync
+} from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
@@ -14,7 +22,13 @@ import { isRegisteredAgent, composeLaunchPrimer } from './agentPreset'
 import { containerExecArgv, libraryConfigMount, providerSeedFiles } from './devcontainer'
 import { loginArgv } from './providerHealth'
 import { loopbackPort } from './portForwarder'
-import type { Runtime, TerminalRuntime, ContainerRuntime, PortForwardService, PortWatchHandle } from './runtime'
+import type {
+  Runtime,
+  TerminalRuntime,
+  ContainerRuntime,
+  PortForwardService,
+  PortWatchHandle
+} from './runtime'
 import { historyFile, buildPrimer, stripAnsi } from './history'
 import { hostShell } from './ptyManager'
 import { sessionEvents } from './sessionEvents'
@@ -34,7 +48,14 @@ import { registerGitIpc } from './ipc/git'
 import { registerLinearIpc } from './ipc/linear'
 import { registerAttentionIpc } from './ipc/attention'
 import type { IpcDeps } from './ipc/deps'
-import { isProvider, type Provider, type Session, type TaskKind, type TaskSubkind, type SessionStage } from '@shared/types'
+import {
+  isProvider,
+  type Provider,
+  type Session,
+  type TaskKind,
+  type TaskSubkind,
+  type SessionStage
+} from '@shared/types'
 
 export interface FileNode {
   name: string
@@ -53,7 +74,17 @@ export interface DirListing {
 /** Directories skipped by default in the explorer (B11): large vendored / build
  *  output trees that would make an unbounded synchronous read stall main. The
  *  explorer can override with { includeHeavy: true }. */
-export const HEAVY_DIRS = new Set(['node_modules', '.venv', 'venv', 'dist', 'build', '.git', '__pycache__', '.next', 'target'])
+export const HEAVY_DIRS = new Set([
+  'node_modules',
+  '.venv',
+  'venv',
+  'dist',
+  'build',
+  '.git',
+  '__pycache__',
+  '.next',
+  'target'
+])
 
 /** Max entries returned per directory before truncation (B11). */
 export const DIR_CAP = 1000
@@ -187,7 +218,11 @@ const ticketsInFlight = new Set<string>()
  *  remoteUser, that user's REAL home (from the container's passwd), and the
  *  container-side workspace folder. Sessions, terminals, health probes, and
  *  installs all use this one resolution so they can't disagree. */
-async function containerExecContext(container: ContainerRuntime, containerId: string, workspace: string): Promise<{ user?: string; home: string; cwd: string }> {
+async function containerExecContext(
+  container: ContainerRuntime,
+  containerId: string,
+  workspace: string
+): Promise<{ user?: string; home: string; cwd: string }> {
   const user = await container.resolveUser(containerId)
   const home = await container.resolveHome(containerId, user)
   const cwd = await container.workspaceFolder(workspace)
@@ -200,18 +235,30 @@ async function containerExecContext(container: ContainerRuntime, containerId: st
  *  the host. Idempotent — container-local files always win — and it works on
  *  containers built before this feature existed (no rebuild, R2-2). ~/.claude
  *  files stay opt-in via importConfig. */
-async function seedContainer(container: ContainerRuntime, containerId: string, workspace: string, importConfig: boolean): Promise<void> {
+async function seedContainer(
+  container: ContainerRuntime,
+  containerId: string,
+  workspace: string,
+  importConfig: boolean
+): Promise<void> {
   const ctx = await containerExecContext(container, containerId, workspace)
   const files = providerSeedFiles(homedir(), { includeClaude: importConfig })
   try {
     await container.seedCredentials(containerId, ctx.user ?? null, ctx.home, files)
   } catch (err) {
     console.error('[seedContainer] credential seeding failed:', (err as Error).message)
-    sendToRenderer('app:notice', { message: 'copying provider logins into the container failed — run logins in-session if needed' })
+    sendToRenderer('app:notice', {
+      message: 'copying provider logins into the container failed — run logins in-session if needed'
+    })
   }
 }
 
-async function ensureContainer(container: ContainerRuntime, projectId: string, workspace: string, importConfig = false): Promise<string> {
+async function ensureContainer(
+  container: ContainerRuntime,
+  projectId: string,
+  workspace: string,
+  importConfig = false
+): Promise<string> {
   // Docker is the source of truth (Codex P2 — no stale cache fast-path):
   // running -> reuse; stopped -> start it (don't rebuild); none -> build.
   const presence = await container.findPresence(workspace)
@@ -243,7 +290,11 @@ async function ensureContainer(container: ContainerRuntime, projectId: string, w
 /** Authoritative running-container id for a project. Docker is the source of
  *  truth (Codex P2 — never trust a cached id that may be stopped/removed); the
  *  cache is refreshed from the query result. */
-async function resolveContainerId(container: ContainerRuntime, projectId: string, workspace: string): Promise<string | undefined> {
+async function resolveContainerId(
+  container: ContainerRuntime,
+  projectId: string,
+  workspace: string
+): Promise<string | undefined> {
   const running = await container.findRunning(workspace)
   if (running) containerByProject.set(projectId, running)
   else containerByProject.delete(projectId)
@@ -266,7 +317,11 @@ function startPortWatch(ports: PortForwardService, sessionId: string, containerI
     return
   }
   const watcher = ports.watch(containerId, {
-    onForward: (port) => sendToRenderer('session:status', { id: sessionId, message: `forwarding container port ${port} → localhost:${port}` })
+    onForward: (port) =>
+      sendToRenderer('session:status', {
+        id: sessionId,
+        message: `forwarding container port ${port} → localhost:${port}`
+      })
   })
   watchers.set(containerId, { watcher, sessions: new Set([sessionId]) })
   watcher.start()
@@ -274,7 +329,8 @@ function startPortWatch(ports: PortForwardService, sessionId: string, containerI
 function stopPortWatch(sessionId: string): void {
   for (const [containerId, entry] of watchers) {
     if (!entry.sessions.delete(sessionId)) continue
-    if (entry.sessions.size === 0) { // last session in this container — tear down
+    if (entry.sessions.size === 0) {
+      // last session in this container — tear down
       watchers.delete(containerId)
       void entry.watcher.stop()
     }
@@ -292,7 +348,9 @@ function recordOutput(store: Store | undefined, sessionId: string, data: string)
   // main thread on synchronous disk I/O (B6). Best-effort — the DB is the source
   // of truth for primers; the file is a convenience/committable mirror.
   store?.appendTranscript(sessionId, data, Date.now())
-  appendFile(historyFile(sessionId), data, () => { /* best-effort mirror */ })
+  appendFile(historyFile(sessionId), data, () => {
+    /* best-effort mirror */
+  })
   // Feed the v2 session bus (P0.A): attention/cost (S5) and queue (S6) subscribe
   // to 'output'. All live pty spawns funnel through here, so this is the single
   // choke point that keeps the bus fed regardless of launch path.
@@ -346,7 +404,11 @@ function seedPrimer(mgr: TerminalRuntime, store: Store | undefined, sessionId: s
 /** Resolve the running container a session belongs to, if any. Looks the session
  *  up in the store to get its project workspace, then queries Docker. Returns
  *  undefined for host sessions or when no container is running. */
-async function containerForSession(container: ContainerRuntime, store: Store | undefined, sessionId: string): Promise<string | undefined> {
+async function containerForSession(
+  container: ContainerRuntime,
+  store: Store | undefined,
+  sessionId: string
+): Promise<string | undefined> {
   if (!store) return undefined
   const session = store.allSessions().find((s) => s.id === sessionId)
   if (!session) return undefined
@@ -359,7 +421,11 @@ async function containerForSession(container: ContainerRuntime, store: Store | u
  *  Called exactly once per process (app-scoped; windows come and go on macOS).
  *  `store` may be undefined if persistence failed to initialize; handlers then
  *  no-op writes and return empty reads so the UI still works. */
-export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: HeadlessRunner = notEnabledRunner): void {
+export function registerIpc(
+  runtime: Runtime,
+  store?: Store,
+  ticketRunner: HeadlessRunner = notEnabledRunner
+): void {
   // M1: all platform side effects go through the runtime. `mgr` aliases the
   // terminal runtime, whose method names match the old PtyManager so the many
   // spawn/write/resize/kill/primeWhenReady call sites are unchanged.
@@ -370,8 +436,12 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   // ---- v2 foundation: canonical launcher + feature IPC registrars ----------
   const projectRoot = (id: string): string | undefined => store?.getProject(id)?.localPath
   const launch = new LaunchService({
-    runtime, store: store!, e2eMode: process.env.AGENT_IDE_E2E === '1',
-    onData: (id, chunk) => { sendToRenderer('pty:data', { id, data: chunk }) },
+    runtime,
+    store: store!,
+    e2eMode: process.env.AGENT_IDE_E2E === '1',
+    onData: (id, chunk) => {
+      sendToRenderer('pty:data', { id, data: chunk })
+    },
     onExit: (id, reason) => sendToRenderer('session:exit', { id, reason })
   })
   const ipcDeps: IpcDeps = { store, runtime, launch, projectRoot, send: sendToRenderer }
@@ -387,7 +457,11 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   registerAttentionIpc(ipcDeps)
   if (store) {
     // Reconcile queue + interrupted sessions on startup (R8/R34/R36).
-    try { launch.reconcileOnBoot() } catch (err) { console.error('[boot reconcile]', (err as Error).message) }
+    try {
+      launch.reconcileOnBoot()
+    } catch (err) {
+      console.error('[boot reconcile]', (err as Error).message)
+    }
   }
 
   // Declarative stage/model writes (R27/R28): persist desired, request reconcile.
@@ -397,7 +471,8 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
     return launch.setDesiredStage(id, stage as SessionStage)
   })
   ipcMain.handle('session:setModel', (_e, id: unknown, provider: unknown, model: unknown) => {
-    if (typeof id !== 'string' || !isProvider(String(provider)) || typeof model !== 'string' || !store) return { error: 'invalid request' }
+    if (typeof id !== 'string' || !isProvider(String(provider)) || typeof model !== 'string' || !store)
+      return { error: 'invalid request' }
     return launch.setDesiredModel(id, provider as Provider, model)
   })
 
@@ -420,7 +495,11 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
     // It must never REPLACE the real open (that would silently lie that links work),
     // so this records and falls through to shell.openExternal below.
     if (process.env.AGENT_IDE_OPEN_LOG) {
-      try { appendFileSync(process.env.AGENT_IDE_OPEN_LOG, url + '\n') } catch { /* best-effort */ }
+      try {
+        appendFileSync(process.env.AGENT_IDE_OPEN_LOG, url + '\n')
+      } catch {
+        /* best-effort */
+      }
     }
     try {
       // If a containerized session printed a localhost URL, forward that port out
@@ -455,7 +534,9 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   // native directory picker (F2) — parented to the focused window when one exists
   ipcMain.handle('dialog:openDirectory', async () => {
     const parent = BrowserWindow.getFocusedWindow()
-    const opts = { properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] }
+    const opts = {
+      properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[]
+    }
     const r = parent ? await dialog.showOpenDialog(parent, opts) : await dialog.showOpenDialog(opts)
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
@@ -506,7 +587,12 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
     return {
       dir,
       isClone: libraryIsClone(dir),
-      counts: { prompts: lib.prompts.length, skills: lib.skills.length, workflows: lib.workflows.length, agents: lib.agents.length }
+      counts: {
+        prompts: lib.prompts.length,
+        skills: lib.skills.length,
+        workflows: lib.workflows.length,
+        agents: lib.agents.length
+      }
     }
   })
   // Create an agent file in the library (validated at the boundary; exclusive
@@ -524,7 +610,10 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
         // Local-first library: locally-added items (e.g. agents) may exist before
         // any clone. Refuse to clone over them — never clobber local files.
         if (existsSync(dir) && readdirSync(dir).some((n) => !n.startsWith('.'))) {
-          return { error: 'library folder has local items but is not a clone — clone manually or move the items first' }
+          return {
+            error:
+              'library folder has local items but is not a clone — clone manually or move the items first'
+          }
         }
         const isUrl = /^(https?:|git@|ssh:)/.test(repo)
         if (isUrl) await cloneUrl(repo, dir)
@@ -563,16 +652,19 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
 
   // Save edited text back to a file in the project tree (confined). Returns
   // { ok } or { error } so the renderer can surface save failures.
-  ipcMain.handle('file:write', (_e, projectId: string, path: string, content: string): { ok?: true; error?: string } => {
-    const file = resolveProjectFile(projectRoot, projectId, path)
-    if (!file) return { error: 'path outside project' }
-    try {
-      writeFileSync(file, content, 'utf8')
-      return { ok: true }
-    } catch (err) {
-      return { error: (err as Error).message }
+  ipcMain.handle(
+    'file:write',
+    (_e, projectId: string, path: string, content: string): { ok?: true; error?: string } => {
+      const file = resolveProjectFile(projectRoot, projectId, path)
+      if (!file) return { error: 'path outside project' }
+      try {
+        writeFileSync(file, content, 'utf8')
+        return { ok: true }
+      } catch (err) {
+        return { error: (err as Error).message }
+      }
     }
-  })
+  )
 
   // rename a session (F3/F6)
   ipcMain.handle('session:rename', (_e, id: string, name: string) => {
@@ -589,24 +681,27 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   // ticketed), forward-only. Product chats marked 'finished' also export their raw
   // log entry (§4.3); analysis chats just advance the status (no log). Returns the
   // written log path (product+finished) or {ok}, or {error} on a bad transition.
-  ipcMain.handle('task:setStatus', async (_e, id: unknown, to: unknown): Promise<{ ok?: true; logPath?: string; error?: string }> => {
-    if (typeof id !== 'string' || !store) return { error: 'invalid request' }
-    const session = store.getSession(id)
-    if (!session) return { error: 'unknown session' }
-    let target: string
-    try {
-      target = validateTaskTransition(session.taskStatus, to)
-    } catch (err) {
-      return { error: (err as Error).message }
+  ipcMain.handle(
+    'task:setStatus',
+    async (_e, id: unknown, to: unknown): Promise<{ ok?: true; logPath?: string; error?: string }> => {
+      if (typeof id !== 'string' || !store) return { error: 'invalid request' }
+      const session = store.getSession(id)
+      if (!session) return { error: 'unknown session' }
+      let target: string
+      try {
+        target = validateTaskTransition(session.taskStatus, to)
+      } catch (err) {
+        return { error: (err as Error).message }
+      }
+      store.setTaskStatus(id, target)
+      // §4.3: only a PRODUCT chat entering 'finished' writes a raw log entry.
+      if (target === 'finished' && session.taskKind === 'product') {
+        const logPath = writeRawLog(store, { ...session, taskStatus: target })
+        return logPath ? { ok: true, logPath } : { ok: true }
+      }
+      return { ok: true }
     }
-    store.setTaskStatus(id, target)
-    // §4.3: only a PRODUCT chat entering 'finished' writes a raw log entry.
-    if (target === 'finished' && session.taskKind === 'product') {
-      const logPath = writeRawLog(store, { ...session, taskStatus: target })
-      return logPath ? { ok: true, logPath } : { ok: true }
-    }
-    return { ok: true }
-  })
+  )
 
   // M-LOG-b (§4.4): generate a roadmap ticket for a deployed product chat via the
   // headless addendum pass. Crash-safe (§4.6-16): the session is moved to
@@ -614,48 +709,65 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   // advanced to 'ticketed'. On ANY failure the session STAYS 'deployed' with a
   // working retry (this handler is idempotent) and the transcript is never
   // mutated. Returns the ticket id/path or an error to retry.
-  ipcMain.handle('task:generateTicket', async (_e, id: unknown): Promise<{ ok?: true; ticketId?: string; ticketPath?: string; error?: string }> => {
-    if (typeof id !== 'string' || !store) return { error: 'invalid request' }
-    const session = store.getSession(id)
-    if (!session) return { error: 'unknown session' }
-    if (session.taskKind !== 'product') return { error: 'only product tasks generate tickets' }
-    // Idempotency guard: if this task already has a ticket, return it instead of
-    // regenerating (which would duplicate the row + re-run the billed pass). Also
-    // repair a stale 'deployed' status left by a pre-transaction crash.
-    const existing = store.getTicketBySession(id)
-    if (existing) {
-      if (session.taskStatus !== 'ticketed') store.setTaskStatus(id, 'ticketed')
-      return { ok: true, ticketId: existing.id }
+  ipcMain.handle(
+    'task:generateTicket',
+    async (
+      _e,
+      id: unknown
+    ): Promise<{ ok?: true; ticketId?: string; ticketPath?: string; error?: string }> => {
+      if (typeof id !== 'string' || !store) return { error: 'invalid request' }
+      const session = store.getSession(id)
+      if (!session) return { error: 'unknown session' }
+      if (session.taskKind !== 'product') return { error: 'only product tasks generate tickets' }
+      // Idempotency guard: if this task already has a ticket, return it instead of
+      // regenerating (which would duplicate the row + re-run the billed pass). Also
+      // repair a stale 'deployed' status left by a pre-transaction crash.
+      const existing = store.getTicketBySession(id)
+      if (existing) {
+        if (session.taskStatus !== 'ticketed') store.setTaskStatus(id, 'ticketed')
+        return { ok: true, ticketId: existing.id }
+      }
+      // In-flight guard: a second concurrent call for the same session is refused
+      // (e.g. a double-click), so we never run two headless passes at once.
+      if (ticketsInFlight.has(id)) return { error: 'ticket generation already in progress' }
+      ticketsInFlight.add(id)
+      // Advance to 'deployed' if not already past it (forward-only).
+      if ((session.taskStatus ?? 'open') !== 'deployed' && session.taskStatus !== 'ticketed') {
+        try {
+          validateTaskTransition(session.taskStatus, 'deployed')
+          store.setTaskStatus(id, 'deployed')
+        } catch {
+          /* already past */
+        }
+      }
+      // Uncapped read: summarization must see the WHOLE transcript, not the 256KiB
+      // UI-replay tail (chunking handles the length).
+      const transcript = stripAnsi(store.getTranscript(id, Number.POSITIVE_INFINITY))
+      try {
+        const { fields, bodyMd } = await generateTicket(ticketRunner, session, transcript)
+        const createdAt = Date.now()
+        const ticketId = `ticket-${id}` // deterministic → a retry upserts, never duplicates
+        const ticketPath = writeTicketFile(session.projectId, id, bodyMd)
+        if (!ticketPath) return { error: 'ticket file write failed — retry available' }
+        store.finalizeTicket({
+          id: ticketId,
+          sessionId: id,
+          projectId: session.projectId,
+          subkind: fields.subkind,
+          title: fields.title,
+          bodyMd,
+          fieldsJson: JSON.stringify(fields),
+          createdAt
+        }) // row + 'ticketed' in one transaction, only after the file exists
+        return { ok: true, ticketId, ticketPath }
+      } catch (err) {
+        // stays 'deployed' — retry available; transcript untouched.
+        return { error: (err as Error).message }
+      } finally {
+        ticketsInFlight.delete(id)
+      }
     }
-    // In-flight guard: a second concurrent call for the same session is refused
-    // (e.g. a double-click), so we never run two headless passes at once.
-    if (ticketsInFlight.has(id)) return { error: 'ticket generation already in progress' }
-    ticketsInFlight.add(id)
-    // Advance to 'deployed' if not already past it (forward-only).
-    if ((session.taskStatus ?? 'open') !== 'deployed' && session.taskStatus !== 'ticketed') {
-      try { validateTaskTransition(session.taskStatus, 'deployed'); store.setTaskStatus(id, 'deployed') } catch { /* already past */ }
-    }
-    // Uncapped read: summarization must see the WHOLE transcript, not the 256KiB
-    // UI-replay tail (chunking handles the length).
-    const transcript = stripAnsi(store.getTranscript(id, Number.POSITIVE_INFINITY))
-    try {
-      const { fields, bodyMd } = await generateTicket(ticketRunner, session, transcript)
-      const createdAt = Date.now()
-      const ticketId = `ticket-${id}` // deterministic → a retry upserts, never duplicates
-      const ticketPath = writeTicketFile(session.projectId, id, bodyMd)
-      if (!ticketPath) return { error: 'ticket file write failed — retry available' }
-      store.finalizeTicket({
-        id: ticketId, sessionId: id, projectId: session.projectId, subkind: fields.subkind,
-        title: fields.title, bodyMd, fieldsJson: JSON.stringify(fields), createdAt
-      }) // row + 'ticketed' in one transaction, only after the file exists
-      return { ok: true, ticketId, ticketPath }
-    } catch (err) {
-      // stays 'deployed' — retry available; transcript untouched.
-      return { error: (err as Error).message }
-    } finally {
-      ticketsInFlight.delete(id)
-    }
-  })
+  )
 
   // M-LOG-b (§4.5.4): the project Log list — raw entries + generated tickets.
   ipcMain.handle('log:tickets', (_e, projectId: unknown) =>
@@ -663,54 +775,81 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   )
 
   // F13: open a plain shell session (no agent) in the project's context.
-  ipcMain.handle('terminal:open', async (_e, req: { projectId: string; cwd: string; name: string; useContainer: boolean }): Promise<Session> => {
-    const id = `term-${newSessionId()}`
-    let shell = hostShell()
-    let args: string[] = []
-    let cwd = req.cwd
-    if (req.useContainer) {
-      // Don't silently downgrade to a host shell (Codex P2): bring the container
-      // up if needed so the terminal really runs inside it. Exec with the same
-      // user/HOME/workspace context agent sessions use (R3-1).
-      const containerId = await ensureContainer(container, req.projectId, req.cwd)
-      const ctx = await containerExecContext(container, containerId, req.cwd)
-      shell = 'docker'
-      args = containerExecArgv(containerId, 'bash', [], { user: ctx.user, cwd: ctx.cwd, env: { HOME: ctx.home } })
-      cwd = req.cwd
+  ipcMain.handle(
+    'terminal:open',
+    async (
+      _e,
+      req: { projectId: string; cwd: string; name: string; useContainer: boolean }
+    ): Promise<Session> => {
+      const id = `term-${newSessionId()}`
+      let shell = hostShell()
+      let args: string[] = []
+      let cwd = req.cwd
+      if (req.useContainer) {
+        // Don't silently downgrade to a host shell (Codex P2): bring the container
+        // up if needed so the terminal really runs inside it. Exec with the same
+        // user/HOME/workspace context agent sessions use (R3-1).
+        const containerId = await ensureContainer(container, req.projectId, req.cwd)
+        const ctx = await containerExecContext(container, containerId, req.cwd)
+        shell = 'docker'
+        args = containerExecArgv(containerId, 'bash', [], {
+          user: ctx.user,
+          cwd: ctx.cwd,
+          env: { HOME: ctx.home }
+        })
+        cwd = req.cwd
+      }
+      const now = Date.now()
+      const session: Session = {
+        id,
+        projectId: req.projectId,
+        provider: 'codex', // provider unused for terminals; see isTerminal()
+        model: 'shell',
+        objective: req.name || 'terminal',
+        status: 'running',
+        createdAt: now,
+        updatedAt: now,
+        useContainer: req.useContainer === true
+      }
+      store?.saveSession(session)
+      // S1: a plain terminal can also carry a "Work on this" backlog selection.
+      if (store)
+        bindLaunchBacklog(store, id, req.projectId, (req as { backlogItemIds?: unknown }).backlogItemIds)
+      mgr.spawn(
+        { id, shell, args, cwd, env: {} },
+        (data) => {
+          sendToRenderer('pty:data', { id, data })
+          recordOutput(store, id, data)
+        },
+        ({ reason }) => {
+          archiveAndEmit(store, id)
+          emitExit(id, reason)
+          sendToRenderer('session:exit', { id, reason })
+        }
+      )
+      return session
     }
-    const now = Date.now()
-    const session: Session = {
-      id, projectId: req.projectId, provider: 'codex', // provider unused for terminals; see isTerminal()
-      model: 'shell', objective: req.name || 'terminal', status: 'running', createdAt: now, updatedAt: now,
-      useContainer: req.useContainer === true
-    }
-    store?.saveSession(session)
-    // S1: a plain terminal can also carry a "Work on this" backlog selection.
-    if (store) bindLaunchBacklog(store, id, req.projectId, (req as { backlogItemIds?: unknown }).backlogItemIds)
-    mgr.spawn(
-      { id, shell, args, cwd, env: {} },
-      (data) => { sendToRenderer('pty:data', { id, data }); recordOutput(store, id, data) },
-      ({ reason }) => { archiveAndEmit(store, id); emitExit(id, reason); sendToRenderer('session:exit', { id, reason }) }
-    )
-    return session
-  })
+  )
 
   // F14: explicitly bring up the project's devcontainer once (warm it before
   // launching sessions). Returns the container id. Reused by all its sessions.
-  ipcMain.handle('container:start', async (_e, projectId: string, workspace: string, importConfig: boolean) => {
-    if (!(await container.hasCli())) {
-      throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
+  ipcMain.handle(
+    'container:start',
+    async (_e, projectId: string, workspace: string, importConfig: boolean) => {
+      if (!(await container.hasCli())) {
+        throw new Error('devcontainer CLI not found. Install it: npm i -g @devcontainers/cli')
+      }
+      sendToRenderer('container:status', { projectId, state: 'starting' })
+      try {
+        const containerId = await ensureContainer(container, projectId, workspace, importConfig)
+        sendToRenderer('container:status', { projectId, state: 'running' })
+        return containerId
+      } catch (err) {
+        sendToRenderer('container:status', { projectId, state: 'error' })
+        throw err
+      }
     }
-    sendToRenderer('container:status', { projectId, state: 'starting' })
-    try {
-      const containerId = await ensureContainer(container, projectId, workspace, importConfig)
-      sendToRenderer('container:status', { projectId, state: 'running' })
-      return containerId
-    } catch (err) {
-      sendToRenderer('container:status', { projectId, state: 'error' })
-      throw err
-    }
-  })
+  )
   // Container status for this project, by Docker state (accurate across app
   // restarts): 'running' | 'stopped' (built but exited) | 'none' (never built).
   ipcMain.handle('container:status', async (_e, _projectId: string, workspace: string) => {
@@ -720,39 +859,45 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   // F8: provider connection health, in the project's context. An explicit
   // useContainer from the renderer wins (a host-mode user must not see the
   // container's health just because one is running); absent → auto-detect.
-  ipcMain.handle('provider:health', async (_e, provider: Provider, projectId: string, cwd: string, useContainer?: unknown) => {
-    if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
-    if (useContainer === false) return host.probeHealth(provider, {})
-    const containerId = await resolveContainerId(container, projectId, cwd)
-    if (useContainer === true && !containerId) return 'unknown' // container context requested but not running
-    if (!containerId) return host.probeHealth(provider, {})
-    const ctx = await containerExecContext(container, containerId, cwd)
-    return host.probeHealth(provider, { containerId, ...ctx })
-  })
+  ipcMain.handle(
+    'provider:health',
+    async (_e, provider: Provider, projectId: string, cwd: string, useContainer?: unknown) => {
+      if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+      if (useContainer === false) return host.probeHealth(provider, {})
+      const containerId = await resolveContainerId(container, projectId, cwd)
+      if (useContainer === true && !containerId) return 'unknown' // container context requested but not running
+      if (!containerId) return host.probeHealth(provider, {})
+      const ctx = await containerExecContext(container, containerId, cwd)
+      return host.probeHealth(provider, { containerId, ...ctx })
+    }
+  )
 
   // F10: run an interactive CLI login as a terminal session, in project context.
-  ipcMain.handle('provider:login', async (_e, provider: Provider, projectId: string, cwd: string): Promise<string> => {
-    if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
-    const id = `login-${provider}-${newSessionId()}`
-    const { cmd, args } = loginArgv(provider)
-    // ALL provider logins run on the HOST, never in the container. OAuth logins
-    // start a localhost loopback listener and the auth provider redirects the
-    // host browser back to it; that callback is a browser-side redirect, so it
-    // never passes through our openExternal port-forwarding. If login ran in the
-    // container the listener would be trapped in its network namespace and the
-    // callback would never land (the "browser response doesn't come through"
-    // bug). Logging in on the host writes ~/.codex / ~/.claude / ~/.gemini, which
-    // are bind-mounted (read-only) into the container so containerized sessions
-    // are already authenticated. cwd is irrelevant for a host login.
-    const shell = cmd
-    const spawnArgs = args
-    mgr.spawn(
-      { id, shell, args: spawnArgs, cwd, env: {} },
-      (data) => sendToRenderer('pty:data', { id, data }),
-      ({ reason }) => sendToRenderer('session:exit', { id, reason })
-    )
-    return id
-  })
+  ipcMain.handle(
+    'provider:login',
+    async (_e, provider: Provider, projectId: string, cwd: string): Promise<string> => {
+      if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+      const id = `login-${provider}-${newSessionId()}`
+      const { cmd, args } = loginArgv(provider)
+      // ALL provider logins run on the HOST, never in the container. OAuth logins
+      // start a localhost loopback listener and the auth provider redirects the
+      // host browser back to it; that callback is a browser-side redirect, so it
+      // never passes through our openExternal port-forwarding. If login ran in the
+      // container the listener would be trapped in its network namespace and the
+      // callback would never land (the "browser response doesn't come through"
+      // bug). Logging in on the host writes ~/.codex / ~/.claude / ~/.gemini, which
+      // are bind-mounted (read-only) into the container so containerized sessions
+      // are already authenticated. cwd is irrelevant for a host login.
+      const shell = cmd
+      const spawnArgs = args
+      mgr.spawn(
+        { id, shell, args: spawnArgs, cwd, env: {} },
+        (data) => sendToRenderer('pty:data', { id, data }),
+        ({ reason }) => sendToRenderer('session:exit', { id, reason })
+      )
+      return id
+    }
+  )
 
   // F9: install a provider CLI inside the project's container (with renderer confirm).
   ipcMain.handle('provider:install', async (_e, provider: Provider, projectId: string, cwd: string) => {
@@ -801,7 +946,11 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
     const id = newSessionId()
 
     // Build the provider invocation. autoApprove == running in a container.
-    const { cmd, args } = launchArgv({ provider: req.provider, model: req.model, autoApprove: req.useContainer })
+    const { cmd, args } = launchArgv({
+      provider: req.provider,
+      model: req.model,
+      autoApprove: req.useContainer
+    })
 
     let shell = cmd
     let spawnArgs = args
@@ -819,7 +968,11 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
       // in the container-side workspace folder, with HOME set (R3-1).
       const ctx = await containerExecContext(container, containerId, req.cwd)
       shell = 'docker'
-      spawnArgs = containerExecArgv(containerId, cmd, args, { user: ctx.user, cwd: ctx.cwd, env: { HOME: ctx.home } })
+      spawnArgs = containerExecArgv(containerId, cmd, args, {
+        user: ctx.user,
+        cwd: ctx.cwd,
+        env: { HOME: ctx.home }
+      })
       cwd = req.cwd // host-side cwd of the docker process itself
       watchContainer = containerId
     }
@@ -869,7 +1022,8 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
     // S1: bind any "Work on this" backlog selection to the new session. The field
     // rides along the launch payload (bridge passes req through untouched); binding
     // moves each item to sessionState 'in-session' (Store recompute).
-    if (store) bindLaunchBacklog(store, id, req.projectId, (raw as { backlogItemIds?: unknown }).backlogItemIds)
+    if (store)
+      bindLaunchBacklog(store, id, req.projectId, (raw as { backlogItemIds?: unknown }).backlogItemIds)
 
     // P0.D primer: seed the session with the harness protocol, the agent preset
     // body (S8 — trusted, auto-submitted AFTER the harness section), and the
@@ -897,69 +1051,99 @@ export function registerIpc(runtime: Runtime, store?: Store, ticketRunner: Headl
   // it with this session's own stored history (cleaned). Runs in the SAME context
   // as the original (container vs host, Codex P1). Optional model override lets
   // "change model" reuse this exact path to move the conversation to another engine.
-  ipcMain.handle('session:resume', async (_e, rawSession: unknown, rawCwd: unknown, rawUseContainer: unknown, rawOverride?: unknown): Promise<Session> => {
-    // B9: validate the renderer payload in main. The session's provider/model/
-    // status are membership-checked; an optional model override is validated as a
-    // fresh launch request (provider + model membership) reusing the same guards.
-    const s: Session = validateResumeSession(rawSession)
-    const cwd = typeof rawCwd === 'string' ? rawCwd : ''
-    // Explicit renderer choice wins; absent → the session's persisted context
-    // (B6), so a restart can't silently move a container session to the host.
-    const stored = store?.getSession(s.id)?.useContainer
-    const useContainer = typeof rawUseContainer === 'boolean' ? rawUseContainer : stored === true
-    let modelOverride: { provider: Provider; model: string } | undefined
-    if (rawOverride !== undefined) {
-      const ov = validateResumeSession({ ...s, provider: (rawOverride as { provider?: unknown }).provider, model: (rawOverride as { model?: unknown }).model })
-      modelOverride = { provider: ov.provider, model: ov.model }
-    }
-    const provider = modelOverride?.provider ?? s.provider
-    const model = modelOverride?.model ?? s.model
-    if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
-    // Fresh interactive launch (NOT resumeArgv). autoApprove == in a container.
-    const { cmd, args } = launchArgv({ provider, model, autoApprove: useContainer })
-    let shell = cmd
-    let spawnArgs = args
-    let watchContainer: string | undefined
-    if (useContainer) {
-      const containerId = await resolveContainerId(container, s.projectId, cwd)
-      if (!containerId) throw new Error('cannot reconnect: the project container is not running')
-      const ctx = await containerExecContext(container, containerId, cwd)
-      shell = 'docker'
-      spawnArgs = containerExecArgv(containerId, cmd, args, { user: ctx.user, cwd: ctx.cwd, env: { HOME: ctx.home } })
-      watchContainer = containerId
-    }
-    mgr.spawn(
-      { id: s.id, shell, args: spawnArgs, cwd, env: {} },
-      (data) => {
-        sendToRenderer('pty:data', { id: s.id, data })
-        recordOutput(store, s.id, data)
-      },
-      ({ reason }) => {
-        stopPortWatch(s.id)
-        if (reason === 'closed') archiveAndEmit(store, s.id)
-        else store?.setSessionStatus(s.id, 'idle')
-        emitExit(s.id, reason)
-        sendToRenderer('session:exit', { id: s.id, reason })
+  ipcMain.handle(
+    'session:resume',
+    async (
+      _e,
+      rawSession: unknown,
+      rawCwd: unknown,
+      rawUseContainer: unknown,
+      rawOverride?: unknown
+    ): Promise<Session> => {
+      // B9: validate the renderer payload in main. The session's provider/model/
+      // status are membership-checked; an optional model override is validated as a
+      // fresh launch request (provider + model membership) reusing the same guards.
+      const s: Session = validateResumeSession(rawSession)
+      const cwd = typeof rawCwd === 'string' ? rawCwd : ''
+      // Explicit renderer choice wins; absent → the session's persisted context
+      // (B6), so a restart can't silently move a container session to the host.
+      const stored = store?.getSession(s.id)?.useContainer
+      const useContainer = typeof rawUseContainer === 'boolean' ? rawUseContainer : stored === true
+      let modelOverride: { provider: Provider; model: string } | undefined
+      if (rawOverride !== undefined) {
+        const ov = validateResumeSession({
+          ...s,
+          provider: (rawOverride as { provider?: unknown }).provider,
+          model: (rawOverride as { model?: unknown }).model
+        })
+        modelOverride = { provider: ov.provider, model: ov.model }
       }
-    )
-    // Seed the fresh engine with this session's prior history (context continuity).
-    seedPrimer(mgr, store, s.id)
-    if (watchContainer) startPortWatch(ports, s.id, watchContainer)
-    const resumed: Session = { ...s, provider, model, status: 'running', updatedAt: Date.now(), useContainer }
-    store?.saveSession(resumed)
-    return resumed
-  })
+      const provider = modelOverride?.provider ?? s.provider
+      const model = modelOverride?.model ?? s.model
+      if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+      // Fresh interactive launch (NOT resumeArgv). autoApprove == in a container.
+      const { cmd, args } = launchArgv({ provider, model, autoApprove: useContainer })
+      let shell = cmd
+      let spawnArgs = args
+      let watchContainer: string | undefined
+      if (useContainer) {
+        const containerId = await resolveContainerId(container, s.projectId, cwd)
+        if (!containerId) throw new Error('cannot reconnect: the project container is not running')
+        const ctx = await containerExecContext(container, containerId, cwd)
+        shell = 'docker'
+        spawnArgs = containerExecArgv(containerId, cmd, args, {
+          user: ctx.user,
+          cwd: ctx.cwd,
+          env: { HOME: ctx.home }
+        })
+        watchContainer = containerId
+      }
+      mgr.spawn(
+        { id: s.id, shell, args: spawnArgs, cwd, env: {} },
+        (data) => {
+          sendToRenderer('pty:data', { id: s.id, data })
+          recordOutput(store, s.id, data)
+        },
+        ({ reason }) => {
+          stopPortWatch(s.id)
+          if (reason === 'closed') archiveAndEmit(store, s.id)
+          else store?.setSessionStatus(s.id, 'idle')
+          emitExit(s.id, reason)
+          sendToRenderer('session:exit', { id: s.id, reason })
+        }
+      )
+      // Seed the fresh engine with this session's prior history (context continuity).
+      seedPrimer(mgr, store, s.id)
+      if (watchContainer) startPortWatch(ports, s.id, watchContainer)
+      const resumed: Session = {
+        ...s,
+        provider,
+        model,
+        status: 'running',
+        updatedAt: Date.now(),
+        useContainer
+      }
+      store?.saveSession(resumed)
+      return resumed
+    }
+  )
 
   // Tear down port watchers + host-side relays on shutdown (container relays die
   // with the container), AWAITED (bounded) so Electron can't exit before the
   // relays are actually gone. Avoids leaking relay processes across restarts.
-  app.on('before-quit', createQuitCoordinator(async () => {
-    const stops = [...watchers.values()].map(({ watcher }) => watcher.stop())
-    watchers.clear()
-    await Promise.all(stops)
-    await ports.disposeAll()
-    store?.flush() // B6: persist any buffered transcript chunks before exit
-  }, () => app.exit(0)))
+  app.on(
+    'before-quit',
+    createQuitCoordinator(
+      async () => {
+        const stops = [...watchers.values()].map(({ watcher }) => watcher.stop())
+        watchers.clear()
+        await Promise.all(stops)
+        await ports.disposeAll()
+        store?.flush() // B6: persist any buffered transcript chunks before exit
+      },
+      () => app.exit(0)
+    )
+  )
 }
 
 /** Bounded, awaited shutdown. The first quit attempt is intercepted; cleanup
@@ -976,7 +1160,9 @@ export function createQuitCoordinator(
     done = true
     e.preventDefault()
     void Promise.race([
-      cleanup().catch(() => { /* best-effort — exit regardless */ }),
+      cleanup().catch(() => {
+        /* best-effort — exit regardless */
+      }),
       new Promise((r) => setTimeout(r, timeoutMs))
     ]).then(() => exit())
   }

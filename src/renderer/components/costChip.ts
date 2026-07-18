@@ -33,6 +33,7 @@ export function attentionBadge(state: AttentionState | undefined): HTMLElement |
   const badge = document.createElement('span')
   badge.className = `att-badge ${state}`
   badge.textContent = state === 'input' ? '● needs input' : '● idle'
-  badge.title = state === 'input' ? 'This session looks like it is waiting for you' : 'This session has been quiet'
+  badge.title =
+    state === 'input' ? 'This session looks like it is waiting for you' : 'This session has been quiet'
   return badge
 }

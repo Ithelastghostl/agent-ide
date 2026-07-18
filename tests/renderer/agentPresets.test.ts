@@ -28,7 +28,9 @@ describe('S8 LibraryPanel — Launch session action on agents', () => {
       items: [AGENT],
       hasActiveSession: false,
       onUse: () => {},
-      onLaunchAgent: (it) => { launched = it },
+      onLaunchAgent: (it) => {
+        launched = it
+      },
       onCancel: () => {}
     })
     const btn = panel.querySelector('.lib-launch') as HTMLButtonElement
@@ -62,7 +64,9 @@ describe('S8 ModelPicker — prefilled agent-preset launcher', () => {
       agentName: AGENT.name,
       objective: AGENT.description,
       onLaunch: (provider, model, objective) => calls.push({ provider, model, objective }),
-      onPick: () => { throw new Error('onPick should not fire when onLaunch is set') },
+      onPick: () => {
+        throw new Error('onPick should not fire when onLaunch is set')
+      },
       onCancel: () => {}
     })
     // Title names the agent; objective field is prefilled + editable.
@@ -77,17 +81,25 @@ describe('S8 ModelPicker — prefilled agent-preset launcher', () => {
     // Pick the first model → onLaunch carries the (edited) objective.
     obj.value = 'ship the 2.0 notes'
     ;(picker.querySelector('.mopt') as HTMLElement).click()
-    expect(calls).toEqual([{ provider: 'claude', model: 'claude-sonnet-4-6', objective: 'ship the 2.0 notes' }])
+    expect(calls).toEqual([
+      { provider: 'claude', model: 'claude-sonnet-4-6', objective: 'ship the 2.0 notes' }
+    ])
   })
 
   it('switching provider lists that provider’s models', () => {
     const picker = ModelPicker({
-      provider: 'claude', models: MODELS.claude, modelsForProvider: (p) => MODELS[p],
-      agentName: AGENT.name, objective: AGENT.description,
-      onLaunch: () => {}, onPick: () => {}, onCancel: () => {}
+      provider: 'claude',
+      models: MODELS.claude,
+      modelsForProvider: (p) => MODELS[p],
+      agentName: AGENT.name,
+      objective: AGENT.description,
+      onLaunch: () => {},
+      onPick: () => {},
+      onCancel: () => {}
     })
-    const codexTab = Array.from(picker.querySelectorAll('.mp-provtab'))
-      .find((t) => (t as HTMLElement).dataset.provider === 'codex') as HTMLButtonElement
+    const codexTab = Array.from(picker.querySelectorAll('.mp-provtab')).find(
+      (t) => (t as HTMLElement).dataset.provider === 'codex'
+    ) as HTMLButtonElement
     codexTab.click()
     const shown = Array.from(picker.querySelectorAll('.mopt .ti span')).map((s) => s.textContent)
     expect(shown).toEqual(['gpt-5-codex'])
@@ -96,11 +108,15 @@ describe('S8 ModelPicker — prefilled agent-preset launcher', () => {
   it('classic model-only picker (no S8 props) still works and fires onPick', () => {
     let picked: { p: Provider; m: string } | null = null
     const picker = ModelPicker({
-      provider: 'claude', models: MODELS.claude,
-      onPick: (p, m) => { picked = { p, m } }, onCancel: () => {}
+      provider: 'claude',
+      models: MODELS.claude,
+      onPick: (p, m) => {
+        picked = { p, m }
+      },
+      onCancel: () => {}
     })
     expect(picker.querySelector('.mp-objective')).toBeNull() // no objective field
-    expect(picker.querySelector('.mp-provtabs')).toBeNull()  // provider fixed
+    expect(picker.querySelector('.mp-provtabs')).toBeNull() // provider fixed
     ;(picker.querySelector('.mopt') as HTMLElement).click()
     expect(picked).toEqual({ p: 'claude', m: 'claude-sonnet-4-6' })
   })
@@ -115,20 +131,32 @@ describe('S8 launch flow — the resulting launch request carries agentRelPath',
 
     let picker: HTMLElement | null = null
     const panel = LibraryPanel({
-      category: 'agents', items: [AGENT], hasActiveSession: false, onUse: () => {},
+      category: 'agents',
+      items: [AGENT],
+      hasActiveSession: false,
+      onUse: () => {},
       onLaunchAgent: (agent) => {
         picker = ModelPicker({
-          provider: 'claude', models: MODELS.claude, modelsForProvider: (p) => MODELS[p],
-          agentName: agent.name, objective: agent.description,
+          provider: 'claude',
+          models: MODELS.claude,
+          modelsForProvider: (p) => MODELS[p],
+          agentName: agent.name,
+          objective: agent.description,
           onLaunch: (provider, model, objective) => {
             window.agentIDE.sessionLaunch({
-              projectId: 'p1', provider, model, objective,
-              cwd: '/tmp/p1', useContainer: false,
-              taskKind: 'product', taskSubkind: 'feature',
+              projectId: 'p1',
+              provider,
+              model,
+              objective,
+              cwd: '/tmp/p1',
+              useContainer: false,
+              taskKind: 'product',
+              taskSubkind: 'feature',
               agentRelPath: agent.relPath
             })
           },
-          onPick: () => {}, onCancel: () => {}
+          onPick: () => {},
+          onCancel: () => {}
         })
       },
       onCancel: () => {}
@@ -149,14 +177,23 @@ describe('S8 launch flow — the resulting launch request carries agentRelPath',
 
 describe('S8 agent chip renders for agent-launched sessions', () => {
   const base: Session = {
-    id: 's1', projectId: 'p1', provider: 'claude', model: 'claude-sonnet-4-6',
-    objective: 'ship notes', status: 'running', createdAt: 0, updatedAt: 0,
+    id: 's1',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'claude-sonnet-4-6',
+    objective: 'ship notes',
+    status: 'running',
+    createdAt: 0,
+    updatedAt: 0,
     agentRelPath: 'agents/release-writer.md'
   }
 
   it('Cockpit shows the agent chip on a session card', () => {
     const el = Cockpit({
-      sessions: [base], activeSessionId: 's1', onLaunch: () => {}, onSelectSession: () => {},
+      sessions: [base],
+      activeSessionId: 's1',
+      onLaunch: () => {},
+      onSelectSession: () => {},
       agentNameFor: (s) => (s.agentRelPath ? 'Release Writer' : null)
     })
     const chip = el.querySelector('.scard .agent-chip')
@@ -166,16 +203,25 @@ describe('S8 agent chip renders for agent-launched sessions', () => {
 
   it('Cockpit omits the chip when the session has no agent', () => {
     const el = Cockpit({
-      sessions: [{ ...base, agentRelPath: null }], activeSessionId: 's1',
-      onLaunch: () => {}, onSelectSession: () => {}, agentNameFor: () => null
+      sessions: [{ ...base, agentRelPath: null }],
+      activeSessionId: 's1',
+      onLaunch: () => {},
+      onSelectSession: () => {},
+      agentNameFor: () => null
     })
     expect(el.querySelector('.scard .agent-chip')).toBeNull()
   })
 
   it('SupervisionView shows the agent chip in the session header', () => {
     const el = SupervisionView({
-      session: base, projectName: 'proj', openFiles: [], openReports: [],
-      activeTab: { kind: 'session' }, onSelectTab: () => {}, onCloseFile: () => {}, onCloseReport: () => {},
+      session: base,
+      projectName: 'proj',
+      openFiles: [],
+      openReports: [],
+      activeTab: { kind: 'session' },
+      onSelectTab: () => {},
+      onCloseFile: () => {},
+      onCloseReport: () => {},
       agentName: 'Release Writer'
     })
     const chip = el.querySelector('.sv-head .agent-chip')

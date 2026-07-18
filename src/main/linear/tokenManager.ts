@@ -68,10 +68,26 @@ export class LinearTokenManager {
     try {
       // Revoke the refresh token first (invalidates the whole grant), then access.
       if (rec.refreshToken) {
-        revoked = await revokeToken({ meta: rec.meta, clientId: rec.client.client_id, token: rec.refreshToken, tokenTypeHint: 'refresh_token', f: this.fetch }) || revoked
+        revoked =
+          (await revokeToken({
+            meta: rec.meta,
+            clientId: rec.client.client_id,
+            token: rec.refreshToken,
+            tokenTypeHint: 'refresh_token',
+            f: this.fetch
+          })) || revoked
       }
-      revoked = await revokeToken({ meta: rec.meta, clientId: rec.client.client_id, token: rec.accessToken, tokenTypeHint: 'access_token', f: this.fetch }) || revoked
-    } catch { /* revocation is best-effort; still remove the file */ }
+      revoked =
+        (await revokeToken({
+          meta: rec.meta,
+          clientId: rec.client.client_id,
+          token: rec.accessToken,
+          tokenTypeHint: 'access_token',
+          f: this.fetch
+        })) || revoked
+    } catch {
+      /* revocation is best-effort; still remove the file */
+    }
     this.store.remove(accountId)
     return { ok: true, revoked }
   }

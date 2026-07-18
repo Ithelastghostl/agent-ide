@@ -25,11 +25,15 @@ describe('resolveTool — name pattern + schema shape', () => {
     expect(resolveTool(tools, 'create-comment')?.name).toBe('create_comment')
   })
   it('does NOT resolve update-state to a tool lacking a state arg', () => {
-    const noState: McpTool[] = [{ name: 'update_issue', inputSchema: { type: 'object', properties: { id: {}, title: {} } } }]
+    const noState: McpTool[] = [
+      { name: 'update_issue', inputSchema: { type: 'object', properties: { id: {}, title: {} } } }
+    ]
     expect(resolveTool(noState, 'update-state')).toBeNull()
   })
   it('does NOT resolve create-comment to a tool that forbids the intent', () => {
-    const only: McpTool[] = [{ name: 'delete_comment', inputSchema: { type: 'object', properties: { body: {} } } }]
+    const only: McpTool[] = [
+      { name: 'delete_comment', inputSchema: { type: 'object', properties: { body: {} } } }
+    ]
     expect(resolveTool(only, 'create-comment')).toBeNull()
   })
   it('rejects a get-issue tool with no schema properties (can not validate args)', () => {

@@ -9,11 +9,22 @@
 import type { LinearLink } from '@shared/types'
 import type { Store } from '../store'
 import {
-  LINEAR_MCP_URL, linearLog, redact,
-  generateCodeVerifier, codeChallengeS256, generateState, safeEqual,
-  discoverProtectedResource, discoverAuthServer, registerClient, exchangeCode,
-  buildAuthorizeUrl, awaitLoopbackCode, commentIdempotencyMarker,
-  type AuthServerMetadata, type FetchLike
+  LINEAR_MCP_URL,
+  linearLog,
+  redact,
+  generateCodeVerifier,
+  codeChallengeS256,
+  generateState,
+  safeEqual,
+  discoverProtectedResource,
+  discoverAuthServer,
+  registerClient,
+  exchangeCode,
+  buildAuthorizeUrl,
+  awaitLoopbackCode,
+  commentIdempotencyMarker,
+  type AuthServerMetadata,
+  type FetchLike
 } from './oauth'
 import { LinearTokenStore, LinearLinkStore, type AccountRecord } from './tokenStore'
 import { LinearTokenManager, applyToken } from './tokenManager'
@@ -21,10 +32,7 @@ import { McpClient, type McpTool, type ToolCallResult } from './mcpClient'
 import { resolveAllowedTools, argNameFor, type LinearIntent } from './toolAllowlist'
 
 /** A write-back action requested from the UI (after preview). */
-export type WritebackAction =
-  | { kind: 'started' }
-  | { kind: 'done' }
-  | { kind: 'comment'; text: string }
+export type WritebackAction = { kind: 'started' } | { kind: 'done' } | { kind: 'comment'; text: string }
 
 /** The preview shown in the modal BEFORE any remote mutation (exact target). */
 export interface WritebackPreview {
@@ -118,8 +126,13 @@ export class LinearService {
         redirectUri = uri
         client = await registerClient({ meta, redirectUri: uri, f: this.fetch })
         const authUrl = buildAuthorizeUrl({
-          meta, clientId: client.client_id, redirectUri: uri, state,
-          codeChallenge: challenge, scope: meta.scopes_supported?.join(' '), resource
+          meta,
+          clientId: client.client_id,
+          redirectUri: uri,
+          state,
+          codeChallenge: challenge,
+          scope: meta.scopes_supported?.join(' '),
+          resource
         })
         if (!this.openExternal(authUrl)) throw new Error('failed to open browser for authorization')
         linearLog('authorization opened', { port: p })
@@ -129,23 +142,33 @@ export class LinearService {
 
     // 4. exchange the single-use code for tokens
     const tok = await exchangeCode({
-      meta, clientId: client.client_id, clientSecret: client.client_secret,
-      code, codeVerifier: verifier, redirectUri: loopbackUriForPort(port, redirectUri), resource, f: this.fetch
+      meta,
+      clientId: client.client_id,
+      clientSecret: client.client_secret,
+      code,
+      codeVerifier: verifier,
+      redirectUri: loopbackUriForPort(port, redirectUri),
+      resource,
+      f: this.fetch
     })
 
     // 5. discover identity (account + workspace) from the authenticated session
     const identity = await this.discoverIdentity(meta, client.client_id, tok.access_token, resource)
 
     // 6. persist
-    const rec: AccountRecord = applyToken({
-      accountId: identity.accountId,
-      workspaceId: identity.workspaceId,
-      meta, client,
-      accessToken: tok.access_token,
-      resource,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    } as AccountRecord, tok)
+    const rec: AccountRecord = applyToken(
+      {
+        accountId: identity.accountId,
+        workspaceId: identity.workspaceId,
+        meta,
+        client,
+        accessToken: tok.access_token,
+        resource,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      } as AccountRecord,
+      tok
+    )
     this.tokens.save(rec)
     linearLog('account connected', { hasWorkspace: !!identity.workspaceId })
     return { accountId: identity.accountId, workspaceId: identity.workspaceId }
@@ -154,7 +177,12 @@ export class LinearService {
   /** Discover the authenticated account + workspace identity. Uses an
    *  allowlisted viewer-style MCP tool if the server exposes one; otherwise
    *  derives a stable id from the token grant. */
-  private async discoverIdentity(meta: AuthServerMetadata, clientId: string, accessToken: string, resource: string): Promise<{ accountId: string; workspaceId: string }> {
+  private async discoverIdentity(
+    meta: AuthServerMetadata,
+    clientId: string,
+    accessToken: string,
+    resource: string
+  ): Promise<{ accountId: string; workspaceId: string }> {
     // Build a throwaway client bound to this fresh token for the identity probe.
     const client = new McpClient({
       endpoint: resource,
@@ -165,7 +193,9 @@ export class LinearService {
       const tools = await client.listTools()
       // Strict, anchored viewer-tool match — a loose /me/ substring would wrongly
       // match e.g. create_com*me*nt and mutate data during an identity probe.
-      const viewer = tools.find((t) => /^(viewer|whoami|current[_-]?user|me|organization|get[_-]?viewer|get[_-]?organization)$/i.test(t.name))
+      const viewer = tools.find((t) =>
+        /^(viewer|whoami|current[_-]?user|me|organization|get[_-]?viewer|get[_-]?organization)$/i.test(t.name)
+      )
       if (viewer) {
         const res = await client.callTool(viewer.name, {})
         const parsed = firstJson(res)
@@ -174,7 +204,10 @@ export class LinearService {
         if (accountId) return { accountId, workspaceId: workspaceId || accountId }
       }
     } catch (err) {
-      linearLog('identity probe via viewer tool failed; falling back', redact({ message: (err as Error).message }))
+      linearLog(
+        'identity probe via viewer tool failed; falling back',
+        redact({ message: (err as Error).message })
+      )
     }
     // Fallback: a deterministic account id derived from the grant (no PII), so
     // the token filename (sha256 of it) is stable across refreshes.
@@ -242,7 +275,10 @@ export class LinearService {
 
   /** Build the preview for a write-back (exact target shown, remote state read
    *  first so an already-satisfied change is flagged as a no-op). */
-  async previewWriteback(itemId: string, action: WritebackAction): Promise<WritebackPreview | { error: string }> {
+  async previewWriteback(
+    itemId: string,
+    action: WritebackAction
+  ): Promise<WritebackPreview | { error: string }> {
     const ctx = this.writebackContext(itemId)
     if ('error' in ctx) return ctx
     const { link, item } = ctx
@@ -253,8 +289,13 @@ export class LinearService {
     if (action.kind === 'comment') {
       if (!allowed['create-comment']) return { error: 'no allowed comment tool' }
       return {
-        itemId, linearId: item.linearId!, identifier: item.linearId!, title: item.title,
-        action: 'comment', target: action.text, alreadySatisfied: false
+        itemId,
+        linearId: item.linearId!,
+        identifier: item.linearId!,
+        title: item.title,
+        action: 'comment',
+        target: action.text,
+        alreadySatisfied: false
       }
     }
     // started/done → resolve the current + target state
@@ -263,9 +304,13 @@ export class LinearService {
     const targetType = STATE_TYPE_FOR[action.kind]
     const alreadySatisfied = !!issue && stateTypeOf(issue.state) === targetType
     return {
-      itemId, linearId: item.linearId!, identifier: issue?.identifier ?? item.linearId!,
-      title: item.title, action: action.kind,
-      target: labelForType(targetType), alreadySatisfied
+      itemId,
+      linearId: item.linearId!,
+      identifier: issue?.identifier ?? item.linearId!,
+      title: item.title,
+      action: action.kind,
+      target: labelForType(targetType),
+      alreadySatisfied
     }
   }
 
@@ -282,7 +327,8 @@ export class LinearService {
     const allowed = resolveAllowedTools(tools)
 
     try {
-      if (action.kind === 'comment') return await this.applyComment(client, allowed, item.linearId!, action.text, itemId, sessionId)
+      if (action.kind === 'comment')
+        return await this.applyComment(client, allowed, item.linearId!, action.text, itemId, sessionId)
       return await this.applyState(client, allowed, item.linearId!, action.kind)
     } catch (err) {
       linearLog('writeback failed', redact({ action: action.kind, message: (err as Error).message }))
@@ -290,7 +336,14 @@ export class LinearService {
     }
   }
 
-  private async applyComment(client: McpClient, allowed: ReturnType<typeof resolveAllowedTools>, linearId: string, text: string, itemId: string, sessionId: string): Promise<WritebackResult> {
+  private async applyComment(
+    client: McpClient,
+    allowed: ReturnType<typeof resolveAllowedTools>,
+    linearId: string,
+    text: string,
+    itemId: string,
+    sessionId: string
+  ): Promise<WritebackResult> {
     const tool = allowed['create-comment']
     if (!tool) return { ok: false, action: 'comment', outcome: 'error', error: 'no allowed comment tool' }
     const marker = commentIdempotencyMarker({ sessionId, itemId, action: 'comment' })
@@ -306,7 +359,12 @@ export class LinearService {
     return { ok: true, action: 'comment', outcome: 'applied' }
   }
 
-  private async applyState(client: McpClient, allowed: ReturnType<typeof resolveAllowedTools>, linearId: string, kind: 'started' | 'done'): Promise<WritebackResult> {
+  private async applyState(
+    client: McpClient,
+    allowed: ReturnType<typeof resolveAllowedTools>,
+    linearId: string,
+    kind: 'started' | 'done'
+  ): Promise<WritebackResult> {
     const tool = allowed['update-state']
     if (!tool) return { ok: false, action: kind, outcome: 'error', error: 'no allowed state-update tool' }
     const targetType = STATE_TYPE_FOR[kind]
@@ -315,13 +373,19 @@ export class LinearService {
       return { ok: true, action: kind, outcome: 'noop', detail: 'issue already in target state' }
     }
     const idArg = argNameFor(tool, ['id', 'issueId', 'issue_id']) ?? 'id'
-    const stateArg = argNameFor(tool, ['stateName', 'status', 'state', 'stateId', 'state_id', 'workflowState']) ?? 'state'
+    const stateArg =
+      argNameFor(tool, ['stateName', 'status', 'state', 'stateId', 'state_id', 'workflowState']) ?? 'state'
     await client.callTool(tool.name, { [idArg]: linearId, [stateArg]: labelForType(targetType) })
     return { ok: true, action: kind, outcome: 'applied' }
   }
 
   /** Look up whether a comment bearing `marker` already exists on the issue. */
-  private async commentExists(client: McpClient, allowed: ReturnType<typeof resolveAllowedTools>, linearId: string, marker: string): Promise<boolean> {
+  private async commentExists(
+    client: McpClient,
+    allowed: ReturnType<typeof resolveAllowedTools>,
+    linearId: string,
+    marker: string
+  ): Promise<boolean> {
     const getTool = allowed['get-issue']
     if (!getTool) return false
     try {
@@ -338,7 +402,11 @@ export class LinearService {
     }
   }
 
-  private async fetchIssue(client: McpClient, getTool: McpTool | null, linearId: string): Promise<{ identifier: string; state: string } | null> {
+  private async fetchIssue(
+    client: McpClient,
+    getTool: McpTool | null,
+    linearId: string
+  ): Promise<{ identifier: string; state: string } | null> {
     if (!getTool) return null
     try {
       const idArg = argNameFor(getTool, ['id', 'issueId', 'issue_id', 'identifier']) ?? 'id'
@@ -381,7 +449,9 @@ export class LinearService {
     return this.tokens.load(accountId)?.resource ?? LINEAR_MCP_URL
   }
 
-  private writebackContext(itemId: string): { link: LinearLink; item: { linearId: string; title: string; projectId: string } } | { error: string } {
+  private writebackContext(
+    itemId: string
+  ): { link: LinearLink; item: { linearId: string; title: string; projectId: string } } | { error: string } {
     if (!this.store) return { error: 'no store' }
     const item = this.store.getBacklogItem(itemId)
     if (!item) return { error: 'unknown item' }
@@ -430,13 +500,20 @@ export function coerceLink(ref: unknown): { link: LinearLink } | { error: string
   }
 }
 
-export interface PulledIssue { id: string; url: string; title: string; bodyMd: string; state: string }
+export interface PulledIssue {
+  id: string
+  url: string
+  title: string
+  bodyMd: string
+  state: string
+}
 
 /** Extract issues + a pagination cursor from a tools/call result. Linear MCP
  *  results carry data as structuredContent OR as JSON text in a content block. */
 export function extractIssues(res: ToolCallResult): { issues: PulledIssue[]; nextCursor?: string } {
   const data = firstJson(res)
-  const nodes = asArray(pick(data, ['issues', 'nodes', 'items', 'results', 'data'])) ?? (Array.isArray(data) ? data : [])
+  const nodes =
+    asArray(pick(data, ['issues', 'nodes', 'items', 'results', 'data'])) ?? (Array.isArray(data) ? data : [])
   const issues: PulledIssue[] = []
   for (const n of nodes) {
     const id = str(n, ['id', 'issueId'])
@@ -450,7 +527,7 @@ export function extractIssues(res: ToolCallResult): { issues: PulledIssue[]; nex
     })
   }
   const pageInfo = pick(data, ['pageInfo']) as { hasNextPage?: boolean; endCursor?: string } | undefined
-  const nextCursor = pageInfo?.hasNextPage ? pageInfo.endCursor : (str(data, ['nextCursor']) || undefined)
+  const nextCursor = pageInfo?.hasNextPage ? pageInfo.endCursor : str(data, ['nextCursor']) || undefined
   return { issues, nextCursor }
 }
 
@@ -473,11 +550,16 @@ function stateTypeOf(stateLabel: string): string {
 
 function labelForType(type: string): string {
   switch (type) {
-    case 'completed': return 'Done'
-    case 'started': return 'In Progress'
-    case 'canceled': return 'Canceled'
-    case 'backlog': return 'Backlog'
-    default: return 'Todo'
+    case 'completed':
+      return 'Done'
+    case 'started':
+      return 'In Progress'
+    case 'canceled':
+      return 'Canceled'
+    case 'backlog':
+      return 'Backlog'
+    default:
+      return 'Todo'
   }
 }
 
@@ -487,7 +569,11 @@ export function firstJson(res: ToolCallResult): unknown {
   if (res.structuredContent !== undefined) return res.structuredContent
   for (const c of res.content ?? []) {
     if (c.type === 'text' && typeof c.text === 'string') {
-      try { return JSON.parse(c.text) } catch { /* not JSON */ }
+      try {
+        return JSON.parse(c.text)
+      } catch {
+        /* not JSON */
+      }
     }
   }
   // Fall back to the concatenated text (non-JSON tools).
@@ -496,7 +582,10 @@ export function firstJson(res: ToolCallResult): unknown {
 
 /** All text content concatenated (for marker containment checks). */
 export function allText(res: ToolCallResult): string {
-  return (res.content ?? []).filter((c) => c.type === 'text' && typeof c.text === 'string').map((c) => c.text).join('\n')
+  return (res.content ?? [])
+    .filter((c) => c.type === 'text' && typeof c.text === 'string')
+    .map((c) => c.text)
+    .join('\n')
 }
 
 function pick(obj: unknown, keys: string[]): unknown {
@@ -507,12 +596,13 @@ function pick(obj: unknown, keys: string[]): unknown {
 
 function str(obj: unknown, keys: string[]): string {
   const v = pick(obj, keys)
-  return typeof v === 'string' ? v : (typeof v === 'number' ? String(v) : '')
+  return typeof v === 'string' ? v : typeof v === 'number' ? String(v) : ''
 }
 
 function asArray(v: unknown): unknown[] | undefined {
   if (Array.isArray(v)) return v
-  if (v && typeof v === 'object' && Array.isArray((v as { nodes?: unknown[] }).nodes)) return (v as { nodes: unknown[] }).nodes
+  if (v && typeof v === 'object' && Array.isArray((v as { nodes?: unknown[] }).nodes))
+    return (v as { nodes: unknown[] }).nodes
   return undefined
 }
 

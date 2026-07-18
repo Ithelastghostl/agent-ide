@@ -4,9 +4,21 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { mkdirSync } from 'node:fs'
 import type {
-  Project, Session, SessionStatus, Ticket,
-  BacklogItem, BacklogKind, BacklogManualStatus, BacklogEffectiveStatus, BacklogCreateInput, BacklogUpdateInput,
-  QueueItem, QueueState, Snapshot, SearchHit, ApprovalMode
+  Project,
+  Session,
+  SessionStatus,
+  Ticket,
+  BacklogItem,
+  BacklogKind,
+  BacklogManualStatus,
+  BacklogEffectiveStatus,
+  BacklogCreateInput,
+  BacklogUpdateInput,
+  QueueItem,
+  QueueState,
+  Snapshot,
+  SearchHit,
+  ApprovalMode
 } from '@shared/types'
 import { projectId as durableProjectId } from './projects'
 
@@ -28,7 +40,9 @@ export function ftsQuery(raw: string): string {
 }
 
 /** localEffectiveStatus precedence (R34): done-by-ticket > in-session > manual. */
-export function effectiveStatus(i: Pick<BacklogItem, 'manualStatus' | 'sessionState'>): BacklogEffectiveStatus {
+export function effectiveStatus(
+  i: Pick<BacklogItem, 'manualStatus' | 'sessionState'>
+): BacklogEffectiveStatus {
   if (i.sessionState === 'done-by-ticket') return 'done'
   if (i.sessionState === 'in-session') return 'in-session'
   return i.manualStatus
@@ -160,9 +174,11 @@ export class Store {
    *  Idempotent: rows already at their durable id are left untouched. Skips a
    *  rename if the target id somehow already exists (avoids a PK clash). */
   migrateProjectIds(): void {
-    const rows = this.db
-      .prepare(`SELECT id, repo, localPath FROM projects`)
-      .all() as { id: string; repo: string; localPath: string }[]
+    const rows = this.db.prepare(`SELECT id, repo, localPath FROM projects`).all() as {
+      id: string
+      repo: string
+      localPath: string
+    }[]
     const migrate = this.db.transaction((items: typeof rows) => {
       const exists = this.db.prepare(`SELECT 1 FROM projects WHERE id = ?`)
       const moveSessions = this.db.prepare(`UPDATE sessions SET projectId = ? WHERE projectId = ?`)
@@ -213,9 +229,9 @@ export class Store {
     const add = (name: string, ddl: string) => {
       if (!cols.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${ddl}`)
     }
-    add('taskKind', 'taskKind TEXT')       // 'product' | 'analysis' | NULL
+    add('taskKind', 'taskKind TEXT') // 'product' | 'analysis' | NULL
     add('taskSubkind', 'taskSubkind TEXT') // 'code' | 'feature' | 'bug' | NULL
-    add('taskStatus', 'taskStatus TEXT')   // 'open' | 'finished' | 'deployed' | 'ticketed' | NULL
+    add('taskStatus', 'taskStatus TEXT') // 'open' | 'finished' | 'deployed' | 'ticketed' | NULL
     add('useContainer', 'useContainer INTEGER') // 1 | 0 | NULL (pre-migration rows)
   }
 
@@ -231,7 +247,8 @@ export class Store {
 
   /** Whether a project's queue auto-advances on session completion (S6). */
   getAutoAdvance(projectId: string): boolean {
-    const r = this.db.prepare(`SELECT autoAdvance FROM projects WHERE id = ?`).get(projectId) as { autoAdvance?: number } | undefined
+    const r = this.db.prepare(`SELECT autoAdvance FROM projects WHERE id = ?`).get(projectId) as
+      { autoAdvance?: number } | undefined
     return r?.autoAdvance === 1
   }
 
@@ -250,7 +267,9 @@ export class Store {
     const cols = new Set(
       (this.db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]).map((c) => c.name)
     )
-    const add = (name: string, ddl: string) => { if (!cols.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${ddl}`) }
+    const add = (name: string, ddl: string) => {
+      if (!cols.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${ddl}`)
+    }
     const fresh = !cols.has('desiredStage')
     add('desiredStage', 'desiredStage TEXT')
     add('desiredProvider', 'desiredProvider TEXT')
@@ -287,13 +306,26 @@ export class Store {
   /** v2 (C-7): one-time copy of existing tickets into backlog_items so the
    *  Backlog tab reads a single table. Idempotent: keyed on 'bl-'+ticketId. */
   migrateTicketsToBacklog(): void {
-    const rows = this.db.prepare(`SELECT id, projectId, subkind, title, bodyMd, createdAt FROM tickets`).all() as
-      { id: string; projectId: string; subkind: string; title: string; bodyMd: string; createdAt: number }[]
+    const rows = this.db
+      .prepare(`SELECT id, projectId, subkind, title, bodyMd, createdAt FROM tickets`)
+      .all() as {
+      id: string
+      projectId: string
+      subkind: string
+      title: string
+      bodyMd: string
+      createdAt: number
+    }[]
     const upsert = this.db.transaction((items: typeof rows) => {
-      for (const t of items) this.upsertGeneratedBacklogItem({
-        blId: 'bl-' + t.id, projectId: t.projectId, title: t.title, bodyMd: t.bodyMd,
-        contentHash: sha256(t.bodyMd), createdAt: t.createdAt
-      })
+      for (const t of items)
+        this.upsertGeneratedBacklogItem({
+          blId: 'bl-' + t.id,
+          projectId: t.projectId,
+          title: t.title,
+          bodyMd: t.bodyMd,
+          contentHash: sha256(t.bodyMd),
+          createdAt: t.createdAt
+        })
     })
     upsert(rows)
   }
@@ -302,8 +334,10 @@ export class Store {
    *  upgrade of a pre-v2 DB that already has transcripts/backlog rows). */
   rebuildFtsIfEmpty(): void {
     const has = (t: string) => (this.db.prepare(`SELECT COUNT(*) c FROM ${t}`).get() as { c: number }).c > 0
-    if (!has('transcripts_fts') && has('transcripts')) this.db.exec(`INSERT INTO transcripts_fts(transcripts_fts) VALUES('rebuild')`)
-    if (!has('backlog_fts') && has('backlog_items')) this.db.exec(`INSERT INTO backlog_fts(backlog_fts) VALUES('rebuild')`)
+    if (!has('transcripts_fts') && has('transcripts'))
+      this.db.exec(`INSERT INTO transcripts_fts(transcripts_fts) VALUES('rebuild')`)
+    if (!has('backlog_fts') && has('backlog_items'))
+      this.db.exec(`INSERT INTO backlog_fts(backlog_fts) VALUES('rebuild')`)
   }
 
   saveSession(s: Session): void {
@@ -353,7 +387,8 @@ export class Store {
   }
 
   private isSessionActive(id: string): boolean {
-    const r = this.db.prepare(`SELECT status FROM sessions WHERE id = ?`).get(id) as { status: SessionStatus } | undefined
+    const r = this.db.prepare(`SELECT status FROM sessions WHERE id = ?`).get(id) as
+      { status: SessionStatus } | undefined
     return !!r && ACTIVE_STATUSES.has(r.status)
   }
 
@@ -382,8 +417,12 @@ export class Store {
       this.saveTicket(t)
       this.setTaskStatus(t.sessionId, 'ticketed')
       this.upsertGeneratedBacklogItem({
-        blId: 'bl-' + t.id, projectId: t.projectId, title: t.title, bodyMd: t.bodyMd,
-        contentHash: sha256(t.bodyMd), createdAt: t.createdAt
+        blId: 'bl-' + t.id,
+        projectId: t.projectId,
+        title: t.title,
+        bodyMd: t.bodyMd,
+        contentHash: sha256(t.bodyMd),
+        createdAt: t.createdAt
       })
       this.recomputeItemsForSession(t.sessionId)
     })()
@@ -432,10 +471,12 @@ export class Store {
    *  recomputes bound items in the same transaction. Returns whether it changed. */
   archiveSessionGuarded(id: string, expectRuntimeVersion: number): boolean {
     return this.db.transaction(() => {
-      const info = this.db.prepare(
-        `UPDATE sessions SET status='archived', termState='terminated', runtimeVersion=runtimeVersion+1
+      const info = this.db
+        .prepare(
+          `UPDATE sessions SET status='archived', termState='terminated', runtimeVersion=runtimeVersion+1
          WHERE id=? AND status!='archived' AND runtimeVersion=?`
-      ).run(id, expectRuntimeVersion)
+        )
+        .run(id, expectRuntimeVersion)
       const changed = info.changes === 1
       if (changed) this.recomputeItemsForSession(id)
       return changed
@@ -454,9 +495,11 @@ export class Store {
 
   /** Bump a session's runtimeVersion (R38) — used by gated runtime transitions. */
   bumpRuntimeVersion(id: string): number {
-    const r = this.db.prepare(
-      `UPDATE sessions SET runtimeVersion = COALESCE(runtimeVersion,0)+1 WHERE id=? RETURNING runtimeVersion`
-    ).get(id) as { runtimeVersion: number } | undefined
+    const r = this.db
+      .prepare(
+        `UPDATE sessions SET runtimeVersion = COALESCE(runtimeVersion,0)+1 WHERE id=? RETURNING runtimeVersion`
+      )
+      .get(id) as { runtimeVersion: number } | undefined
     return r?.runtimeVersion ?? 0
   }
 
@@ -474,11 +517,16 @@ export class Store {
    *  no-op when the buffer is empty) and safe to call from a timer, a read, or
    *  shutdown. */
   flush(): void {
-    if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null }
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = null
+    }
     if (this.pending.length === 0) return
     const batch = this.pending
     this.pending = []
-    const insert = this.db.prepare(`INSERT INTO transcripts (session_id,chunk,ts) VALUES (@session_id,@chunk,@ts)`)
+    const insert = this.db.prepare(
+      `INSERT INTO transcripts (session_id,chunk,ts) VALUES (@session_id,@chunk,@ts)`
+    )
     // FTS external-content: mirror each inserted rowid into transcripts_fts so
     // search stays in sync inside the same transaction (C-9).
     const ftsInsert = this.db.prepare(`INSERT INTO transcripts_fts(rowid, chunk) VALUES (?, ?)`)
@@ -529,7 +577,10 @@ export class Store {
   }
 
   listBacklog(projectId: string): BacklogItem[] {
-    return this.db.prepare(`SELECT * FROM backlog_items WHERE projectId = ? ORDER BY createdAt`).all(projectId).map(Store.rowToBacklog)
+    return this.db
+      .prepare(`SELECT * FROM backlog_items WHERE projectId = ? ORDER BY createdAt`)
+      .all(projectId)
+      .map(Store.rowToBacklog)
   }
 
   /** Effective status for board placement/lifecycle (R34). */
@@ -546,23 +597,41 @@ export class Store {
       const parent = this.getBacklogItem(input.parentId)
       if (!parent) return { error: 'parent not found' }
       if (parent.projectId !== input.projectId) return { error: 'parent in a different project' }
-      if (!canNest(parent.kind, input.kind)) return { error: `a ${parent.kind} cannot contain a ${input.kind}` }
+      if (!canNest(parent.kind, input.kind))
+        return { error: `a ${parent.kind} cannot contain a ${input.kind}` }
     }
     const now = Date.now()
     const item: BacklogItem = {
-      id: 'bl-' + randomUUID(), projectId: input.projectId, kind: input.kind,
-      title: input.title.trim(), bodyMd: input.bodyMd ?? '',
-      manualStatus: input.manualStatus ?? 'planned', sessionState: 'none',
-      remoteStatus: null, source: 'manual', parentId: input.parentId ?? null,
-      linearId: null, linearUrl: null, contentHash: null, createdAt: now, updatedAt: now
+      id: 'bl-' + randomUUID(),
+      projectId: input.projectId,
+      kind: input.kind,
+      title: input.title.trim(),
+      bodyMd: input.bodyMd ?? '',
+      manualStatus: input.manualStatus ?? 'planned',
+      sessionState: 'none',
+      remoteStatus: null,
+      source: 'manual',
+      parentId: input.parentId ?? null,
+      linearId: null,
+      linearUrl: null,
+      contentHash: null,
+      createdAt: now,
+      updatedAt: now
     }
     this.db.transaction(() => {
-      this.db.prepare(
-        `INSERT INTO backlog_items (id,projectId,kind,title,bodyMd,manualStatus,sessionState,remoteStatus,source,parentId,linearId,linearUrl,contentHash,createdAt,updatedAt)
+      this.db
+        .prepare(
+          `INSERT INTO backlog_items (id,projectId,kind,title,bodyMd,manualStatus,sessionState,remoteStatus,source,parentId,linearId,linearUrl,contentHash,createdAt,updatedAt)
          VALUES (@id,@projectId,@kind,@title,@bodyMd,@manualStatus,@sessionState,@remoteStatus,@source,@parentId,@linearId,@linearUrl,@contentHash,@createdAt,@updatedAt)`
-      ).run(item)
-      const rowid = this.db.prepare(`SELECT rowid FROM backlog_items WHERE id=?`).pluck().get(item.id) as number
-      this.db.prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`).run(rowid, item.title, item.bodyMd)
+        )
+        .run(item)
+      const rowid = this.db
+        .prepare(`SELECT rowid FROM backlog_items WHERE id=?`)
+        .pluck()
+        .get(item.id) as number
+      this.db
+        .prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`)
+        .run(rowid, item.title, item.bodyMd)
     })()
     return { item }
   }
@@ -572,29 +641,41 @@ export class Store {
   updateBacklogItem(input: BacklogUpdateInput): { item?: BacklogItem; error?: string } {
     const existing = this.getBacklogItem(input.id)
     if (!existing) return { error: 'item not found' }
-    if (existing.source === 'linear' || existing.source === 'generated') return { error: `${existing.source} items are read-only` }
+    if (existing.source === 'linear' || existing.source === 'generated')
+      return { error: `${existing.source} items are read-only` }
     if (input.parentId !== undefined && input.parentId !== null) {
       const parent = this.getBacklogItem(input.parentId)
       if (!parent) return { error: 'parent not found' }
       if (parent.projectId !== existing.projectId) return { error: 'parent in a different project' }
       if (input.parentId === input.id) return { error: 'an item cannot be its own parent' }
       if (this.wouldCycle(input.id, input.parentId)) return { error: 'that parent would create a cycle' }
-      if (!canNest(parent.kind, existing.kind)) return { error: `a ${parent.kind} cannot contain a ${existing.kind}` }
+      if (!canNest(parent.kind, existing.kind))
+        return { error: `a ${parent.kind} cannot contain a ${existing.kind}` }
     }
     const next = {
       title: input.title ?? existing.title,
       bodyMd: input.bodyMd ?? existing.bodyMd,
       manualStatus: input.manualStatus ?? existing.manualStatus,
       parentId: input.parentId === undefined ? existing.parentId : input.parentId,
-      updatedAt: Date.now(), id: input.id
+      updatedAt: Date.now(),
+      id: input.id
     }
     this.db.transaction(() => {
-      this.db.prepare(
-        `UPDATE backlog_items SET title=@title, bodyMd=@bodyMd, manualStatus=@manualStatus, parentId=@parentId, updatedAt=@updatedAt WHERE id=@id`
-      ).run(next)
-      const rowid = this.db.prepare(`SELECT rowid FROM backlog_items WHERE id=?`).pluck().get(input.id) as number
-      this.db.prepare(`INSERT INTO backlog_fts(backlog_fts, rowid, title, bodyMd) VALUES('delete', ?, ?, ?)`).run(rowid, existing.title, existing.bodyMd)
-      this.db.prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`).run(rowid, next.title, next.bodyMd)
+      this.db
+        .prepare(
+          `UPDATE backlog_items SET title=@title, bodyMd=@bodyMd, manualStatus=@manualStatus, parentId=@parentId, updatedAt=@updatedAt WHERE id=@id`
+        )
+        .run(next)
+      const rowid = this.db
+        .prepare(`SELECT rowid FROM backlog_items WHERE id=?`)
+        .pluck()
+        .get(input.id) as number
+      this.db
+        .prepare(`INSERT INTO backlog_fts(backlog_fts, rowid, title, bodyMd) VALUES('delete', ?, ?, ?)`)
+        .run(rowid, existing.title, existing.bodyMd)
+      this.db
+        .prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`)
+        .run(rowid, next.title, next.bodyMd)
     })()
     return { item: this.getBacklogItem(input.id) }
   }
@@ -605,13 +686,19 @@ export class Store {
   deleteBacklogItem(id: string): { ok?: true; error?: string } {
     const existing = this.getBacklogItem(id)
     if (!existing) return { error: 'item not found' }
-    if (existing.source === 'linear' || existing.source === 'generated') return { error: `${existing.source} items are read-only` }
-    if (this.hasActiveBoundSession(id)) return { error: 'cannot delete: an active session is bound to this item' }
+    if (existing.source === 'linear' || existing.source === 'generated')
+      return { error: `${existing.source} items are read-only` }
+    if (this.hasActiveBoundSession(id))
+      return { error: 'cannot delete: an active session is bound to this item' }
     this.db.transaction(() => {
       const rowid = this.db.prepare(`SELECT rowid FROM backlog_items WHERE id=?`).pluck().get(id) as number
-      this.db.prepare(`UPDATE backlog_items SET parentId=? WHERE parentId=?`).run(existing.parentId ?? null, id)
+      this.db
+        .prepare(`UPDATE backlog_items SET parentId=? WHERE parentId=?`)
+        .run(existing.parentId ?? null, id)
       this.db.prepare(`DELETE FROM session_backlog WHERE itemId=?`).run(id)
-      this.db.prepare(`INSERT INTO backlog_fts(backlog_fts, rowid, title, bodyMd) VALUES('delete', ?, ?, ?)`).run(rowid, existing.title, existing.bodyMd)
+      this.db
+        .prepare(`INSERT INTO backlog_fts(backlog_fts, rowid, title, bodyMd) VALUES('delete', ?, ?, ?)`)
+        .run(rowid, existing.title, existing.bodyMd)
       this.db.prepare(`DELETE FROM backlog_items WHERE id=?`).run(id)
     })()
     return { ok: true }
@@ -624,15 +711,18 @@ export class Store {
       if (cur === id) return true
       if (seen.has(cur)) return true
       seen.add(cur)
-      cur = this.db.prepare(`SELECT parentId FROM backlog_items WHERE id=?`).pluck().get(cur) as string | null | undefined
+      cur = this.db.prepare(`SELECT parentId FROM backlog_items WHERE id=?`).pluck().get(cur) as
+        string | null | undefined
     }
     return false
   }
 
   private hasActiveBoundSession(itemId: string): boolean {
-    const rows = this.db.prepare(
-      `SELECT s.status FROM session_backlog sb JOIN sessions s ON s.id = sb.sessionId WHERE sb.itemId = ?`
-    ).all(itemId) as { status: SessionStatus }[]
+    const rows = this.db
+      .prepare(
+        `SELECT s.status FROM session_backlog sb JOIN sessions s ON s.id = sb.sessionId WHERE sb.itemId = ?`
+      )
+      .all(itemId) as { status: SessionStatus }[]
     return rows.some((r) => ACTIVE_STATUSES.has(r.status))
   }
 
@@ -640,58 +730,134 @@ export class Store {
 
   /** Insert/update a generated (ticket-mirror) backlog item. Whitelisted fields
    *  only; source is always 'generated'. */
-  upsertGeneratedBacklogItem(a: { blId: string; projectId: string; title: string; bodyMd: string; contentHash: string; createdAt: number }): void {
+  upsertGeneratedBacklogItem(a: {
+    blId: string
+    projectId: string
+    title: string
+    bodyMd: string
+    contentHash: string
+    createdAt: number
+  }): void {
     const now = Date.now()
     const existing = this.getBacklogItem(a.blId)
-    this.db.prepare(
-      `INSERT INTO backlog_items (id,projectId,kind,title,bodyMd,manualStatus,sessionState,remoteStatus,source,parentId,linearId,linearUrl,contentHash,createdAt,updatedAt)
+    this.db
+      .prepare(
+        `INSERT INTO backlog_items (id,projectId,kind,title,bodyMd,manualStatus,sessionState,remoteStatus,source,parentId,linearId,linearUrl,contentHash,createdAt,updatedAt)
        VALUES (@id,@projectId,'ticket',@title,@bodyMd,'done','none',NULL,'generated',NULL,NULL,NULL,@contentHash,@createdAt,@updatedAt)
        ON CONFLICT(id) DO UPDATE SET title=@title, bodyMd=@bodyMd, contentHash=@contentHash, updatedAt=@updatedAt`
-    ).run({ id: a.blId, projectId: a.projectId, title: a.title, bodyMd: a.bodyMd, contentHash: a.contentHash, createdAt: a.createdAt, updatedAt: now })
+      )
+      .run({
+        id: a.blId,
+        projectId: a.projectId,
+        title: a.title,
+        bodyMd: a.bodyMd,
+        contentHash: a.contentHash,
+        createdAt: a.createdAt,
+        updatedAt: now
+      })
     const rowid = this.db.prepare(`SELECT rowid FROM backlog_items WHERE id=?`).pluck().get(a.blId) as number
-    if (existing) this.db.prepare(`INSERT INTO backlog_fts(backlog_fts, rowid, title, bodyMd) VALUES('delete', ?, ?, ?)`).run(rowid, existing.title, existing.bodyMd)
-    this.db.prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`).run(rowid, a.title, a.bodyMd)
+    if (existing)
+      this.db
+        .prepare(`INSERT INTO backlog_fts(backlog_fts, rowid, title, bodyMd) VALUES('delete', ?, ?, ?)`)
+        .run(rowid, existing.title, existing.bodyMd)
+    this.db
+      .prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`)
+      .run(rowid, a.title, a.bodyMd)
   }
 
   /** Ingest an agent-created inbox item (S1): source='agent', whitelisted fields,
    *  dedupe by contentHash within the project (transactional, R21). Returns the
    *  created item or null if a duplicate hash already exists. */
-  ingestAgentBacklogItem(a: { projectId: string; kind: BacklogKind; title: string; bodyMd: string; parentId?: string | null; contentHash: string }): BacklogItem | null {
+  ingestAgentBacklogItem(a: {
+    projectId: string
+    kind: BacklogKind
+    title: string
+    bodyMd: string
+    parentId?: string | null
+    contentHash: string
+  }): BacklogItem | null {
     return this.db.transaction(() => {
-      const dup = this.db.prepare(`SELECT id FROM backlog_items WHERE projectId=? AND contentHash=?`).get(a.projectId, a.contentHash)
+      const dup = this.db
+        .prepare(`SELECT id FROM backlog_items WHERE projectId=? AND contentHash=?`)
+        .get(a.projectId, a.contentHash)
       if (dup) return null
       const now = Date.now()
       const id = 'bl-' + randomUUID()
-      this.db.prepare(
-        `INSERT INTO backlog_items (id,projectId,kind,title,bodyMd,manualStatus,sessionState,remoteStatus,source,parentId,linearId,linearUrl,contentHash,createdAt,updatedAt)
+      this.db
+        .prepare(
+          `INSERT INTO backlog_items (id,projectId,kind,title,bodyMd,manualStatus,sessionState,remoteStatus,source,parentId,linearId,linearUrl,contentHash,createdAt,updatedAt)
          VALUES (@id,@projectId,@kind,@title,@bodyMd,'planned','none',NULL,'agent',@parentId,NULL,NULL,@contentHash,@now,@now)`
-      ).run({ id, projectId: a.projectId, kind: a.kind, title: a.title, bodyMd: a.bodyMd, parentId: a.parentId ?? null, contentHash: a.contentHash, now })
+        )
+        .run({
+          id,
+          projectId: a.projectId,
+          kind: a.kind,
+          title: a.title,
+          bodyMd: a.bodyMd,
+          parentId: a.parentId ?? null,
+          contentHash: a.contentHash,
+          now
+        })
       const rowid = this.db.prepare(`SELECT rowid FROM backlog_items WHERE id=?`).pluck().get(id) as number
-      this.db.prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`).run(rowid, a.title, a.bodyMd)
+      this.db
+        .prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`)
+        .run(rowid, a.title, a.bodyMd)
       return this.getBacklogItem(id)!
     })()
   }
 
   /** Upsert a Linear-pulled item (S2): source='linear', keyed on (projectId,
    *  linearId); writes remoteStatus but NEVER the local manualStatus/sessionState. */
-  upsertLinearBacklogItem(a: { projectId: string; linearId: string; linearUrl: string; title: string; bodyMd: string; remoteStatus: string }): void {
-    const existing = this.db.prepare(`SELECT id, title, bodyMd FROM backlog_items WHERE projectId=? AND linearId=?`).get(a.projectId, a.linearId) as { id: string; title: string; bodyMd: string } | undefined
+  upsertLinearBacklogItem(a: {
+    projectId: string
+    linearId: string
+    linearUrl: string
+    title: string
+    bodyMd: string
+    remoteStatus: string
+  }): void {
+    const existing = this.db
+      .prepare(`SELECT id, title, bodyMd FROM backlog_items WHERE projectId=? AND linearId=?`)
+      .get(a.projectId, a.linearId) as { id: string; title: string; bodyMd: string } | undefined
     const now = Date.now()
     if (existing) {
-      this.db.prepare(`UPDATE backlog_items SET title=?, bodyMd=?, linearUrl=?, remoteStatus=?, updatedAt=? WHERE id=?`)
+      this.db
+        .prepare(
+          `UPDATE backlog_items SET title=?, bodyMd=?, linearUrl=?, remoteStatus=?, updatedAt=? WHERE id=?`
+        )
         .run(a.title, a.bodyMd, a.linearUrl, a.remoteStatus, now, existing.id)
-      const rowid = this.db.prepare(`SELECT rowid FROM backlog_items WHERE id=?`).pluck().get(existing.id) as number
-      this.db.prepare(`INSERT INTO backlog_fts(backlog_fts, rowid, title, bodyMd) VALUES('delete', ?, ?, ?)`).run(rowid, existing.title, existing.bodyMd)
-      this.db.prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`).run(rowid, a.title, a.bodyMd)
+      const rowid = this.db
+        .prepare(`SELECT rowid FROM backlog_items WHERE id=?`)
+        .pluck()
+        .get(existing.id) as number
+      this.db
+        .prepare(`INSERT INTO backlog_fts(backlog_fts, rowid, title, bodyMd) VALUES('delete', ?, ?, ?)`)
+        .run(rowid, existing.title, existing.bodyMd)
+      this.db
+        .prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`)
+        .run(rowid, a.title, a.bodyMd)
       return
     }
     const id = 'bl-' + randomUUID()
-    this.db.prepare(
-      `INSERT INTO backlog_items (id,projectId,kind,title,bodyMd,manualStatus,sessionState,remoteStatus,source,parentId,linearId,linearUrl,contentHash,createdAt,updatedAt)
+    this.db
+      .prepare(
+        `INSERT INTO backlog_items (id,projectId,kind,title,bodyMd,manualStatus,sessionState,remoteStatus,source,parentId,linearId,linearUrl,contentHash,createdAt,updatedAt)
        VALUES (@id,@projectId,'task',@title,@bodyMd,'planned','none',@remoteStatus,'linear',NULL,@linearId,@linearUrl,NULL,@now,@now)`
-    ).run({ id, projectId: a.projectId, title: a.title, bodyMd: a.bodyMd, remoteStatus: a.remoteStatus, linearId: a.linearId, linearUrl: a.linearUrl, now })
+      )
+      .run({
+        id,
+        projectId: a.projectId,
+        title: a.title,
+        bodyMd: a.bodyMd,
+        remoteStatus: a.remoteStatus,
+        linearId: a.linearId,
+        linearUrl: a.linearUrl,
+        now
+      })
     const rowid = this.db.prepare(`SELECT rowid FROM backlog_items WHERE id=?`).pluck().get(id) as number
-    this.db.prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`).run(rowid, a.title, a.bodyMd)
+    this.db
+      .prepare(`INSERT INTO backlog_fts(rowid, title, bodyMd) VALUES(?, ?, ?)`)
+      .run(rowid, a.title, a.bodyMd)
   }
 
   // --- session ↔ backlog binding + status recomputation (R9-3/R34) ---
@@ -699,7 +865,10 @@ export class Store {
   bindSessionBacklog(sessionId: string, itemIds: string[]): void {
     this.db.transaction(() => {
       const ins = this.db.prepare(`INSERT OR IGNORE INTO session_backlog (sessionId, itemId) VALUES (?, ?)`)
-      for (const itemId of itemIds) { ins.run(sessionId, itemId); this.recomputeItemStatus(itemId) }
+      for (const itemId of itemIds) {
+        ins.run(sessionId, itemId)
+        this.recomputeItemStatus(itemId)
+      }
     })()
   }
 
@@ -711,20 +880,27 @@ export class Store {
   }
 
   itemsForSession(sessionId: string): string[] {
-    return this.db.prepare(`SELECT itemId FROM session_backlog WHERE sessionId=?`).pluck().all(sessionId) as string[]
+    return this.db
+      .prepare(`SELECT itemId FROM session_backlog WHERE sessionId=?`)
+      .pluck()
+      .all(sessionId) as string[]
   }
 
   /** Recompute one item's sessionState from its bound sessions (R34):
    *  done-by-ticket if any bound session is ticketed; else in-session if any is
    *  active ({starting,running}); else none. */
   recomputeItemStatus(itemId: string): void {
-    const rows = this.db.prepare(
-      `SELECT s.status, s.taskStatus FROM session_backlog sb JOIN sessions s ON s.id=sb.sessionId WHERE sb.itemId=?`
-    ).all(itemId) as { status: SessionStatus; taskStatus: string | null }[]
+    const rows = this.db
+      .prepare(
+        `SELECT s.status, s.taskStatus FROM session_backlog sb JOIN sessions s ON s.id=sb.sessionId WHERE sb.itemId=?`
+      )
+      .all(itemId) as { status: SessionStatus; taskStatus: string | null }[]
     let next: BacklogItem['sessionState'] = 'none'
     if (rows.some((r) => r.taskStatus === 'ticketed')) next = 'done-by-ticket'
     else if (rows.some((r) => ACTIVE_STATUSES.has(r.status))) next = 'in-session'
-    this.db.prepare(`UPDATE backlog_items SET sessionState=?, updatedAt=? WHERE id=?`).run(next, Date.now(), itemId)
+    this.db
+      .prepare(`UPDATE backlog_items SET sessionState=?, updatedAt=? WHERE id=?`)
+      .run(next, Date.now(), itemId)
   }
 
   /** Recompute every item bound to a session (called on running-boundary crossings). */
@@ -739,7 +915,10 @@ export class Store {
   }
 
   listQueue(projectId: string): QueueItem[] {
-    return this.db.prepare(`SELECT * FROM session_queue WHERE projectId=? ORDER BY position, id`).all(projectId).map(Store.rowToQueue)
+    return this.db
+      .prepare(`SELECT * FROM session_queue WHERE projectId=? ORDER BY position, id`)
+      .all(projectId)
+      .map(Store.rowToQueue)
   }
 
   getQueueItem(id: string): QueueItem | undefined {
@@ -747,18 +926,54 @@ export class Store {
     return r ? Store.rowToQueue(r) : undefined
   }
 
-  enqueue(input: Omit<QueueItem, 'id' | 'position' | 'state' | 'attempts' | 'createdAt' | 'launchedSessionId' | 'lastError' | 'leaseToken' | 'ownerBootId' | 'claimedAt'>): QueueItem {
+  enqueue(
+    input: Omit<
+      QueueItem,
+      | 'id'
+      | 'position'
+      | 'state'
+      | 'attempts'
+      | 'createdAt'
+      | 'launchedSessionId'
+      | 'lastError'
+      | 'leaseToken'
+      | 'ownerBootId'
+      | 'claimedAt'
+    >
+  ): QueueItem {
     const now = Date.now()
-    const maxPos = (this.db.prepare(`SELECT COALESCE(MAX(position),-1) m FROM session_queue WHERE projectId=?`).get(input.projectId) as { m: number }).m
-    const item: QueueItem = { ...input, id: 'q-' + randomUUID(), position: maxPos + 1, state: 'pending', attempts: 0, createdAt: now }
-    this.db.prepare(
-      `INSERT INTO session_queue (id,projectId,objective,provider,model,useContainer,taskKind,taskSubkind,agentRelPath,backlogItemIds,position,state,attempts,createdAt)
+    const maxPos = (
+      this.db
+        .prepare(`SELECT COALESCE(MAX(position),-1) m FROM session_queue WHERE projectId=?`)
+        .get(input.projectId) as { m: number }
+    ).m
+    const item: QueueItem = {
+      ...input,
+      id: 'q-' + randomUUID(),
+      position: maxPos + 1,
+      state: 'pending',
+      attempts: 0,
+      createdAt: now
+    }
+    this.db
+      .prepare(
+        `INSERT INTO session_queue (id,projectId,objective,provider,model,useContainer,taskKind,taskSubkind,agentRelPath,backlogItemIds,position,state,attempts,createdAt)
        VALUES (@id,@projectId,@objective,@provider,@model,@uc,@taskKind,@taskSubkind,@agentRelPath,@backlogItemIds,@position,'pending',0,@createdAt)`
-    ).run({ ...item, uc: item.useContainer ? 1 : 0, taskKind: item.taskKind ?? null, taskSubkind: item.taskSubkind ?? null, agentRelPath: item.agentRelPath ?? null, backlogItemIds: JSON.stringify(item.backlogItemIds) })
+      )
+      .run({
+        ...item,
+        uc: item.useContainer ? 1 : 0,
+        taskKind: item.taskKind ?? null,
+        taskSubkind: item.taskSubkind ?? null,
+        agentRelPath: item.agentRelPath ?? null,
+        backlogItemIds: JSON.stringify(item.backlogItemIds)
+      })
     return item
   }
 
-  deleteQueueItem(id: string): void { this.db.prepare(`DELETE FROM session_queue WHERE id=?`).run(id) }
+  deleteQueueItem(id: string): void {
+    this.db.prepare(`DELETE FROM session_queue WHERE id=?`).run(id)
+  }
 
   reorderQueue(projectId: string, orderedIds: string[]): void {
     this.db.transaction(() => {
@@ -773,14 +988,23 @@ export class Store {
    *  row (with its lease) or null. */
   claimNextQueue(projectId: string, bootId: string): QueueItem | null {
     return this.db.transaction(() => {
-      const inflight = this.db.prepare(`SELECT 1 FROM session_queue WHERE projectId=? AND state='launching' LIMIT 1`).get(projectId)
+      const inflight = this.db
+        .prepare(`SELECT 1 FROM session_queue WHERE projectId=? AND state='launching' LIMIT 1`)
+        .get(projectId)
       if (inflight) return null
-      const next = this.db.prepare(`SELECT id FROM session_queue WHERE projectId=? AND state='pending' ORDER BY position, id LIMIT 1`).pluck().get(projectId) as string | undefined
+      const next = this.db
+        .prepare(
+          `SELECT id FROM session_queue WHERE projectId=? AND state='pending' ORDER BY position, id LIMIT 1`
+        )
+        .pluck()
+        .get(projectId) as string | undefined
       if (!next) return null
       const lease = randomUUID()
-      this.db.prepare(
-        `UPDATE session_queue SET state='launching', leaseToken=?, ownerBootId=?, claimedAt=?, attempts=attempts+1 WHERE id=? AND state='pending'`
-      ).run(lease, bootId, Date.now(), next)
+      this.db
+        .prepare(
+          `UPDATE session_queue SET state='launching', leaseToken=?, ownerBootId=?, claimedAt=?, attempts=attempts+1 WHERE id=? AND state='pending'`
+        )
+        .run(lease, bootId, Date.now(), next)
       return this.getQueueItem(next) ?? null
     })()
   }
@@ -789,33 +1013,51 @@ export class Store {
    *  'launched' queue row still bound to a non-archived session, and no
    *  'launching' row. Checked inside the caller's serialized gate section. */
   canAdvanceQueue(projectId: string): boolean {
-    const active = this.db.prepare(
-      `SELECT 1 FROM sessions WHERE projectId=? AND status IN ('starting','running') LIMIT 1`
-    ).get(projectId)
+    const active = this.db
+      .prepare(`SELECT 1 FROM sessions WHERE projectId=? AND status IN ('starting','running') LIMIT 1`)
+      .get(projectId)
     if (active) return false
-    const launching = this.db.prepare(`SELECT 1 FROM session_queue WHERE projectId=? AND state='launching' LIMIT 1`).get(projectId)
+    const launching = this.db
+      .prepare(`SELECT 1 FROM session_queue WHERE projectId=? AND state='launching' LIMIT 1`)
+      .get(projectId)
     if (launching) return false
-    const interrupted = this.db.prepare(
-      `SELECT 1 FROM session_queue q JOIN sessions s ON s.id=q.launchedSessionId
+    const interrupted = this.db
+      .prepare(
+        `SELECT 1 FROM session_queue q JOIN sessions s ON s.id=q.launchedSessionId
        WHERE q.projectId=? AND q.state='launched' AND s.status!='archived' LIMIT 1`
-    ).get(projectId)
+      )
+      .get(projectId)
     return !interrupted
   }
 
   /** Mark a claimed row launched, binding its session, CAS on the lease (R4-2/R9-2). */
   markQueueLaunched(id: string, leaseToken: string, sessionId: string): boolean {
-    return this.db.prepare(
-      `UPDATE session_queue SET state='launched', launchedSessionId=?, leaseToken=NULL WHERE id=? AND state='launching' AND leaseToken=?`
-    ).run(sessionId, id, leaseToken).changes === 1
+    return (
+      this.db
+        .prepare(
+          `UPDATE session_queue SET state='launched', launchedSessionId=?, leaseToken=NULL WHERE id=? AND state='launching' AND leaseToken=?`
+        )
+        .run(sessionId, id, leaseToken).changes === 1
+    )
   }
 
   markQueueFailed(id: string, leaseToken: string | null, error: string): void {
-    if (leaseToken) this.db.prepare(`UPDATE session_queue SET state='failed', lastError=?, leaseToken=NULL WHERE id=? AND leaseToken=?`).run(error, id, leaseToken)
-    else this.db.prepare(`UPDATE session_queue SET state='failed', lastError=?, leaseToken=NULL WHERE id=?`).run(error, id)
+    if (leaseToken)
+      this.db
+        .prepare(
+          `UPDATE session_queue SET state='failed', lastError=?, leaseToken=NULL WHERE id=? AND leaseToken=?`
+        )
+        .run(error, id, leaseToken)
+    else
+      this.db
+        .prepare(`UPDATE session_queue SET state='failed', lastError=?, leaseToken=NULL WHERE id=?`)
+        .run(error, id)
   }
 
   renewQueueLease(id: string, leaseToken: string): void {
-    this.db.prepare(`UPDATE session_queue SET claimedAt=? WHERE id=? AND leaseToken=?`).run(Date.now(), id, leaseToken)
+    this.db
+      .prepare(`UPDATE session_queue SET claimedAt=? WHERE id=? AND leaseToken=?`)
+      .run(Date.now(), id, leaseToken)
   }
 
   /** Boot reconciliation (R8/R12): 'launching' rows owned by a dead prior boot
@@ -824,10 +1066,24 @@ export class Store {
    *  session reconciliation, not here). */
   reconcileQueueOnBoot(currentBootId: string): void {
     this.db.transaction(() => {
-      const stale = this.db.prepare(`SELECT id, attempts FROM session_queue WHERE state='launching' AND (ownerBootId IS NULL OR ownerBootId != ?)`).all(currentBootId) as { id: string; attempts: number }[]
+      const stale = this.db
+        .prepare(
+          `SELECT id, attempts FROM session_queue WHERE state='launching' AND (ownerBootId IS NULL OR ownerBootId != ?)`
+        )
+        .all(currentBootId) as { id: string; attempts: number }[]
       for (const r of stale) {
-        if (r.attempts < 2) this.db.prepare(`UPDATE session_queue SET state='pending', leaseToken=NULL, ownerBootId=NULL, claimedAt=NULL WHERE id=?`).run(r.id)
-        else this.db.prepare(`UPDATE session_queue SET state='failed', lastError='owner died', leaseToken=NULL WHERE id=?`).run(r.id)
+        if (r.attempts < 2)
+          this.db
+            .prepare(
+              `UPDATE session_queue SET state='pending', leaseToken=NULL, ownerBootId=NULL, claimedAt=NULL WHERE id=?`
+            )
+            .run(r.id)
+        else
+          this.db
+            .prepare(
+              `UPDATE session_queue SET state='failed', lastError='owner died', leaseToken=NULL WHERE id=?`
+            )
+            .run(r.id)
       }
     })()
   }
@@ -836,8 +1092,16 @@ export class Store {
    *  bound are failed, fencing any hung async continuation. */
   failStaleClaims(currentBootId: string, olderThanMs: number): string[] {
     const cutoff = Date.now() - olderThanMs
-    const stale = this.db.prepare(`SELECT id FROM session_queue WHERE state='launching' AND ownerBootId=? AND claimedAt < ?`).pluck().all(currentBootId, cutoff) as string[]
-    for (const id of stale) this.db.prepare(`UPDATE session_queue SET state='failed', lastError='launch timed out', leaseToken=NULL WHERE id=?`).run(id)
+    const stale = this.db
+      .prepare(`SELECT id FROM session_queue WHERE state='launching' AND ownerBootId=? AND claimedAt < ?`)
+      .pluck()
+      .all(currentBootId, cutoff) as string[]
+    for (const id of stale)
+      this.db
+        .prepare(
+          `UPDATE session_queue SET state='failed', lastError='launch timed out', leaseToken=NULL WHERE id=?`
+        )
+        .run(id)
     return stale
   }
 
@@ -846,25 +1110,35 @@ export class Store {
   /** Write-ahead a review insertion BEFORE the pty write. Complete normalized
    *  payload, no size cap. If this throws, the caller must refuse the insertion. */
   logReviewInsertion(sessionId: string, normalizedText: string): void {
-    this.db.prepare(`INSERT INTO session_review_log (id, sessionId, insertedAt, contentHash, normalizedText) VALUES (?, ?, ?, ?, ?)`)
+    this.db
+      .prepare(
+        `INSERT INTO session_review_log (id, sessionId, insertedAt, contentHash, normalizedText) VALUES (?, ?, ?, ?, ?)`
+      )
       .run('rev-' + randomUUID(), sessionId, Date.now(), sha256(normalizedText), normalizedText)
   }
 
   reviewPayloadsForSession(sessionId: string): string[] {
-    return this.db.prepare(`SELECT normalizedText FROM session_review_log WHERE sessionId=? ORDER BY insertedAt`).pluck().all(sessionId) as string[]
+    return this.db
+      .prepare(`SELECT normalizedText FROM session_review_log WHERE sessionId=? ORDER BY insertedAt`)
+      .pluck()
+      .all(sessionId) as string[]
   }
 
   // ===================== v2 Snapshots (schema frozen) ======================
 
   saveSnapshot(s: Snapshot): void {
-    this.db.prepare(
-      `INSERT INTO snapshots (id,projectId,sessionId,kind,indexTreeSha,workTreeSha,commitSha,createdAt)
+    this.db
+      .prepare(
+        `INSERT INTO snapshots (id,projectId,sessionId,kind,indexTreeSha,workTreeSha,commitSha,createdAt)
        VALUES (@id,@projectId,@sessionId,@kind,@indexTreeSha,@workTreeSha,@commitSha,@createdAt)`
-    ).run({ ...s, sessionId: s.sessionId ?? null })
+      )
+      .run({ ...s, sessionId: s.sessionId ?? null })
   }
 
   listSnapshots(projectId: string): Snapshot[] {
-    return this.db.prepare(`SELECT * FROM snapshots WHERE projectId=? ORDER BY createdAt DESC`).all(projectId) as Snapshot[]
+    return this.db
+      .prepare(`SELECT * FROM snapshots WHERE projectId=? ORDER BY createdAt DESC`)
+      .all(projectId) as Snapshot[]
   }
 
   // ===================== v2 Search (FTS, C-9/C-10) =========================
@@ -876,22 +1150,54 @@ export class Store {
     const q = ftsQuery(query)
     const hits: SearchHit[] = []
     try {
-      const tr = this.db.prepare(
-        `SELECT t.session_id AS sessionId, t.ts AS ts, snippet(transcripts_fts, 0, '[', ']', '…', 10) AS snippet, s.projectId AS projectId
+      const tr = this.db
+        .prepare(
+          `SELECT t.session_id AS sessionId, t.ts AS ts, snippet(transcripts_fts, 0, '[', ']', '…', 10) AS snippet, s.projectId AS projectId
          FROM transcripts_fts f JOIN transcripts t ON t.rowid = f.rowid JOIN sessions s ON s.id = t.session_id
          WHERE transcripts_fts MATCH ? ORDER BY bm25(transcripts_fts), t.rowid DESC LIMIT ?`
-      ).all(q, limit) as { sessionId: string; ts: number; snippet: string; projectId: string }[]
-      for (const r of tr) hits.push({ type: 'transcript', sessionId: r.sessionId, projectId: r.projectId, snippet: r.snippet, ts: r.ts })
-    } catch { /* malformed FTS — return what we have */ }
+        )
+        .all(q, limit) as { sessionId: string; ts: number; snippet: string; projectId: string }[]
+      for (const r of tr)
+        hits.push({
+          type: 'transcript',
+          sessionId: r.sessionId,
+          projectId: r.projectId,
+          snippet: r.snippet,
+          ts: r.ts
+        })
+    } catch {
+      /* malformed FTS — return what we have */
+    }
     try {
-      const bl = this.db.prepare(
-        `SELECT b.id AS itemId, b.projectId AS projectId, b.title AS title, b.kind AS kind, b.manualStatus AS manualStatus, b.sessionState AS sessionState,
+      const bl = this.db
+        .prepare(
+          `SELECT b.id AS itemId, b.projectId AS projectId, b.title AS title, b.kind AS kind, b.manualStatus AS manualStatus, b.sessionState AS sessionState,
                 snippet(backlog_fts, 1, '[', ']', '…', 10) AS snippet
          FROM backlog_fts f JOIN backlog_items b ON b.rowid = f.rowid
          WHERE backlog_fts MATCH ? ORDER BY bm25(backlog_fts), b.rowid DESC LIMIT ?`
-      ).all(q, limit) as { itemId: string; projectId: string; title: string; kind: BacklogKind; manualStatus: BacklogManualStatus; sessionState: any; snippet: string }[]
-      for (const r of bl) hits.push({ type: 'backlog', itemId: r.itemId, projectId: r.projectId, title: r.title, snippet: r.snippet, kind: r.kind, status: effectiveStatus({ manualStatus: r.manualStatus, sessionState: r.sessionState }) })
-    } catch { /* malformed FTS */ }
+        )
+        .all(q, limit) as {
+        itemId: string
+        projectId: string
+        title: string
+        kind: BacklogKind
+        manualStatus: BacklogManualStatus
+        sessionState: any
+        snippet: string
+      }[]
+      for (const r of bl)
+        hits.push({
+          type: 'backlog',
+          itemId: r.itemId,
+          projectId: r.projectId,
+          title: r.title,
+          snippet: r.snippet,
+          kind: r.kind,
+          status: effectiveStatus({ manualStatus: r.manualStatus, sessionState: r.sessionState })
+        })
+    } catch {
+      /* malformed FTS */
+    }
     return hits
   }
 }

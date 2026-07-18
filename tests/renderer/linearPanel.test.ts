@@ -1,15 +1,33 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
-import { LinearPanel, type LinearPanelProps, type WritebackPreview } from '../../src/renderer/components/LinearPanel'
+import {
+  LinearPanel,
+  type LinearPanelProps,
+  type WritebackPreview
+} from '../../src/renderer/components/LinearPanel'
 
 function mount(overrides: Partial<LinearPanelProps> = {}): { root: HTMLElement; props: LinearPanelProps } {
   const props: LinearPanelProps = {
-    status: { connected: true, account: 'acct-1', link: { accountId: 'acct-1', workspaceId: 'ws', teamId: null, projectId: null, label: 'Team X' } },
+    status: {
+      connected: true,
+      account: 'acct-1',
+      link: { accountId: 'acct-1', workspaceId: 'ws', teamId: null, projectId: null, label: 'Team X' }
+    },
     rows: [{ id: 'bl-1', title: 'Fix the widget', remoteStatus: 'Todo', linearUrl: 'https://linear.app/x' }],
     onLink: vi.fn(),
     onPull: vi.fn(),
     onLogout: vi.fn(),
-    onPreview: vi.fn(async () => ({ itemId: 'bl-1', identifier: 'ENG-1', title: 'Fix the widget', action: 'done', target: 'Done', alreadySatisfied: false } as WritebackPreview)),
+    onPreview: vi.fn(
+      async () =>
+        ({
+          itemId: 'bl-1',
+          identifier: 'ENG-1',
+          title: 'Fix the widget',
+          action: 'done',
+          target: 'Done',
+          alreadySatisfied: false
+        }) as WritebackPreview
+    ),
     onApply: vi.fn(async () => ({ ok: true, outcome: 'applied' })),
     onCancel: vi.fn(),
     ...overrides
@@ -21,7 +39,9 @@ function mount(overrides: Partial<LinearPanelProps> = {}): { root: HTMLElement; 
 
 describe('LinearPanel', () => {
   it('renders rows and uses textContent (no innerHTML injection)', () => {
-    const { root } = mount({ rows: [{ id: 'bl-1', title: '<img src=x onerror=alert(1)>', remoteStatus: 'Todo' }] })
+    const { root } = mount({
+      rows: [{ id: 'bl-1', title: '<img src=x onerror=alert(1)>', remoteStatus: 'Todo' }]
+    })
     const rowTitle = root.querySelector('.linear-row b')!
     // The malicious string is rendered as TEXT, never parsed into an element.
     expect(rowTitle.textContent).toBe('<img src=x onerror=alert(1)>')
@@ -47,7 +67,8 @@ describe('LinearPanel', () => {
     const { root, props } = mount()
     ;(root.querySelector('.wb-done') as HTMLButtonElement).click()
     // preview resolves async → wait a microtask
-    await Promise.resolve(); await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
     const preview = document.querySelector('.linear-preview')
     expect(preview).toBeTruthy()
     expect(preview!.textContent).toContain('Done')
@@ -56,16 +77,28 @@ describe('LinearPanel', () => {
     expect(props.onApply).not.toHaveBeenCalled()
     // confirm applies
     ;(document.querySelector('.linear-apply') as HTMLButtonElement).click()
-    await Promise.resolve(); await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
     expect(props.onApply).toHaveBeenCalledWith('bl-1', { kind: 'done' })
   })
 
   it('preview flags an already-satisfied change as a no-op', async () => {
     const { root } = mount({
-      onPreview: vi.fn(async () => ({ itemId: 'bl-1', identifier: 'ENG-1', title: 'Fix the widget', action: 'done', target: 'Done', alreadySatisfied: true } as WritebackPreview))
+      onPreview: vi.fn(
+        async () =>
+          ({
+            itemId: 'bl-1',
+            identifier: 'ENG-1',
+            title: 'Fix the widget',
+            action: 'done',
+            target: 'Done',
+            alreadySatisfied: true
+          }) as WritebackPreview
+      )
     })
     ;(root.querySelector('.wb-done') as HTMLButtonElement).click()
-    await Promise.resolve(); await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
     expect(document.querySelector('.linear-preview-noop')).toBeTruthy()
   })
 })

@@ -7,7 +7,9 @@ import { randomUUID } from 'node:crypto'
 // auto-submitted. It is held here per session and inserted only on explicit user
 // action, wrapped in review sentinels + logged write-ahead so it can never be
 // auto-resubmitted from history. Ephemeral across restarts (documented, R8).
-interface Pending { sections: { label: string; text: string }[] }
+interface Pending {
+  sections: { label: string; text: string }[]
+}
 const pendingBySession = new Map<string, Pending>()
 
 /** Queue review text for a session (called by S2/S6 when producing review-trust
@@ -37,7 +39,11 @@ export function registerReviewIpc({ store, runtime, send }: IpcDeps): void {
     const body = p.sections.map((s) => s.text).join('\n\n')
     // WRITE-AHEAD the review insertion BEFORE any pty write (R23): if logging
     // throws, refuse the insertion so it can never enter trusted history unlogged.
-    try { store.logReviewInsertion(sessionId, body) } catch (err) { return { error: 'could not record review: ' + (err as Error).message } }
+    try {
+      store.logReviewInsertion(sessionId, body)
+    } catch (err) {
+      return { error: 'could not record review: ' + (err as Error).message }
+    }
     const id = randomUUID()
     // bracketed paste, NO trailing newline, wrapped in sentinels
     const payload = `\x1b[200~${reviewOpen(id)}${body}${reviewClose(id)}\x1b[201~`

@@ -5,8 +5,15 @@ import type { Session } from '@shared/types'
 function baseSession(over: Partial<Session>): Session {
   const now = Date.now()
   return {
-    id: 's1', projectId: 'p1', provider: 'claude', model: 'claude-opus-4-8',
-    objective: 'o', status: 'running', createdAt: now, updatedAt: now, ...over
+    id: 's1',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'claude-opus-4-8',
+    objective: 'o',
+    status: 'running',
+    createdAt: now,
+    updatedAt: now,
+    ...over
   }
 }
 
@@ -33,7 +40,9 @@ describe('backlog store — pure helpers', () => {
 
 describe('backlog CRUD + source authority (R17)', () => {
   let store: Store
-  beforeEach(() => { store = new Store(':memory:') })
+  beforeEach(() => {
+    store = new Store(':memory:')
+  })
 
   it('creates a manual item and forces source=manual', () => {
     const { item } = store.createBacklogItem({ projectId: 'p1', kind: 'epic', title: 'Epic A' })
@@ -44,25 +53,54 @@ describe('backlog CRUD + source authority (R17)', () => {
 
   it('rejects invalid hierarchy on create', () => {
     const epic = store.createBacklogItem({ projectId: 'p1', kind: 'epic', title: 'E' }).item!
-    const task = store.createBacklogItem({ projectId: 'p1', kind: 'task', title: 'T', parentId: epic.id }).item!
+    const task = store.createBacklogItem({
+      projectId: 'p1',
+      kind: 'task',
+      title: 'T',
+      parentId: epic.id
+    }).item!
     const bad = store.createBacklogItem({ projectId: 'p1', kind: 'goal', title: 'G', parentId: task.id })
     expect(bad.error).toMatch(/cannot contain/)
   })
 
   it('refuses editing/deleting linear and generated rows through generic CRUD', () => {
-    store.upsertLinearBacklogItem({ projectId: 'p1', linearId: 'LIN-1', linearUrl: 'http://x', title: 'L', bodyMd: '', remoteStatus: 'In Progress' })
+    store.upsertLinearBacklogItem({
+      projectId: 'p1',
+      linearId: 'LIN-1',
+      linearUrl: 'http://x',
+      title: 'L',
+      bodyMd: '',
+      remoteStatus: 'In Progress'
+    })
     const lin = store.listBacklog('p1').find((i) => i.source === 'linear')!
     expect(store.updateBacklogItem({ id: lin.id, title: 'hacked' }).error).toMatch(/read-only/)
     expect(store.deleteBacklogItem(lin.id).error).toMatch(/read-only/)
 
-    store.upsertGeneratedBacklogItem({ blId: 'bl-t1', projectId: 'p1', title: 'Gen', bodyMd: 'x', contentHash: 'h', createdAt: 1 })
+    store.upsertGeneratedBacklogItem({
+      blId: 'bl-t1',
+      projectId: 'p1',
+      title: 'Gen',
+      bodyMd: 'x',
+      contentHash: 'h',
+      createdAt: 1
+    })
     expect(store.updateBacklogItem({ id: 'bl-t1', title: 'hacked' }).error).toMatch(/read-only/)
   })
 
   it('delete re-parents children and is refused while an active session is bound', () => {
     const epic = store.createBacklogItem({ projectId: 'p1', kind: 'epic', title: 'E' }).item!
-    const goal = store.createBacklogItem({ projectId: 'p1', kind: 'goal', title: 'G', parentId: epic.id }).item!
-    const task = store.createBacklogItem({ projectId: 'p1', kind: 'task', title: 'T', parentId: goal.id }).item!
+    const goal = store.createBacklogItem({
+      projectId: 'p1',
+      kind: 'goal',
+      title: 'G',
+      parentId: epic.id
+    }).item!
+    const task = store.createBacklogItem({
+      projectId: 'p1',
+      kind: 'task',
+      title: 'T',
+      parentId: goal.id
+    }).item!
     // active session bound to goal → delete refused
     store.saveSession(baseSession({ id: 'sx', status: 'running' }))
     store.bindSessionBacklog('sx', [goal.id])
@@ -84,7 +122,9 @@ describe('backlog CRUD + source authority (R17)', () => {
 
 describe('recomputeItemStatus (R34)', () => {
   let store: Store
-  beforeEach(() => { store = new Store(':memory:') })
+  beforeEach(() => {
+    store = new Store(':memory:')
+  })
 
   it('moves through none → in-session → done-by-ticket → back to none', () => {
     const item = store.createBacklogItem({ projectId: 'p1', kind: 'task', title: 'T' }).item!
@@ -111,7 +151,16 @@ describe('tickets → backlog migration (C-7) + finalizeTicket', () => {
   it('migrates existing tickets and finalizeTicket upserts the mirror row', () => {
     const s = new Store(':memory:')
     s.saveSession(baseSession({ id: 's1', taskKind: 'product', taskSubkind: 'bug', taskStatus: 'deployed' }))
-    s.saveTicket({ id: 'ticket-s1', sessionId: 's1', projectId: 'p1', subkind: 'bug', title: 'Fix', bodyMd: '# Fix', fieldsJson: '{}', createdAt: 1 })
+    s.saveTicket({
+      id: 'ticket-s1',
+      sessionId: 's1',
+      projectId: 'p1',
+      subkind: 'bug',
+      title: 'Fix',
+      bodyMd: '# Fix',
+      fieldsJson: '{}',
+      createdAt: 1
+    })
     // simulate an upgrade: re-run the migration (idempotent)
     s.migrateTicketsToBacklog()
     const gen = s.listBacklog('p1').filter((i) => i.source === 'generated')
@@ -119,8 +168,19 @@ describe('tickets → backlog migration (C-7) + finalizeTicket', () => {
     expect(gen[0].id).toBe('bl-ticket-s1')
 
     // finalizeTicket also advances the session + binds recompute
-    s.bindSessionBacklog('s1', [s.createBacklogItem({ projectId: 'p1', kind: 'task', title: 'work' }).item!.id])
-    s.finalizeTicket({ id: 'ticket-s1', sessionId: 's1', projectId: 'p1', subkind: 'bug', title: 'Fix2', bodyMd: '# Fix2', fieldsJson: '{}', createdAt: 2 })
+    s.bindSessionBacklog('s1', [
+      s.createBacklogItem({ projectId: 'p1', kind: 'task', title: 'work' }).item!.id
+    ])
+    s.finalizeTicket({
+      id: 'ticket-s1',
+      sessionId: 's1',
+      projectId: 'p1',
+      subkind: 'bug',
+      title: 'Fix2',
+      bodyMd: '# Fix2',
+      fieldsJson: '{}',
+      createdAt: 2
+    })
     expect(s.getSession('s1')!.taskStatus).toBe('ticketed')
     const bound = s.itemsForSession('s1').map((id) => s.getBacklogItem(id)!)
     expect(bound.some((i) => i.sessionState === 'done-by-ticket')).toBe(true)
@@ -129,13 +189,20 @@ describe('tickets → backlog migration (C-7) + finalizeTicket', () => {
 
 describe('FTS search (C-9/C-10)', () => {
   let store: Store
-  beforeEach(() => { store = new Store(':memory:') })
+  beforeEach(() => {
+    store = new Store(':memory:')
+  })
 
   it('finds transcript and backlog hits and never errors on FTS syntax chars', () => {
     store.saveSession(baseSession({ id: 's1' }))
     store.appendTranscript('s1', 'the WIDGET race condition happened', 1)
     store.flush()
-    store.createBacklogItem({ projectId: 'p1', kind: 'task', title: 'Fix the widget', bodyMd: 'about widgets' })
+    store.createBacklogItem({
+      projectId: 'p1',
+      kind: 'task',
+      title: 'Fix the widget',
+      bodyMd: 'about widgets'
+    })
 
     const hits = store.search('widget')
     expect(hits.some((h) => h.type === 'transcript' && h.sessionId === 's1')).toBe(true)
@@ -160,9 +227,21 @@ describe('FTS search (C-9/C-10)', () => {
 describe('agent inbox ingestion dedupe (R21)', () => {
   it('ingests once per contentHash', () => {
     const s = new Store(':memory:')
-    const a = s.ingestAgentBacklogItem({ projectId: 'p1', kind: 'goal', title: 'G', bodyMd: 'body', contentHash: 'h1' })
+    const a = s.ingestAgentBacklogItem({
+      projectId: 'p1',
+      kind: 'goal',
+      title: 'G',
+      bodyMd: 'body',
+      contentHash: 'h1'
+    })
     expect(a).not.toBeNull()
-    const dup = s.ingestAgentBacklogItem({ projectId: 'p1', kind: 'goal', title: 'G', bodyMd: 'body', contentHash: 'h1' })
+    const dup = s.ingestAgentBacklogItem({
+      projectId: 'p1',
+      kind: 'goal',
+      title: 'G',
+      bodyMd: 'body',
+      contentHash: 'h1'
+    })
     expect(dup).toBeNull()
     expect(s.listBacklog('p1')).toHaveLength(1)
   })

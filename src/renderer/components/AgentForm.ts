@@ -8,7 +8,10 @@ export interface AgentFormProps {
 
 /** Live preview of the filename slug (mirrors main's agentSlug). */
 export function previewSlug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-+|-+$)/g, '')
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-+|-+$)/g, '')
 }
 
 /** Modal form for creating a library agent: name + description (frontmatter)
@@ -17,7 +20,9 @@ export function previewSlug(name: string): string {
 export function AgentForm(p: AgentFormProps): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'modal-wrap show'
-  wrap.onclick = (e) => { if (e.target === wrap) p.onCancel() }
+  wrap.onclick = (e) => {
+    if (e.target === wrap) p.onCancel()
+  }
 
   const modal = document.createElement('div')
   modal.className = 'modal agent-form'
@@ -28,7 +33,8 @@ export function AgentForm(p: AgentFormProps): HTMLElement {
 
   const sub = document.createElement('div')
   sub.className = 'sub'
-  sub.textContent = 'One file, three layers: instructions, data, and context. Saved to the library as agents/<name>.md.'
+  sub.textContent =
+    'One file, three layers: instructions, data, and context. Saved to the library as agents/<name>.md.'
   modal.appendChild(sub)
 
   const field = (label: string, el: HTMLInputElement | HTMLTextAreaElement): HTMLElement => {

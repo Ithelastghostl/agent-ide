@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir, platform } from 'node:os'
 import { join } from 'node:path'
-import { LinearTokenStore, LinearLinkStore, accountFileStem, authRoot, type AccountRecord } from '../../src/main/linear/tokenStore'
+import {
+  LinearTokenStore,
+  LinearLinkStore,
+  accountFileStem,
+  authRoot,
+  type AccountRecord
+} from '../../src/main/linear/tokenStore'
 import { LinearTokenManager, applyToken } from '../../src/main/linear/tokenManager'
 import type { AuthServerMetadata } from '../../src/main/linear/oauth'
 
@@ -15,15 +21,27 @@ const META: AuthServerMetadata = {
 
 function rec(id = 'acct-1'): AccountRecord {
   return {
-    accountId: id, workspaceId: 'ws-1', meta: META,
-    client: { client_id: 'cid' }, accessToken: 'at', refreshToken: 'rt',
-    resource: 'https://mcp.linear.app/mcp', createdAt: Date.now(), updatedAt: Date.now()
+    accountId: id,
+    workspaceId: 'ws-1',
+    meta: META,
+    client: { client_id: 'cid' },
+    accessToken: 'at',
+    refreshToken: 'rt',
+    resource: 'https://mcp.linear.app/mcp',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   }
 }
 
 let dir: string
-beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'agide-linear-')); process.env.AGENT_IDE_LINEAR_AUTH = dir })
-afterEach(() => { delete process.env.AGENT_IDE_LINEAR_AUTH; rmSync(dir, { recursive: true, force: true }) })
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'agide-linear-'))
+  process.env.AGENT_IDE_LINEAR_AUTH = dir
+})
+afterEach(() => {
+  delete process.env.AGENT_IDE_LINEAR_AUTH
+  rmSync(dir, { recursive: true, force: true })
+})
 
 describe('LinearTokenStore', () => {
   it('filename is sha256(accountId) — no raw id on disk', () => {
@@ -71,8 +89,14 @@ describe('LinearTokenStore', () => {
 
   it('list() enumerates connected accounts', () => {
     const store = new LinearTokenStore()
-    store.save(rec('a')); store.save(rec('b'))
-    expect(store.list().map((r) => r.accountId).sort()).toEqual(['a', 'b'])
+    store.save(rec('a'))
+    store.save(rec('b'))
+    expect(
+      store
+        .list()
+        .map((r) => r.accountId)
+        .sort()
+    ).toEqual(['a', 'b'])
   })
 })
 
@@ -103,11 +127,20 @@ describe('LinearTokenManager', () => {
       expect(String(init?.body)).toContain('grant_type=refresh_token')
       // simulate latency so concurrent callers overlap
       await new Promise((r) => setTimeout(r, 10))
-      return jsonResponse({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 3600, token_type: 'Bearer' })
+      return jsonResponse({
+        access_token: 'AT2',
+        refresh_token: 'RT2',
+        expires_in: 3600,
+        token_type: 'Bearer'
+      })
     }) as unknown as typeof fetch
     const mgr = new LinearTokenManager({ store, fetch: fakeFetch })
 
-    const [a, b, c] = await Promise.all([mgr.accessToken('acct-1'), mgr.accessToken('acct-1'), mgr.accessToken('acct-1')])
+    const [a, b, c] = await Promise.all([
+      mgr.accessToken('acct-1'),
+      mgr.accessToken('acct-1'),
+      mgr.accessToken('acct-1')
+    ])
     expect([a, b, c]).toEqual(['AT2', 'AT2', 'AT2'])
     expect(calls).toBe(1) // single refresh despite three concurrent callers
     // rotation persisted
@@ -119,7 +152,10 @@ describe('LinearTokenManager', () => {
     const store = new LinearTokenStore()
     store.save(rec())
     const revoked: string[] = []
-    const fakeFetch = (async (url: string) => { revoked.push(url); return jsonResponse({}) }) as unknown as typeof fetch
+    const fakeFetch = (async (url: string) => {
+      revoked.push(url)
+      return jsonResponse({})
+    }) as unknown as typeof fetch
     const mgr = new LinearTokenManager({ store, fetch: fakeFetch })
     const r = await mgr.logout('acct-1')
     expect('ok' in r && r.ok).toBe(true)

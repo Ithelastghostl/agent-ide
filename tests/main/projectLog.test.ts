@@ -3,7 +3,15 @@ import { mkdtempSync, realpathSync, rmSync, existsSync, readFileSync, symlinkSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../../src/main/store'
-import { writeRawLog, rawLogFrontmatter, projectRawLogDir, writeTicketFile, slugify, dateStamp, projectTicketsDir } from '../../src/main/projectLog'
+import {
+  writeRawLog,
+  rawLogFrontmatter,
+  projectRawLogDir,
+  writeTicketFile,
+  slugify,
+  dateStamp,
+  projectTicketsDir
+} from '../../src/main/projectLog'
 import type { Session } from '@shared/types'
 
 // M-LOG-a §4.3: a PRODUCT chat marked finished writes an ANSI-stripped raw log
@@ -12,9 +20,17 @@ describe('projectLog raw export (M-LOG-a §4.3)', () => {
   let root: string
   let store: Store
   const product: Session = {
-    id: 'sess-1-99', projectId: 'proj-abc', provider: 'claude', model: 'claude-opus-4-8',
-    objective: 'fix the thing', status: 'running', createdAt: 100, updatedAt: 200,
-    taskKind: 'product', taskSubkind: 'bug', taskStatus: 'finished'
+    id: 'sess-1-99',
+    projectId: 'proj-abc',
+    provider: 'claude',
+    model: 'claude-opus-4-8',
+    objective: 'fix the thing',
+    status: 'running',
+    createdAt: 100,
+    updatedAt: 200,
+    taskKind: 'product',
+    taskSubkind: 'bug',
+    taskStatus: 'finished'
   }
 
   beforeEach(() => {
@@ -36,8 +52,8 @@ describe('projectLog raw export (M-LOG-a §4.3)', () => {
     expect(text).toContain('task_subkind: bug')
     expect(text).toContain('provider: claude')
     expect(text).toContain('finished_at: 12345')
-    expect(text).toContain('hello world')      // ANSI stripped
-    expect(text).not.toContain('\x1b[32m')       // no raw escape codes
+    expect(text).toContain('hello world') // ANSI stripped
+    expect(text).not.toContain('\x1b[32m') // no raw escape codes
   })
 
   it('front-matter carries the label, provider/model, and dates', () => {
@@ -71,8 +87,14 @@ describe('projectLog raw export (M-LOG-a §4.3)', () => {
 // M-LOG-b (§4.3): tickets are written to log/tickets/<date>-<slug>.md.
 describe('ticket file writing (M-LOG-b)', () => {
   let root: string
-  beforeEach(() => { root = realpathSync(mkdtempSync(join(tmpdir(), 'agide-tkt-'))); process.env.AGENT_IDE_PROJECTS = root })
-  afterEach(() => { delete process.env.AGENT_IDE_PROJECTS; rmSync(root, { recursive: true, force: true }) })
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'agide-tkt-')))
+    process.env.AGENT_IDE_PROJECTS = root
+  })
+  afterEach(() => {
+    delete process.env.AGENT_IDE_PROJECTS
+    rmSync(root, { recursive: true, force: true })
+  })
 
   it('slugify makes a safe filename slug', () => {
     expect(slugify('Fix the Widget Race!')).toBe('fix-the-widget-race')
@@ -107,7 +129,7 @@ describe('ticket file writing (M-LOG-b)', () => {
     symlinkSync(outsideTarget, join(dir, 'ticket-evil.md')) // plant the trap
 
     const p = writeTicketFile('proj-evil', 'evil', '# pwned')
-    expect(p).toBeNull()                 // refused
+    expect(p).toBeNull() // refused
     expect(existsSync(outsideTarget)).toBe(false) // nothing written outside
   })
 })

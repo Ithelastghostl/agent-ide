@@ -22,7 +22,9 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
 
   // Open a URL in the host browser via main. Pass sessionId so main can forward
   // a container localhost port out to the host first (OAuth callbacks, dev servers).
-  const open = (uri: string) => { void window.agentIDE.openExternal(uri, sessionId) }
+  const open = (uri: string) => {
+    void window.agentIDE.openExternal(uri, sessionId)
+  }
 
   const term = new Terminal({
     fontSize: 12,
@@ -36,7 +38,10 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
     // main window's setWindowOpenHandler, so nothing opened. Setting linkHandler
     // overrides that default so OSC-8 links route through our host-browser IPC too.
     linkHandler: {
-      activate: (e, uri) => { e.preventDefault(); open(uri) },
+      activate: (e, uri) => {
+        e.preventDefault()
+        open(uri)
+      },
       allowNonHttpProtocols: false
     },
     theme: {
@@ -56,7 +61,10 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
   term.registerLinkProvider({
     provideLinks(lineNumber, callback) {
       const line = term.buffer.active.getLine(lineNumber - 1)
-      if (!line) { callback(undefined); return }
+      if (!line) {
+        callback(undefined)
+        return
+      }
       const text = line.translateToString(true)
       const links: ILink[] = []
       for (const m of text.matchAll(URL_RE)) {
@@ -66,7 +74,10 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
           // xterm columns are 1-based; range end is inclusive.
           range: { start: { x: start + 1, y: lineNumber }, end: { x: start + uri.length, y: lineNumber } },
           text: uri,
-          activate: (e) => { e.preventDefault(); open(uri) }
+          activate: (e) => {
+            e.preventDefault()
+            open(uri)
+          }
         })
       }
       callback(links.length ? links : undefined)
@@ -75,7 +86,11 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
 
   async function copyText(text: string): Promise<boolean> {
     if (!text) return false
-    try { await navigator.clipboard.writeText(text) } catch { /* clipboard blocked */ }
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      /* clipboard blocked */
+    }
     return true
   }
   async function copySelection(): Promise<boolean> {
@@ -117,7 +132,9 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
       // the "paste gets garbled / mixed with other characters" bug. xterm emits
       // the (wrapped) bytes via onData, which we already forward to the pty.
       if (text) term.paste(text)
-    } catch { /* clipboard blocked */ }
+    } catch {
+      /* clipboard blocked */
+    }
   }
 
   // F5: Ctrl+Shift+C copies the selection (only if there is one — otherwise let
@@ -128,18 +145,26 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
     if (e.type !== 'keydown') return true
     const copyCombo = (e.ctrlKey && e.shiftKey) || (isMac && e.metaKey && !e.ctrlKey && !e.shiftKey)
     if (copyCombo && (e.key === 'C' || e.key === 'c')) {
-      if (term.hasSelection()) { void copySelection(); return false }
+      if (term.hasSelection()) {
+        void copySelection()
+        return false
+      }
       return true
     }
     if (copyCombo && (e.key === 'V' || e.key === 'v')) {
-      void paste(); return false
+      void paste()
+      return false
     }
     return true
   })
 
   queueMicrotask(() => {
     term.open(host)
-    try { fit.fit() } catch { /* host not laid out yet */ }
+    try {
+      fit.fit()
+    } catch {
+      /* host not laid out yet */
+    }
 
     term.onData((d) => window.agentIDE.ptyWrite(sessionId, d))
 
@@ -156,8 +181,12 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
     })
     window.agentIDE
       .transcriptGet(sessionId)
-      .then((history) => { if (history) term.write(history) })
-      .catch(() => { /* no history / store unavailable — show live only */ })
+      .then((history) => {
+        if (history) term.write(history)
+      })
+      .catch(() => {
+        /* no history / store unavailable — show live only */
+      })
       .finally(() => {
         replayed = true
         for (const chunk of pending) term.write(chunk)
@@ -185,7 +214,13 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
     })
 
     // refit on container resize
-    const ro = new ResizeObserver(() => { try { fit.fit() } catch { /* ignore */ } })
+    const ro = new ResizeObserver(() => {
+      try {
+        fit.fit()
+      } catch {
+        /* ignore */
+      }
+    })
     ro.observe(host)
 
     host.__dispose = () => {

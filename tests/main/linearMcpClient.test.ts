@@ -3,7 +3,10 @@ import { McpClient, parseSseForResponse } from '../../src/main/linear/mcpClient'
 import { startFakeLinearServer, type FakeServer } from '../fixtures/fakeLinearServer'
 
 let fake: FakeServer | undefined
-afterEach(async () => { await fake?.close(); fake = undefined })
+afterEach(async () => {
+  await fake?.close()
+  fake = undefined
+})
 
 function client(f: FakeServer): McpClient {
   return new McpClient({ endpoint: f.mcpUrl, getToken: async () => 'at-initial' })
@@ -47,7 +50,10 @@ describe('McpClient — full handshake', () => {
     const seen: string[] = []
     do {
       const res = await c.callTool('list_issues', after ? { after } : {})
-      const data = JSON.parse((res.content ?? []).find((x) => x.type === 'text')!.text!) as { issues: any[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } }
+      const data = JSON.parse((res.content ?? []).find((x) => x.type === 'text')!.text!) as {
+        issues: any[]
+        pageInfo: { hasNextPage: boolean; endCursor: string | null }
+      }
       for (const i of data.issues) seen.push(i.id)
       after = data.pageInfo.hasNextPage ? data.pageInfo.endCursor! : undefined
     } while (after)
@@ -78,12 +84,18 @@ describe('McpClient — full handshake', () => {
     // A client with a tiny timeout against a getToken that stalls forever.
     const c = new McpClient({
       endpoint: fake.mcpUrl,
-      getToken: () => new Promise<string>(() => { /* never resolves */ }),
+      getToken: () =>
+        new Promise<string>(() => {
+          /* never resolves */
+        }),
       timeoutMs: 50
     })
     // initialize awaits getToken; wrap with our own race to bound the test.
     const raced = await Promise.race([
-      c.initialize().then(() => 'resolved').catch((e) => `err:${(e as Error).message}`),
+      c
+        .initialize()
+        .then(() => 'resolved')
+        .catch((e) => `err:${(e as Error).message}`),
       new Promise<string>((r) => setTimeout(() => r('test-timeout'), 500))
     ])
     // getToken stall means the request never fires; ensure we did NOT resolve success.

@@ -56,19 +56,25 @@ export function openHarnessEditor(deps: HarnessEditorDeps): Promise<void> {
     wrap.appendChild(modal)
     document.body.appendChild(wrap)
 
-    const close = () => { wrap.remove(); resolve() }
+    const close = () => {
+      wrap.remove()
+      resolve()
+    }
 
     // Load current text. textContent-safe: assigned to textarea.value only.
-    deps.get().then((text) => {
-      area.value = text
-      area.disabled = false
-      save.disabled = false
-      setTimeout(() => area.focus(), 0)
-    }).catch((err) => {
-      area.value = ''
-      status.className = 'harness-status err'
-      status.textContent = `Could not load harness: ${(err as Error).message}`
-    })
+    deps
+      .get()
+      .then((text) => {
+        area.value = text
+        area.disabled = false
+        save.disabled = false
+        setTimeout(() => area.focus(), 0)
+      })
+      .catch((err) => {
+        area.value = ''
+        status.className = 'harness-status err'
+        status.textContent = `Could not load harness: ${(err as Error).message}`
+      })
 
     save.onclick = async () => {
       save.disabled = true
@@ -93,6 +99,8 @@ export function openHarnessEditor(deps: HarnessEditorDeps): Promise<void> {
     }
 
     cancel.onclick = close
-    wrap.onclick = (e) => { if (e.target === wrap) close() }
+    wrap.onclick = (e) => {
+      if (e.target === wrap) close()
+    }
   })
 }

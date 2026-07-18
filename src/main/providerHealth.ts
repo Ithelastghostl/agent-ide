@@ -18,7 +18,10 @@ export interface RunContext {
   cwd?: string
 }
 
-interface ArgvCmd { cmd: string; args: string[] }
+interface ArgvCmd {
+  cmd: string
+  args: string[]
+}
 
 /** Is the CLI on PATH? (run via a login shell so PATH matches real usage).
  *  Self-defensive (Codex P3): only the three known provider names are ever
@@ -33,18 +36,24 @@ export function presenceArgv(provider: Provider): ArgvCmd {
 /** Non-interactive auth-status command, or null if the provider lacks one. */
 export function authStatusArgv(provider: Provider): ArgvCmd | null {
   switch (provider) {
-    case 'codex': return { cmd: 'codex', args: ['login', 'status'] }
-    case 'claude': return { cmd: 'claude', args: ['auth', 'status'] }
-    case 'gemini': return null // gemini has no non-interactive status command
+    case 'codex':
+      return { cmd: 'codex', args: ['login', 'status'] }
+    case 'claude':
+      return { cmd: 'claude', args: ['auth', 'status'] }
+    case 'gemini':
+      return null // gemini has no non-interactive status command
   }
 }
 
 /** Interactive login command per provider. */
 export function loginArgv(provider: Provider): ArgvCmd {
   switch (provider) {
-    case 'codex': return { cmd: 'codex', args: ['login'] }
-    case 'claude': return { cmd: 'claude', args: ['auth', 'login'] }
-    case 'gemini': return { cmd: 'gemini', args: [] } // auths on first interactive launch
+    case 'codex':
+      return { cmd: 'codex', args: ['login'] }
+    case 'claude':
+      return { cmd: 'claude', args: ['auth', 'login'] }
+    case 'gemini':
+      return { cmd: 'gemini', args: [] } // auths on first interactive launch
   }
 }
 
@@ -95,7 +104,9 @@ export async function probeHealth(provider: Provider, ctx: RunContext): Promise<
     const pa = inContext(ctx, base.cmd, base.args)
     await pexec(pa.cmd, pa.args)
     present = true
-  } catch { present = false }
+  } catch {
+    present = false
+  }
   if (!present) return 'not-installed'
 
   // auth
@@ -106,12 +117,16 @@ export async function probeHealth(provider: Provider, ctx: RunContext): Promise<
     const sa = inContext(ctx, status.cmd, status.args)
     await pexec(sa.cmd, sa.args)
     authOk = true
-  } catch { authOk = false }
+  } catch {
+    authOk = false
+  }
   return classifyHealth({ present, authOk })
 }
 
 /** Install a provider CLI in a container (mutates the container). Non-interactive. */
 export async function installInContainer(provider: Provider, containerId: string): Promise<void> {
   const [cmd, ...args] = installArgv(provider)
-  await pexec('docker', containerExecArgv(containerId, cmd, args, { interactive: false }), { maxBuffer: 1024 * 1024 * 16 })
+  await pexec('docker', containerExecArgv(containerId, cmd, args, { interactive: false }), {
+    maxBuffer: 1024 * 1024 * 16
+  })
 }

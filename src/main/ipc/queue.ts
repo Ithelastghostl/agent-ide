@@ -17,20 +17,29 @@ import { sessionEvents } from '../sessionEvents'
  *  foundation projects schema/Store are frozen and do not carry it. */
 export function registerQueueIpc({ store, launch, send }: IpcDeps): void {
   ipcMain.handle('queue:list', (_e, projectId: unknown) =>
-    typeof projectId === 'string' && store ? store.listQueue(projectId) : [])
+    typeof projectId === 'string' && store ? store.listQueue(projectId) : []
+  )
 
   ipcMain.handle('queue:enqueue', async (_e, raw: unknown) => {
     if (!store) return { error: 'no store' }
     const q = raw as Partial<QueueItem>
-    if (!q || typeof q.projectId !== 'string' || !store.getProject(q.projectId)) return { error: 'unknown project' }
+    if (!q || typeof q.projectId !== 'string' || !store.getProject(q.projectId))
+      return { error: 'unknown project' }
     if (!isProvider(String(q.provider))) return { error: 'invalid provider' }
     if (!q.objective || !String(q.objective).trim()) return { error: 'objective required' }
     // Binding more than the 5-item primer cap is REJECTED at selection (R21-minor).
-    if (Array.isArray(q.backlogItemIds) && q.backlogItemIds.length > 5) return { error: 'at most 5 backlog items per launch' }
+    if (Array.isArray(q.backlogItemIds) && q.backlogItemIds.length > 5)
+      return { error: 'at most 5 backlog items per launch' }
     const item = store.enqueue({
-      projectId: q.projectId, objective: String(q.objective), provider: q.provider!, model: String(q.model ?? ''),
-      useContainer: !!q.useContainer, taskKind: q.taskKind ?? null, taskSubkind: q.taskSubkind ?? null,
-      agentRelPath: q.agentRelPath ?? null, backlogItemIds: Array.isArray(q.backlogItemIds) ? q.backlogItemIds : []
+      projectId: q.projectId,
+      objective: String(q.objective),
+      provider: q.provider!,
+      model: String(q.model ?? ''),
+      useContainer: !!q.useContainer,
+      taskKind: q.taskKind ?? null,
+      taskSubkind: q.taskSubkind ?? null,
+      agentRelPath: q.agentRelPath ?? null,
+      backlogItemIds: Array.isArray(q.backlogItemIds) ? q.backlogItemIds : []
     })
     // Non-completion wake-up (R21/R23-minor): an idle-project ENQUEUE auto-launches
     // ONLY when autoAdvance is enabled. Fire-and-forget through the gated path.
@@ -45,8 +54,12 @@ export function registerQueueIpc({ store, launch, send }: IpcDeps): void {
   })
 
   ipcMain.handle('queue:reorder', (_e, projectId: unknown, orderedIds: unknown) => {
-    if (typeof projectId !== 'string' || !Array.isArray(orderedIds) || !store) return { error: 'invalid request' }
-    store.reorderQueue(projectId, orderedIds.filter((x): x is string => typeof x === 'string'))
+    if (typeof projectId !== 'string' || !Array.isArray(orderedIds) || !store)
+      return { error: 'invalid request' }
+    store.reorderQueue(
+      projectId,
+      orderedIds.filter((x): x is string => typeof x === 'string')
+    )
     return { ok: true }
   })
 
@@ -61,11 +74,12 @@ export function registerQueueIpc({ store, launch, send }: IpcDeps): void {
 
   // --- autoAdvance toggle (S6-owned flag) --------------------------------------
   ipcMain.handle('queue:getAutoAdvance', (_e, projectId: unknown) =>
-    typeof projectId === "string" && !!store ? store.getAutoAdvance(projectId) : false)
+    typeof projectId === 'string' && !!store ? store.getAutoAdvance(projectId) : false
+  )
 
   ipcMain.handle('queue:setAutoAdvance', async (_e, projectId: unknown, on: unknown) => {
     if (typeof projectId !== 'string') return { error: 'invalid request' }
-    if (!store) return { error: "invalid request" }
+    if (!store) return { error: 'invalid request' }
     const prev = store.setAutoAdvance(projectId, on === true)
     // R21 non-completion wake-up: enabling autoAdvance with pending work launches.
     if (on === true && !prev) void advanceAndNotify(projectId)
@@ -83,6 +97,10 @@ export function registerQueueIpc({ store, launch, send }: IpcDeps): void {
 
   /** Advance the queue (gated, exactly-once) then tell the renderer to refresh. */
   async function advanceAndNotify(projectId: string): Promise<void> {
-    try { await launch.launchNextQueued(projectId) } finally { send('queue:changed', { projectId }) }
+    try {
+      await launch.launchNextQueued(projectId)
+    } finally {
+      send('queue:changed', { projectId })
+    }
   }
 }

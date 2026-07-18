@@ -17,7 +17,7 @@ export function historyDir(): string {
 export function historyFile(sessionId: string): string {
   const safe = sessionId
     .replace(/[^a-zA-Z0-9._-]/g, '_') // drop separators / unsafe chars
-    .replace(/\.\.+/g, '_')           // collapse any '..' so no traversal token survives
+    .replace(/\.\.+/g, '_') // collapse any '..' so no traversal token survives
   return join(historyDir(), `${safe}.log`)
 }
 

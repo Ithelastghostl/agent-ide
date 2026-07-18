@@ -20,7 +20,11 @@ export const MCP_PROTOCOL_VERSION = '2025-06-18'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
-export interface JsonRpcError { code: number; message: string; data?: unknown }
+export interface JsonRpcError {
+  code: number
+  message: string
+  data?: unknown
+}
 
 export interface McpTool {
   name: string
@@ -46,7 +50,10 @@ export interface McpClientOptions {
 
 /** Raised when the server signals the MCP session has expired/is unknown. */
 export class SessionExpiredError extends Error {
-  constructor() { super('mcp session expired'); this.name = 'SessionExpiredError' }
+  constructor() {
+    super('mcp session expired')
+    this.name = 'SessionExpiredError'
+  }
 }
 
 export class McpClient {
@@ -69,8 +76,12 @@ export class McpClient {
     this.onSession = opts.onSession
   }
 
-  get currentSessionId(): string | null { return this.sessionId }
-  get protocolVersion(): string | null { return this.negotiatedVersion }
+  get currentSessionId(): string | null {
+    return this.sessionId
+  }
+  get protocolVersion(): string | null {
+    return this.negotiatedVersion
+  }
 
   /** Run the initialize handshake (idempotent — a no-op if already initialized). */
   async initialize(): Promise<void> {
@@ -81,17 +92,24 @@ export class McpClient {
   private async doInitialize(): Promise<void> {
     this.sessionId = null
     this.initialized = false
-    const result = await this.rpc('initialize', {
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: { name: 'agent-ide', version: '2.0.0' }
-    }, { allowReinit: false })
+    const result = await this.rpc(
+      'initialize',
+      {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: { name: 'agent-ide', version: '2.0.0' }
+      },
+      { allowReinit: false }
+    )
     const negotiated = (result as { protocolVersion?: string })?.protocolVersion
     this.negotiatedVersion = typeof negotiated === 'string' ? negotiated : MCP_PROTOCOL_VERSION
     // Per spec the client sends notifications/initialized after a successful init.
     await this.notify('notifications/initialized', {})
     this.initialized = true
-    linearLog('mcp initialized', { protocolVersion: this.negotiatedVersion, hasSession: this.sessionId != null })
+    linearLog('mcp initialized', {
+      protocolVersion: this.negotiatedVersion,
+      hasSession: this.sessionId != null
+    })
   }
 
   /** tools/list, filtered through the allowlist. Follows nextCursor pagination. */
@@ -100,7 +118,10 @@ export class McpClient {
     const all: McpTool[] = []
     let cursor: string | undefined
     do {
-      const res = (await this.rpc('tools/list', cursor ? { cursor } : {})) as { tools?: McpTool[]; nextCursor?: string }
+      const res = (await this.rpc('tools/list', cursor ? { cursor } : {})) as {
+        tools?: McpTool[]
+        nextCursor?: string
+      }
       for (const t of res.tools ?? []) all.push(t)
       cursor = res.nextCursor
     } while (cursor)
@@ -145,7 +166,13 @@ export class McpClient {
       })
       this.captureSession(res)
       // 202 Accepted (no body) is the expected notification response; drain any body.
-      if (res.body && typeof (res as { text?: unknown }).text === 'function') { try { await res.text() } catch { /* ignore */ } }
+      if (res.body && typeof (res as { text?: unknown }).text === 'function') {
+        try {
+          await res.text()
+        } catch {
+          /* ignore */
+        }
+      }
     } finally {
       clearTimeout(timer)
     }
@@ -194,7 +221,9 @@ export class McpClient {
   }
 
   /** Read a JSON-RPC message from either a plain JSON body or an SSE stream. */
-  private async readMessage(res: Awaited<ReturnType<FetchLike>>): Promise<{ result?: unknown; error?: JsonRpcError } | null> {
+  private async readMessage(
+    res: Awaited<ReturnType<FetchLike>>
+  ): Promise<{ result?: unknown; error?: JsonRpcError } | null> {
     const ct = res.headers.get('content-type') ?? ''
     const text = await res.text()
     if (!text) return null
@@ -256,7 +285,9 @@ export function parseSseForResponse(sse: string): { result?: unknown; error?: Js
     try {
       const obj = JSON.parse(data) as { result?: unknown; error?: JsonRpcError; id?: unknown }
       if ('result' in obj || 'error' in obj) found = obj
-    } catch { /* skip non-JSON data frames (comments, keep-alives) */ }
+    } catch {
+      /* skip non-JSON data frames (comments, keep-alives) */
+    }
   }
   return found
 }

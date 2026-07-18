@@ -37,13 +37,22 @@ test('stage chip advances discussion→playback on a host session; harness edito
 
   // Register a local project and launch a HOST provider session (inert shim CLI).
   const projectId = await win.evaluate(async (p) => (await window.agentIDE.projectsAddLocal(p)).id, proj)
-  const sessionId = await win.evaluate(async ({ projectId, cwd }) => {
-    const s = await window.agentIDE.sessionLaunch({
-      projectId, provider: 'claude', model: 'claude-opus-4-8', objective: 'harness stage demo',
-      cwd, useContainer: false, taskKind: 'product', taskSubkind: 'feature'
-    })
-    return s.id
-  }, { projectId, cwd: proj })
+  const sessionId = await win.evaluate(
+    async ({ projectId, cwd }) => {
+      const s = await window.agentIDE.sessionLaunch({
+        projectId,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        objective: 'harness stage demo',
+        cwd,
+        useContainer: false,
+        taskKind: 'product',
+        taskSubkind: 'feature'
+      })
+      return s.id
+    },
+    { projectId, cwd: proj }
+  )
 
   // The session persisted and is live.
   const fresh = await win.evaluate(async (id) => {

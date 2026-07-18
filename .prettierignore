@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+test-results/
+docs/
+assets/
+.claude/
+*.md
+*.json

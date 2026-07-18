@@ -6,5 +6,6 @@ import { readHarness, writeHarness } from '../harness'
 export function registerHarnessIpc(_deps: IpcDeps): void {
   ipcMain.handle('harness:get', () => readHarness())
   ipcMain.handle('harness:set', (_e, text: unknown) =>
-    typeof text === 'string' ? writeHarness(text) : { error: 'invalid text' })
+    typeof text === 'string' ? writeHarness(text) : { error: 'invalid text' }
+  )
 }

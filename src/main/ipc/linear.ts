@@ -26,7 +26,11 @@ export function registerLinearIpc(deps: IpcDeps): void {
       if (!asObj || typeof asObj.accountId !== 'string') {
         // No account supplied → connect, then merge the discovered identity.
         const identity = await svc.connect()
-        link = { ...(typeof ref === 'object' && ref ? ref : {}), accountId: identity.accountId, workspaceId: identity.workspaceId }
+        link = {
+          ...(typeof ref === 'object' && ref ? ref : {}),
+          accountId: identity.accountId,
+          workspaceId: identity.workspaceId
+        }
       }
       return svc.link(projectId, link)
     } catch (err) {
@@ -77,7 +81,9 @@ export function registerLinearIpc(deps: IpcDeps): void {
 }
 
 /** Validate + normalize a write-back action payload from the renderer. */
-export function parseAction(raw: unknown): { action: WritebackAction; sessionId: string; mode: 'preview' | 'apply' } | { error: string } {
+export function parseAction(
+  raw: unknown
+): { action: WritebackAction; sessionId: string; mode: 'preview' | 'apply' } | { error: string } {
   const r = raw as { kind?: unknown; text?: unknown; sessionId?: unknown; mode?: unknown }
   if (!r || typeof r !== 'object' || typeof r.kind !== 'string') return { error: 'invalid action' }
   const sessionId = typeof r.sessionId === 'string' ? r.sessionId : 'no-session'

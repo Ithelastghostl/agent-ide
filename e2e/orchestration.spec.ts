@@ -26,11 +26,15 @@ function boot() {
 // A queued session's pty is spawned through the provider shim (host). Poll until
 // the queue row reaches 'launched' (advancement is gated + async).
 async function waitForLaunched(win: any, projectId: string, count: number) {
-  await expect.poll(async () =>
-    (await win.evaluate((pid: string) => window.agentIDE.queueList(pid), projectId))
-      .filter((q: any) => q.state === 'launched').length,
-    { timeout: 15_000 }
-  ).toBe(count)
+  await expect
+    .poll(
+      async () =>
+        (await win.evaluate((pid: string) => window.agentIDE.queueList(pid), projectId)).filter(
+          (q: any) => q.state === 'launched'
+        ).length,
+      { timeout: 15_000 }
+    )
+    .toBe(count)
 }
 
 test('autoAdvance: archiving the first queued session launches the second', async () => {
@@ -43,19 +47,38 @@ test('autoAdvance: archiving the first queued session launches the second', asyn
 
   // Enable autoAdvance, then enqueue two host provider sessions.
   await win.evaluate((pid) => window.agentIDE.queueSetAutoAdvance(pid, true), projectId)
-  await win.evaluate(async ({ pid }) => {
-    await window.agentIDE.queueEnqueue({ projectId: pid, provider: 'claude', model: 'claude-opus-4-8', objective: 'first', useContainer: false })
-    await window.agentIDE.queueEnqueue({ projectId: pid, provider: 'claude', model: 'claude-opus-4-8', objective: 'second', useContainer: false })
-  }, { pid: projectId })
+  await win.evaluate(
+    async ({ pid }) => {
+      await window.agentIDE.queueEnqueue({
+        projectId: pid,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        objective: 'first',
+        useContainer: false
+      })
+      await window.agentIDE.queueEnqueue({
+        projectId: pid,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        objective: 'second',
+        useContainer: false
+      })
+    },
+    { pid: projectId }
+  )
 
   // Enqueue into an autoAdvance project auto-launches the FIRST (R21/R23-minor).
   await waitForLaunched(win, projectId, 1)
 
   // Find the launched session for item 1 and archive it → the 'archived' event
   // fires and (autoAdvance on) the SECOND item launches.
-  const firstSessionId = await win.evaluate((pid) =>
-    window.agentIDE.queueList(pid).then((qs) => qs.find((q: any) => q.state === 'launched')?.launchedSessionId ?? ''),
-    projectId)
+  const firstSessionId = await win.evaluate(
+    (pid) =>
+      window.agentIDE
+        .queueList(pid)
+        .then((qs) => qs.find((q: any) => q.state === 'launched')?.launchedSessionId ?? ''),
+    projectId
+  )
   expect(firstSessionId).toBeTruthy()
 
   await win.evaluate((id) => window.agentIDE.sessionArchive(id), firstSessionId)
@@ -73,17 +96,26 @@ test('split view renders two terminal hosts', async () => {
   await win.waitForSelector('.allsessions', { timeout: 15_000 })
 
   const projectId = await win.evaluate((p) => window.agentIDE.projectsAddLocal(p).then((x) => x.id), proj)
-  await expect.poll(async () =>
-    win.evaluate((pid) => window.agentIDE.projectsList().then((ps) => ps.some((x) => x.id === pid)), projectId),
-    { timeout: 10_000 }
-  ).toBe(true)
+  await expect
+    .poll(
+      async () =>
+        win.evaluate(
+          (pid) => window.agentIDE.projectsList().then((ps) => ps.some((x) => x.id === pid)),
+          projectId
+        ),
+      { timeout: 10_000 }
+    )
+    .toBe(true)
 
   // Launch two host terminal sessions so both panes have a live pty to mount.
-  const ids = await win.evaluate(async ({ pid, cwd }) => {
-    const a = await window.agentIDE.terminalOpen({ projectId: pid, cwd, name: 'A', useContainer: false })
-    const b = await window.agentIDE.terminalOpen({ projectId: pid, cwd, name: 'B', useContainer: false })
-    return [a.id, b.id]
-  }, { pid: projectId, cwd: proj })
+  const ids = await win.evaluate(
+    async ({ pid, cwd }) => {
+      const a = await window.agentIDE.terminalOpen({ projectId: pid, cwd, name: 'A', useContainer: false })
+      const b = await window.agentIDE.terminalOpen({ projectId: pid, cwd, name: 'B', useContainer: false })
+      return [a.id, b.id]
+    },
+    { pid: projectId, cwd: proj }
+  )
   expect(ids.length).toBe(2)
 
   // Reload so the renderer hydrates the persisted project + the two live-pty
@@ -116,27 +148,55 @@ test('handoff registers pending review on B and does NOT write it to B until "Re
   const projectId = await win.evaluate((p) => window.agentIDE.projectsAddLocal(p).then((x) => x.id), proj)
   // Ensure the project row is committed + visible before launching against it
   // (the add is async; session:launch validates ownership against the store).
-  await expect.poll(async () =>
-    win.evaluate((pid) => window.agentIDE.projectsList().then((ps) => ps.some((x) => x.id === pid)), projectId),
-    { timeout: 10_000 }
-  ).toBe(true)
+  await expect
+    .poll(
+      async () =>
+        win.evaluate(
+          (pid) => window.agentIDE.projectsList().then((ps) => ps.some((x) => x.id === pid)),
+          projectId
+        ),
+      { timeout: 10_000 }
+    )
+    .toBe(true)
 
   // Two host provider sessions (A, B) via the shims.
-  const { aId, bId } = await win.evaluate(async ({ pid, cwd }) => {
-    const a = await window.agentIDE.sessionLaunch({ projectId: pid, provider: 'claude', model: 'claude-opus-4-8', objective: 'source A', cwd, useContainer: false, taskKind: 'analysis' })
-    const b = await window.agentIDE.sessionLaunch({ projectId: pid, provider: 'claude', model: 'claude-opus-4-8', objective: 'target B', cwd, useContainer: false, taskKind: 'analysis' })
-    return { aId: a.id, bId: b.id }
-  }, { pid: projectId, cwd: proj })
+  const { aId, bId } = await win.evaluate(
+    async ({ pid, cwd }) => {
+      const a = await window.agentIDE.sessionLaunch({
+        projectId: pid,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        objective: 'source A',
+        cwd,
+        useContainer: false,
+        taskKind: 'analysis'
+      })
+      const b = await window.agentIDE.sessionLaunch({
+        projectId: pid,
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        objective: 'target B',
+        cwd,
+        useContainer: false,
+        taskKind: 'analysis'
+      })
+      return { aId: a.id, bId: b.id }
+    },
+    { pid: projectId, cwd: proj }
+  )
 
   // Give A some transcript to hand off (the shim echoes stdin). Write repeatedly
   // until the echo lands, so the tail isn't empty (echo timing varies).
-  await expect.poll(async () =>
-    win.evaluate(async (id) => {
-      window.agentIDE.ptyWrite(id, 'context line from A\n')
-      return (await window.agentIDE.transcriptGet(id)).trim().length
-    }, aId),
-    { timeout: 15_000, intervals: [250, 250, 500, 1000] }
-  ).toBeGreaterThan(0)
+  await expect
+    .poll(
+      async () =>
+        win.evaluate(async (id) => {
+          window.agentIDE.ptyWrite(id, 'context line from A\n')
+          return (await window.agentIDE.transcriptGet(id)).trim().length
+        }, aId),
+      { timeout: 15_000, intervals: [250, 250, 500, 1000] }
+    )
+    .toBeGreaterThan(0)
 
   // Hand A → B. This must register pending review on B, writing NOTHING to B's pty.
   const res = await win.evaluate(({ a, b }) => window.agentIDE.sessionHandoff(a, b), { a: aId, b: bId })
@@ -166,7 +226,8 @@ test('handoff registers pending review on B and does NOT write it to B until "Re
 
   // The pasted material now appears in B's transcript wrapped in bracketed-paste
   // markers (the shim echoes stdin), and NOT before the insert.
-  await expect.poll(async () => win.evaluate((id) => window.agentIDE.transcriptGet(id), bId), { timeout: 10_000 })
+  await expect
+    .poll(async () => win.evaluate((id) => window.agentIDE.transcriptGet(id), bId), { timeout: 10_000 })
     .toContain('context line from A')
 
   await app.close()

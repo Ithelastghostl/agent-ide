@@ -8,7 +8,9 @@ import { join } from 'node:path'
 // client + "opening" the browser), then a synthetic code is returned — exactly
 // what a real callback would deliver. Everything else in oauth.ts is preserved.
 vi.mock('../../src/main/linear/oauth', async () => {
-  const actual = await vi.importActual<typeof import('../../src/main/linear/oauth')>('../../src/main/linear/oauth')
+  const actual = await vi.importActual<typeof import('../../src/main/linear/oauth')>(
+    '../../src/main/linear/oauth'
+  )
   return {
     ...actual,
     awaitLoopbackCode: async (a: { onReady: (port: number, uri: string) => unknown }) => {
@@ -45,7 +47,9 @@ function service(store: Store): LinearService {
   const rewriting: typeof fetch = (async (input: any, init?: any) => {
     let url = typeof input === 'string' ? input : input.url
     if (url.startsWith('https://mcp.linear.app')) {
-      url = url.replace('https://mcp.linear.app/mcp', `${fake.url}/mcp`).replace('https://mcp.linear.app', fake.url)
+      url = url
+        .replace('https://mcp.linear.app/mcp', `${fake.url}/mcp`)
+        .replace('https://mcp.linear.app', fake.url)
     }
     return realFetch(url, init)
   }) as unknown as typeof fetch
@@ -59,7 +63,11 @@ function service(store: Store): LinearService {
 
 async function connectAndLink(store: Store, svc: LinearService): Promise<string> {
   const identity = await svc.connect()
-  const r = svc.link('p1', { accountId: identity.accountId, workspaceId: identity.workspaceId, label: 'Team X' })
+  const r = svc.link('p1', {
+    accountId: identity.accountId,
+    workspaceId: identity.workspaceId,
+    label: 'Team X'
+  })
   expect(r).toEqual({ ok: true })
   return identity.accountId
 }
@@ -160,7 +168,12 @@ describe('LinearService — writeback preview + idempotency', () => {
 
 describe('pure parsing helpers', () => {
   it('extractIssues reads nodes + pagination cursor', () => {
-    const res = { structuredContent: { issues: [{ id: 'a', title: 'A', url: 'u', description: 'd', state: { name: 'Todo' } }], pageInfo: { hasNextPage: true, endCursor: '2' } } }
+    const res = {
+      structuredContent: {
+        issues: [{ id: 'a', title: 'A', url: 'u', description: 'd', state: { name: 'Todo' } }],
+        pageInfo: { hasNextPage: true, endCursor: '2' }
+      }
+    }
     const { issues, nextCursor } = extractIssues(res as any)
     expect(issues[0]).toMatchObject({ id: 'a', title: 'A', state: 'Todo' })
     expect(nextCursor).toBe('2')

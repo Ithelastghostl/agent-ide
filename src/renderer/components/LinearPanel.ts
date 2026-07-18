@@ -42,19 +42,21 @@ export interface LinearPanelProps {
   /** Request a preview for a write-back (no mutation). Resolves the preview or an error. */
   onPreview: (itemId: string, action: WritebackActionInput) => Promise<WritebackPreview | { error: string }>
   /** Apply a previewed write-back. Resolves a result envelope. */
-  onApply: (itemId: string, action: WritebackActionInput) => Promise<{ ok?: boolean; outcome?: string; error?: string }>
+  onApply: (
+    itemId: string,
+    action: WritebackActionInput
+  ) => Promise<{ ok?: boolean; outcome?: string; error?: string }>
   onCancel: () => void
 }
 
-export type WritebackActionInput =
-  | { kind: 'started' }
-  | { kind: 'done' }
-  | { kind: 'comment'; text: string }
+export type WritebackActionInput = { kind: 'started' } | { kind: 'done' } | { kind: 'comment'; text: string }
 
 /** Build the Linear panel overlay. Returns the root element. */
 export function LinearPanel(p: LinearPanelProps): HTMLElement {
   const wrap = el('div', 'modal-wrap show')
-  wrap.onclick = (e) => { if (e.target === wrap) p.onCancel() }
+  wrap.onclick = (e) => {
+    if (e.target === wrap) p.onCancel()
+  }
 
   const modal = el('div', 'modal')
   modal.style.width = '560px'
@@ -92,7 +94,8 @@ export function LinearPanel(p: LinearPanelProps): HTMLElement {
   if (p.status.connected && p.status.link) {
     sub.textContent = `Linked to ${p.status.link.label}. Pull issues into the backlog, or write back state and comments.`
   } else {
-    sub.textContent = 'Connect your Linear account to pull issues into this project and write status/comments back.'
+    sub.textContent =
+      'Connect your Linear account to pull issues into this project and write status/comments back.'
   }
 
   // --- issue rows (write-back targets) ---
@@ -138,11 +141,20 @@ function rowEl(row: LinearBacklogRow, p: LinearPanelProps): HTMLElement {
   acts.style.display = 'flex'
   acts.style.gap = '6px'
   const started = button('Mark started', 'wb-started')
-  started.onclick = (e) => { e.stopPropagation(); void openPreview(row, { kind: 'started' }, p) }
+  started.onclick = (e) => {
+    e.stopPropagation()
+    void openPreview(row, { kind: 'started' }, p)
+  }
   const done = button('Mark done', 'wb-done')
-  done.onclick = (e) => { e.stopPropagation(); void openPreview(row, { kind: 'done' }, p) }
+  done.onclick = (e) => {
+    e.stopPropagation()
+    void openPreview(row, { kind: 'done' }, p)
+  }
   const comment = button('Comment', 'wb-comment')
-  comment.onclick = (e) => { e.stopPropagation(); void openComment(row, p) }
+  comment.onclick = (e) => {
+    e.stopPropagation()
+    void openComment(row, p)
+  }
   acts.append(started, done, comment)
 
   opt.append(ti, acts)
@@ -154,8 +166,10 @@ function openComment(row: LinearBacklogRow, p: LinearPanelProps): void {
   const overlay = el('div', 'modal-wrap show linear-comment-prompt')
   const modal = el('div', 'modal')
   modal.style.width = '440px'
-  const h = el('h3'); h.textContent = `Comment on ${row.title}`
-  const body = el('div'); body.style.padding = '4px 18px 14px'
+  const h = el('h3')
+  h.textContent = `Comment on ${row.title}`
+  const body = el('div')
+  body.style.padding = '4px 18px 14px'
   const input = document.createElement('textarea')
   input.className = 'linear-comment-input'
   input.rows = 4
@@ -163,7 +177,8 @@ function openComment(row: LinearBacklogRow, p: LinearPanelProps): void {
   input.placeholder = 'Comment text…'
   body.appendChild(input)
   const foot = el('div', 'foot')
-  const cancel = button('Cancel'); cancel.onclick = () => overlay.remove()
+  const cancel = button('Cancel')
+  cancel.onclick = () => overlay.remove()
   const next = button('Preview', 'primary')
   next.onclick = () => {
     const text = input.value.trim()
@@ -174,20 +189,30 @@ function openComment(row: LinearBacklogRow, p: LinearPanelProps): void {
   foot.append(cancel, next)
   modal.append(h, body, foot)
   overlay.append(modal)
-  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+  overlay.onclick = (e) => {
+    if (e.target === overlay) overlay.remove()
+  }
   document.body.appendChild(overlay)
   queueMicrotask(() => input.focus())
 }
 
 /** The mandatory PREVIEW modal: shows the EXACT target/comment before applying. */
-async function openPreview(row: LinearBacklogRow, action: WritebackActionInput, p: LinearPanelProps): Promise<void> {
+async function openPreview(
+  row: LinearBacklogRow,
+  action: WritebackActionInput,
+  p: LinearPanelProps
+): Promise<void> {
   const preview = await p.onPreview(row.id, action)
-  if ('error' in preview) { toast(`Preview failed: ${preview.error}`); return }
+  if ('error' in preview) {
+    toast(`Preview failed: ${preview.error}`)
+    return
+  }
 
   const overlay = el('div', 'modal-wrap show linear-preview')
   const modal = el('div', 'modal')
   modal.style.width = '480px'
-  const h = el('h3'); h.textContent = 'Confirm write-back to Linear'
+  const h = el('h3')
+  h.textContent = 'Confirm write-back to Linear'
   modal.appendChild(h)
 
   const detail = el('div', 'linear-preview-detail')
@@ -202,8 +227,10 @@ async function openPreview(row: LinearBacklogRow, action: WritebackActionInput, 
 
   for (const [k, v] of lines) {
     const rowEl2 = el('div', 'linear-preview-line')
-    const key = document.createElement('b'); key.textContent = `${k}: `
-    const val = document.createElement('span'); val.textContent = v
+    const key = document.createElement('b')
+    key.textContent = `${k}: `
+    const val = document.createElement('span')
+    val.textContent = v
     rowEl2.append(key, val)
     detail.appendChild(rowEl2)
   }
@@ -216,7 +243,8 @@ async function openPreview(row: LinearBacklogRow, action: WritebackActionInput, 
   }
 
   const foot = el('div', 'foot')
-  const cancel = button('Cancel'); cancel.onclick = () => overlay.remove()
+  const cancel = button('Cancel')
+  cancel.onclick = () => overlay.remove()
   const confirm = button('Apply', 'primary linear-apply')
   confirm.onclick = async () => {
     confirm.disabled = true
@@ -230,7 +258,9 @@ async function openPreview(row: LinearBacklogRow, action: WritebackActionInput, 
   modal.appendChild(foot)
 
   overlay.appendChild(modal)
-  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+  overlay.onclick = (e) => {
+    if (e.target === overlay) overlay.remove()
+  }
   document.body.appendChild(overlay)
 }
 

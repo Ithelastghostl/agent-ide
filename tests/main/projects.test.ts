@@ -2,7 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
-import { detectDevcontainer, localPathFor, projectFromRepo, projectFromPath, projectId } from '../../src/main/projects'
+import {
+  detectDevcontainer,
+  localPathFor,
+  projectFromRepo,
+  projectFromPath,
+  projectId
+} from '../../src/main/projects'
 import { repoNameFromUrl } from '../../src/main/github'
 
 describe('detectDevcontainer', () => {
@@ -64,7 +70,9 @@ describe('projectFromPath', () => {
 // the store (id is the PRIMARY KEY).
 describe('projectId (B7 durable, collision-free)', () => {
   it('is deterministic for the same identity', () => {
-    expect(projectId('owner/app', '/home/me/AgentIDE/app')).toBe(projectId('owner/app', '/home/me/AgentIDE/app'))
+    expect(projectId('owner/app', '/home/me/AgentIDE/app')).toBe(
+      projectId('owner/app', '/home/me/AgentIDE/app')
+    )
   })
 
   it('distinguishes two repos that share a basename (the B7 collision)', () => {

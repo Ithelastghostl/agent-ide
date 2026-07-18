@@ -6,7 +6,9 @@ import { openHarnessEditor } from '../../src/renderer/components/HarnessEditor'
 const tick = () => new Promise((r) => setTimeout(r, 0))
 
 describe('HarnessEditor modal', () => {
-  beforeEach(() => { document.body.innerHTML = '' })
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
 
   it('opens a modal and loads the current harness text into a textarea', async () => {
     openHarnessEditor({ get: async () => '# HARNESS\nhello', set: async () => ({ ok: true }) })
@@ -30,7 +32,13 @@ describe('HarnessEditor modal', () => {
 
   it('Save calls set() with the edited text and reports success', async () => {
     let saved: string | null = null
-    openHarnessEditor({ get: async () => 'orig', set: async (t) => { saved = t; return { ok: true } } })
+    openHarnessEditor({
+      get: async () => 'orig',
+      set: async (t) => {
+        saved = t
+        return { ok: true }
+      }
+    })
     await tick()
     const area = document.querySelector('.harness-area') as HTMLTextAreaElement
     area.value = 'edited harness body'
@@ -53,14 +61,22 @@ describe('HarnessEditor modal', () => {
   it('Close removes the modal', async () => {
     openHarnessEditor({ get: async () => 'x', set: async () => ({ ok: true }) })
     await tick()
-    const closeBtn = Array.from(document.querySelectorAll('.foot button')).find((b) => b.textContent === 'Close') as HTMLButtonElement
+    const closeBtn = Array.from(document.querySelectorAll('.foot button')).find(
+      (b) => b.textContent === 'Close'
+    ) as HTMLButtonElement
     closeBtn.click()
     expect(document.querySelector('.harness-modal')).toBeNull()
   })
 
   it('round-trips: reopening reflects the value set() persisted', async () => {
     let stored = 'v1'
-    const deps = { get: async () => stored, set: async (t: string) => { stored = t; return { ok: true as const } } }
+    const deps = {
+      get: async () => stored,
+      set: async (t: string) => {
+        stored = t
+        return { ok: true as const }
+      }
+    }
     openHarnessEditor(deps)
     await tick()
     const area = document.querySelector('.harness-area') as HTMLTextAreaElement
@@ -68,7 +84,11 @@ describe('HarnessEditor modal', () => {
     ;(document.querySelector('.foot button.primary') as HTMLButtonElement).click()
     await tick()
     // Close and reopen: the new instance loads the persisted value.
-    ;(Array.from(document.querySelectorAll('.foot button')).find((b) => b.textContent === 'Close') as HTMLButtonElement).click()
+    ;(
+      Array.from(document.querySelectorAll('.foot button')).find(
+        (b) => b.textContent === 'Close'
+      ) as HTMLButtonElement
+    ).click()
     openHarnessEditor(deps)
     await tick()
     expect((document.querySelector('.harness-area') as HTMLTextAreaElement).value).toBe('v2')

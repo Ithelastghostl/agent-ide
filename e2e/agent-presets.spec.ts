@@ -32,22 +32,39 @@ test('launch a session from a library agent → agentRelPath persisted + chip re
   await win.waitForSelector('.projrail', { timeout: 20_000 })
 
   // Seed a project and a library agent through the bridge.
-  await win.evaluate(async (p) => { await window.agentIDE.projectsAddLocal(p) }, proj)
-  const added = await win.evaluate(() => window.agentIDE.libraryAddAgent({
-    name: 'Release Writer', description: 'write terse release notes',
-    instructions: 'Write terse notes.', data: 'style: terse', context: 'for the IDE repo'
-  }))
+  await win.evaluate(async (p) => {
+    await window.agentIDE.projectsAddLocal(p)
+  }, proj)
+  const added = await win.evaluate(() =>
+    window.agentIDE.libraryAddAgent({
+      name: 'Release Writer',
+      description: 'write terse release notes',
+      instructions: 'Write terse notes.',
+      data: 'style: terse',
+      context: 'for the IDE repo'
+    })
+  )
   expect((added as { relPath?: string }).relPath).toBe('agents/release-writer.md')
 
-  await expect.poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 15_000 }).toBeGreaterThan(0)
+  await expect
+    .poll(async () => (await win.evaluate(() => window.agentIDE.projectsList())).length, { timeout: 15_000 })
+    .toBeGreaterThan(0)
   await win.reload()
   await win.locator('.projrail .pj').first().click({ timeout: 20_000 })
 
   // Open the Agents panel via its cockpit pill.
-  await expect.poll(async () => win.evaluate(() => {
-    const pills = Array.from(document.querySelectorAll('.libpills .pill')).map((p) => p.textContent || '')
-    return pills.join(' | ')
-  }), { timeout: 10_000 }).toContain('Agents1')
+  await expect
+    .poll(
+      async () =>
+        win.evaluate(() => {
+          const pills = Array.from(document.querySelectorAll('.libpills .pill')).map(
+            (p) => p.textContent || ''
+          )
+          return pills.join(' | ')
+        }),
+      { timeout: 10_000 }
+    )
+    .toContain('Agents1')
   await win.locator('.libpills .pill', { hasText: 'Agents' }).click()
   await win.waitForSelector('.modal .mopt', { timeout: 8_000 })
 
@@ -67,11 +84,17 @@ test('launch a session from a library agent → agentRelPath persisted + chip re
   await win.waitForSelector('.terminal-host .xterm', { timeout: 15_000 })
 
   // The persisted session carries agentRelPath, and it was NOT a container launch.
-  await expect.poll(async () => win.evaluate(async () => {
-    const all = await window.agentIDE.sessionsAll()
-    const s = all.filter((x: any) => !x.id.startsWith('term-')).pop()
-    return s?.agentRelPath ?? null
-  }), { timeout: 10_000 }).toBe('agents/release-writer.md')
+  await expect
+    .poll(
+      async () =>
+        win.evaluate(async () => {
+          const all = await window.agentIDE.sessionsAll()
+          const s = all.filter((x: any) => !x.id.startsWith('term-')).pop()
+          return s?.agentRelPath ?? null
+        }),
+      { timeout: 10_000 }
+    )
+    .toBe('agents/release-writer.md')
   const useContainer = await win.evaluate(async () => {
     const all = await window.agentIDE.sessionsAll()
     const s = all.filter((x: any) => !x.id.startsWith('term-')).pop()
@@ -80,10 +103,16 @@ test('launch a session from a library agent → agentRelPath persisted + chip re
   expect(useContainer).toBe(false)
 
   // The agent chip renders on the session (header and/or card).
-  await expect.poll(async () => win.evaluate(() => {
-    const chips = Array.from(document.querySelectorAll('.agent-chip')).map((c) => c.textContent || '')
-    return chips.join(' | ')
-  }), { timeout: 8_000 }).toContain('Release Writer')
+  await expect
+    .poll(
+      async () =>
+        win.evaluate(() => {
+          const chips = Array.from(document.querySelectorAll('.agent-chip')).map((c) => c.textContent || '')
+          return chips.join(' | ')
+        }),
+      { timeout: 8_000 }
+    )
+    .toContain('Release Writer')
 
   await app.close()
 })

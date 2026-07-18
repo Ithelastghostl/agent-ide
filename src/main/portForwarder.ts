@@ -45,7 +45,10 @@ while True:
 export async function containerIp(containerId: string): Promise<string | null> {
   try {
     const { stdout } = await pexec('docker', [
-      'inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', containerId
+      'inspect',
+      '-f',
+      '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}',
+      containerId
     ])
     const ip = stdout.trim()
     return ip || null
@@ -78,8 +81,12 @@ const realDeps: PortForwarderDeps = {
   containerIp,
   dockerExec: async (containerId, bridgePort, servicePort, marker) => {
     await pexec('docker', [
-      'exec', '-d', containerId,
-      'python3', '-c', relayPy('0.0.0.0', bridgePort, '127.0.0.1', servicePort) + `\n# ${marker}`
+      'exec',
+      '-d',
+      containerId,
+      'python3',
+      '-c',
+      relayPy('0.0.0.0', bridgePort, '127.0.0.1', servicePort) + `\n# ${marker}`
     ])
   },
   dockerKill: async (containerId, marker) => {
@@ -159,13 +166,25 @@ export class PortForwarder {
     const sockets = new Set<Socket>()
     const server = createServer((client) => {
       const upstream = connect(dialPort, ip)
-      sockets.add(client); sockets.add(upstream)
-      const drop = (s: Socket) => { sockets.delete(s); try { s.destroy() } catch { /* */ } }
+      sockets.add(client)
+      sockets.add(upstream)
+      const drop = (s: Socket) => {
+        sockets.delete(s)
+        try {
+          s.destroy()
+        } catch {
+          /* */
+        }
+      }
       client.on('error', () => drop(client))
-      upstream.on('error', () => { drop(client); drop(upstream) })
+      upstream.on('error', () => {
+        drop(client)
+        drop(upstream)
+      })
       client.on('close', () => drop(client))
       upstream.on('close', () => drop(upstream))
-      client.pipe(upstream); upstream.pipe(client)
+      client.pipe(upstream)
+      upstream.pipe(client)
     })
 
     const listening = await new Promise<boolean>((resolve) => {
@@ -173,13 +192,20 @@ export class PortForwarder {
       server.listen(port, '127.0.0.1', () => resolve(true))
     })
     if (!listening) {
-      try { server.close() } catch { /* */ }
+      try {
+        server.close()
+      } catch {
+        /* */
+      }
       this.usedBridgePorts.delete(bridgePort)
       await this.deps.dockerKill?.(containerId, marker).catch(() => {})
       return false
     }
     // If the app exits, remove the record when the server closes.
-    server.on('close', () => { this.active.delete(key); this.usedBridgePorts.delete(bridgePort) })
+    server.on('close', () => {
+      this.active.delete(key)
+      this.usedBridgePorts.delete(bridgePort)
+    })
 
     this.active.set(key, { server, sockets, bridgePort, marker, owners: new Set([owner]) })
     return true
@@ -199,9 +225,19 @@ export class PortForwarder {
   private async teardown(containerId: string, key: string, f: Forward): Promise<void> {
     this.active.delete(key)
     this.usedBridgePorts.delete(f.bridgePort)
-    for (const s of f.sockets) { try { s.destroy() } catch { /* */ } }
+    for (const s of f.sockets) {
+      try {
+        s.destroy()
+      } catch {
+        /* */
+      }
+    }
     f.sockets.clear()
-    try { f.server.close() } catch { /* already closed */ }
+    try {
+      f.server.close()
+    } catch {
+      /* already closed */
+    }
     await this.deps.dockerKill?.(containerId, f.marker).catch(() => {})
   }
 
@@ -211,12 +247,24 @@ export class PortForwarder {
     const entries = [...this.active.entries()]
     this.active.clear()
     this.usedBridgePorts.clear()
-    await Promise.all(entries.map(async ([key, f]) => {
-      const containerId = key.slice(0, key.lastIndexOf(':'))
-      for (const s of f.sockets) { try { s.destroy() } catch { /* */ } }
-      try { f.server.close() } catch { /* */ }
-      await this.deps.dockerKill?.(containerId, f.marker).catch(() => {})
-    }))
+    await Promise.all(
+      entries.map(async ([key, f]) => {
+        const containerId = key.slice(0, key.lastIndexOf(':'))
+        for (const s of f.sockets) {
+          try {
+            s.destroy()
+          } catch {
+            /* */
+          }
+        }
+        try {
+          f.server.close()
+        } catch {
+          /* */
+        }
+        await this.deps.dockerKill?.(containerId, f.marker).catch(() => {})
+      })
+    )
   }
 }
 
@@ -251,7 +299,11 @@ export function parseListeningPorts(ssOutput: string): number[] {
 export async function listeningPorts(containerId: string): Promise<number[]> {
   try {
     const { stdout } = await pexec('docker', [
-      'exec', containerId, 'sh', '-c', '(ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) || true'
+      'exec',
+      containerId,
+      'sh',
+      '-c',
+      '(ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) || true'
     ])
     return parseListeningPorts(stdout)
   } catch {
@@ -299,7 +351,10 @@ export class ContainerPortWatcher {
 
   /** Stop polling and release this watcher's claim on every forward it made. */
   async stop(): Promise<void> {
-    if (this.timer) { clearInterval(this.timer); this.timer = null }
+    if (this.timer) {
+      clearInterval(this.timer)
+      this.timer = null
+    }
     const ports = [...this.forwarded]
     this.forwarded.clear()
     await Promise.all(ports.map((p) => this.forwarder.release(this.containerId, p, this.owner)))

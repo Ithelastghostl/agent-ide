@@ -1,12 +1,26 @@
 import { describe, it, expect } from 'vitest'
-import { parseCostLine, parseCostLines, COST_RAW_CAP, DEFAULT_COST_PATTERNS, type CostPattern } from '../../src/main/cost'
+import {
+  parseCostLine,
+  parseCostLines,
+  COST_RAW_CAP,
+  DEFAULT_COST_PATTERNS,
+  type CostPattern
+} from '../../src/main/cost'
 import type { Provider } from '../../src/shared/types'
 
 // Fixture summary lines per provider (as they appear AFTER stripAnsi). Each
 // entry: the raw text + the figures we expect to parse out.
-const FIXTURES: Record<Provider, { line: string; costUSD?: number; inputTokens?: number; outputTokens?: number }[]> = {
+const FIXTURES: Record<
+  Provider,
+  { line: string; costUSD?: number; inputTokens?: number; outputTokens?: number }[]
+> = {
   claude: [
-    { line: 'Total cost: $0.1234 (1,200 input, 3,400 output tokens)', costUSD: 0.1234, inputTokens: 1200, outputTokens: 3400 },
+    {
+      line: 'Total cost: $0.1234 (1,200 input, 3,400 output tokens)',
+      costUSD: 0.1234,
+      inputTokens: 1200,
+      outputTokens: 3400
+    },
     { line: 'Total cost: $2.50', costUSD: 2.5 },
     { line: 'Tokens: 1,200 in / 3,400 out', inputTokens: 1200, outputTokens: 3400 }
   ],
@@ -16,7 +30,12 @@ const FIXTURES: Record<Provider, { line: string; costUSD?: number; inputTokens?:
     { line: 'tokens used: 500', inputTokens: 500 }
   ],
   gemini: [
-    { line: 'Estimated cost: $0.02 — prompt 1,200 tokens, response 3,400 tokens', costUSD: 0.02, inputTokens: 1200, outputTokens: 3400 },
+    {
+      line: 'Estimated cost: $0.02 — prompt 1,200 tokens, response 3,400 tokens',
+      costUSD: 0.02,
+      inputTokens: 1200,
+      outputTokens: 3400
+    },
     { line: 'Token usage: prompt=1200 response=3400', inputTokens: 1200, outputTokens: 3400 }
   ]
 }

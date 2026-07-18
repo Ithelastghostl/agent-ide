@@ -9,7 +9,11 @@ export interface QueueDrawerProps {
   /** Enqueue a new item. `useContainer` defaults to false in the UI. Returns the
    *  main-side result so the drawer can surface a rejection (e.g. the 5-item cap). */
   onEnqueue: (input: {
-    provider: Provider; model: string; objective: string; useContainer: boolean; backlogItemIds: string[]
+    provider: Provider
+    model: string
+    objective: string
+    useContainer: boolean
+    backlogItemIds: string[]
   }) => Promise<{ item?: QueueItem; error?: string }>
   onDelete: (id: string) => void
   onReorder: (orderedIds: string[]) => void
@@ -36,7 +40,9 @@ const STATE_LABEL: Record<QueueState, string> = {
 export function QueueDrawer(p: QueueDrawerProps): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'modal-wrap show queue-drawer'
-  wrap.onclick = (e) => { if (e.target === wrap) p.onClose() }
+  wrap.onclick = (e) => {
+    if (e.target === wrap) p.onClose()
+  }
 
   const modal = document.createElement('div')
   modal.className = 'modal queue-modal'
@@ -117,8 +123,14 @@ export function QueueDrawer(p: QueueDrawerProps): HTMLElement {
   addBtn.onclick = async () => {
     err.textContent = ''
     const obj = objective.value.trim()
-    if (!obj) { err.textContent = 'Objective is required.'; return }
-    const ids = backlog.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
+    if (!obj) {
+      err.textContent = 'Objective is required.'
+      return
+    }
+    const ids = backlog.value
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
     if (ids.length > PRIMER_ITEM_CAP) {
       err.textContent = `At most ${PRIMER_ITEM_CAP} backlog items per launch (got ${ids.length}).`
       return
@@ -132,7 +144,10 @@ export function QueueDrawer(p: QueueDrawerProps): HTMLElement {
       backlogItemIds: ids
     })
     addBtn.disabled = false
-    if (res.error) { err.textContent = res.error; return }
+    if (res.error) {
+      err.textContent = res.error
+      return
+    }
     // reset the objective for a quick next add
     objective.value = ''
     backlog.value = ''

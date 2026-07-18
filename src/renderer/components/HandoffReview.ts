@@ -24,7 +24,8 @@ export function HandoffReview(p: HandoffReviewProps): HTMLElement | null {
   if (p.inFix) {
     const warn = document.createElement('div')
     warn.className = 'hr-warn'
-    warn.textContent = '⚠ This session is in FIX mode — it may act on submitted text. Review the pasted material carefully before pressing Enter.'
+    warn.textContent =
+      '⚠ This session is in FIX mode — it may act on submitted text. Review the pasted material carefully before pressing Enter.'
     el.appendChild(warn)
   }
 
