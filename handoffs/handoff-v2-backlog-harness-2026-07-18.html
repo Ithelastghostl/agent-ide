@@ -1,78 +1,257 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Handoff — Agent IDE v2: backlog-driven harness (2026-07-18)</title>
-<style>
-  body { font: 14px/1.55 -apple-system, sans-serif; max-width: 940px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  h1 { font-size: 1.45rem; } h2 { font-size: 1.05rem; margin-top: 1.6rem; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
-  code, pre { background: #f4f4f4; border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
-  pre { padding: 10px; overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  td, th { border: 1px solid #ddd; padding: 5px 8px; text-align: left; vertical-align: top; }
-  .ok { color: #0a7a2f; font-weight: 600; } .warn { color: #a15c00; font-weight: 600; } .bad { color: #b3261e; font-weight: 600; }
-</style>
-</head>
-<body>
-<h1>Agent IDE v2 — backlog-driven development harness</h1>
-<p><b>Repo:</b> <code>~/Projects/agent-ide/agent-ide</code>. <b>Consolidated branch:</b> <code>feat/v2-consolidated</code> (merges the frozen foundation + 8 feature streams + 3 hard-gate fixes). Target: merge to <code>dev</code>, push.<br>
-<b>Plan:</b> <code>docs/plans/v2-backlog-harness-PLAN.md</code> — the 39-round Codex-gate-clean spec (60+ correctness bugs resolved before implementation).<br>
-<b>Build shape:</b> foundation built solo (frozen contract) → 8 streams built in parallel by opus subagents in isolated worktrees → consolidated in dependency order → hard gates → full gate.</p>
+  <head>
+    <meta charset="utf-8" />
+    <title>Handoff — Agent IDE v2: backlog-driven harness (2026-07-18)</title>
+    <style>
+      body {
+        font:
+          14px/1.55 -apple-system,
+          sans-serif;
+        max-width: 940px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color: #1a1a1a;
+      }
+      h1 {
+        font-size: 1.45rem;
+      }
+      h2 {
+        font-size: 1.05rem;
+        margin-top: 1.6rem;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 3px;
+      }
+      code,
+      pre {
+        background: #f4f4f4;
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-size: 12.5px;
+      }
+      pre {
+        padding: 10px;
+        overflow-x: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+      }
+      td,
+      th {
+        border: 1px solid #ddd;
+        padding: 5px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .ok {
+        color: #0a7a2f;
+        font-weight: 600;
+      }
+      .warn {
+        color: #a15c00;
+        font-weight: 600;
+      }
+      .bad {
+        color: #b3261e;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Agent IDE v2 — backlog-driven development harness</h1>
+    <p>
+      <b>Repo:</b> <code>~/Projects/agent-ide/agent-ide</code>. <b>Consolidated branch:</b>
+      <code>feat/v2-consolidated</code> (merges the frozen foundation + 8 feature streams + 3 hard-gate
+      fixes). Target: merge to <code>dev</code>, push.<br />
+      <b>Plan:</b> <code>docs/plans/v2-backlog-harness-PLAN.md</code> — the 39-round Codex-gate-clean spec
+      (60+ correctness bugs resolved before implementation).<br />
+      <b>Build shape:</b> foundation built solo (frozen contract) → 8 streams built in parallel by opus
+      subagents in isolated worktrees → consolidated in dependency order → hard gates → full gate.
+    </p>
 
-<h2>What shipped — your requested features</h2>
-<table>
-<tr><th>Feature</th><th>Where</th></tr>
-<tr><td><b>Backlog tab</b> — bento⇄table toggle, CRUD, epic/goal/task/ticket hierarchy, read-only generated/linear rows</td><td>S1 · BacklogView/BacklogModal · Backlog activity tab 📋</td></tr>
-<tr><td><b>Agent-created tickets</b> — agents drop markdown into <code>&lt;project&gt;/backlog/inbox/</code>; watched, deduped, ingested (epics/goals/tasks)</td><td>S1 · backlogInbox.ts</td></tr>
-<tr><td><b>"Work on this"</b> — select backlog items → they seed the launched session</td><td>S1 · launch backlogItemIds binding</td></tr>
-<tr><td><b>Linear integration</b> — full OAuth 2.1 + PKCE + dynamic registration, Streamable-HTTP MCP, per-project link, pull→backlog, preview-gated idempotent write-back</td><td>S2 · src/main/linear/* · Cmd+L</td></tr>
-<tr><td><b>Uniform harness</b> — one editable HARNESS.md (Discussion→Playback→Fix) injected into EVERY provider session regardless of provider; stage chips; guarded/auto indicator</td><td>S3 + gate 1 · composeLaunchPrimer, StageChip, HarnessEditor</td></tr>
-<tr><td><b>Git awareness + diff pane</b> (read-only)</td><td>S4 · gitInfo.ts, rail badge, Diff tab</td></tr>
-<tr><td><b>Needs-input notifications + cost telemetry</b></td><td>S5 · attention.ts, cost.ts</td></tr>
-<tr><td><b>Objective queues</b> (auto-advance), <b>split view</b>, <b>safe session handoff</b> (review-gated, never auto-submitted)</td><td>S6 · QueueDrawer, split panes, session:handoff</td></tr>
-<tr><td><b>⌘K search</b> over transcripts + backlog</td><td>S7 · SearchOverlay</td></tr>
-<tr><td><b>Launch-a-session-from-an-agent</b> presets</td><td>S8 · agentPreset.ts</td></tr>
-</table>
+    <h2>What shipped — your requested features</h2>
+    <table>
+      <tr>
+        <th>Feature</th>
+        <th>Where</th>
+      </tr>
+      <tr>
+        <td>
+          <b>Backlog tab</b> — bento⇄table toggle, CRUD, epic/goal/task/ticket hierarchy, read-only
+          generated/linear rows
+        </td>
+        <td>S1 · BacklogView/BacklogModal · Backlog activity tab 📋</td>
+      </tr>
+      <tr>
+        <td>
+          <b>Agent-created tickets</b> — agents drop markdown into
+          <code>&lt;project&gt;/backlog/inbox/</code>; watched, deduped, ingested (epics/goals/tasks)
+        </td>
+        <td>S1 · backlogInbox.ts</td>
+      </tr>
+      <tr>
+        <td><b>"Work on this"</b> — select backlog items → they seed the launched session</td>
+        <td>S1 · launch backlogItemIds binding</td>
+      </tr>
+      <tr>
+        <td>
+          <b>Linear integration</b> — full OAuth 2.1 + PKCE + dynamic registration, Streamable-HTTP MCP,
+          per-project link, pull→backlog, preview-gated idempotent write-back
+        </td>
+        <td>S2 · src/main/linear/* · Cmd+L</td>
+      </tr>
+      <tr>
+        <td>
+          <b>Uniform harness</b> — one editable HARNESS.md (Discussion→Playback→Fix) injected into EVERY
+          provider session regardless of provider; stage chips; guarded/auto indicator
+        </td>
+        <td>S3 + gate 1 · composeLaunchPrimer, StageChip, HarnessEditor</td>
+      </tr>
+      <tr>
+        <td><b>Git awareness + diff pane</b> (read-only)</td>
+        <td>S4 · gitInfo.ts, rail badge, Diff tab</td>
+      </tr>
+      <tr>
+        <td><b>Needs-input notifications + cost telemetry</b></td>
+        <td>S5 · attention.ts, cost.ts</td>
+      </tr>
+      <tr>
+        <td>
+          <b>Objective queues</b> (auto-advance), <b>split view</b>,
+          <b>safe session handoff</b> (review-gated, never auto-submitted)
+        </td>
+        <td>S6 · QueueDrawer, split panes, session:handoff</td>
+      </tr>
+      <tr>
+        <td><b>⌘K search</b> over transcripts + backlog</td>
+        <td>S7 · SearchOverlay</td>
+      </tr>
+      <tr>
+        <td><b>Launch-a-session-from-an-agent</b> presets</td>
+        <td>S8 · agentPreset.ts</td>
+      </tr>
+    </table>
 
-<h2>The three hard-gate fixes (consolidation)</h2>
-<ol>
-<li><b>Harness on every launch path (gate 1).</b> Three streams independently found the legacy <code>session:launch</code> bypassed <code>launchService</code>. <code>composeLaunchPrimer</code> is now the single canonical assembler (harness→agent→objective→history, with the R19/R22-3 fail-closed review-demotion), used by fresh/preset/queue launches AND resume/model-swap. The uniform harness — your core "every agent uses the same CLAUDE.md workflow" requirement — now injects on <b>every</b> provider launch. Anchored by a resume-injects-harness test + a fail-closed review test.</li>
-<li><b>Canonical CRLF fix (gate 2).</b> S5 and S6 both independently hit a real latent bug: <code>stripAnsi</code> collapsed a CRLF-terminated prompt to empty (masking "needs input" as "idle", and erasing handoff text). Lifted into <code>history.ts stripAnsi</code> with a regression test; local patches now redundant.</li>
-<li><b>autoAdvance column (gate 3).</b> Promoted S6's queue auto-advance flag from a JSON file to a <code>projects.autoAdvance</code> column (additive migration + Store get/set), so it's durable with the project row.</li>
-</ol>
+    <h2>The three hard-gate fixes (consolidation)</h2>
+    <ol>
+      <li>
+        <b>Harness on every launch path (gate 1).</b> Three streams independently found the legacy
+        <code>session:launch</code> bypassed <code>launchService</code>. <code>composeLaunchPrimer</code> is
+        now the single canonical assembler (harness→agent→objective→history, with the R19/R22-3 fail-closed
+        review-demotion), used by fresh/preset/queue launches AND resume/model-swap. The uniform harness —
+        your core "every agent uses the same CLAUDE.md workflow" requirement — now injects on
+        <b>every</b> provider launch. Anchored by a resume-injects-harness test + a fail-closed review test.
+      </li>
+      <li>
+        <b>Canonical CRLF fix (gate 2).</b> S5 and S6 both independently hit a real latent bug:
+        <code>stripAnsi</code> collapsed a CRLF-terminated prompt to empty (masking "needs input" as "idle",
+        and erasing handoff text). Lifted into <code>history.ts stripAnsi</code> with a regression test; local
+        patches now redundant.
+      </li>
+      <li>
+        <b>autoAdvance column (gate 3).</b> Promoted S6's queue auto-advance flag from a JSON file to a
+        <code>projects.autoAdvance</code> column (additive migration + Store get/set), so it's durable with
+        the project row.
+      </li>
+    </ol>
 
-<h2>Verification (macOS, this machine)</h2>
-<table>
-<tr><th>Gate</th><th>Result</th></tr>
-<tr><td><code>npx tsc --noEmit</code></td><td class="ok">clean — v2 + dev's features fully reconciled</td></tr>
-<tr><td><code>npm test</code> (unit)</td><td class="ok">641 passed / 5 skipped (59 files) — +~360 new tests over v1</td></tr>
-<tr><td><code>npm run build</code></td><td class="ok">all 3 targets</td></tr>
-<tr><td><code>npm run native-gate</code></td><td class="ok">better-sqlite3 + node-pty OK (Electron ABI)</td></tr>
-<tr><td><code>npm run e2e</code> (Playwright)</td><td class="ok">23/24 (only the pre-existing OSC-8 terminal-links flake — fails on the untouched base too; agent-presets is an under-load timing flake that passes in isolation)</td></tr>
-<tr><td>Container smoke (real OrbStack)</td><td class="ok">5/5 — exec context, seeded+authenticated codex, port forward, real in-container session</td></tr>
-</table>
+    <h2>Verification (macOS, this machine)</h2>
+    <table>
+      <tr>
+        <th>Gate</th>
+        <th>Result</th>
+      </tr>
+      <tr>
+        <td><code>npx tsc --noEmit</code></td>
+        <td class="ok">clean — v2 + dev's features fully reconciled</td>
+      </tr>
+      <tr>
+        <td><code>npm test</code> (unit)</td>
+        <td class="ok">641 passed / 5 skipped (59 files) — +~360 new tests over v1</td>
+      </tr>
+      <tr>
+        <td><code>npm run build</code></td>
+        <td class="ok">all 3 targets</td>
+      </tr>
+      <tr>
+        <td><code>npm run native-gate</code></td>
+        <td class="ok">better-sqlite3 + node-pty OK (Electron ABI)</td>
+      </tr>
+      <tr>
+        <td><code>npm run e2e</code> (Playwright)</td>
+        <td class="ok">
+          23/24 (only the pre-existing OSC-8 terminal-links flake — fails on the untouched base too;
+          agent-presets is an under-load timing flake that passes in isolation)
+        </td>
+      </tr>
+      <tr>
+        <td>Container smoke (real OrbStack)</td>
+        <td class="ok">
+          5/5 — exec context, seeded+authenticated codex, port forward, real in-container session
+        </td>
+      </tr>
+    </table>
 
-<h2>dev merge (2026-07-18)</h2>
-<p><code>dev</code> advanced after the v2 fork with a real feature commit (<b>service status bar</b> — serviceHealth/StatusBar probing vercel/supabase/github/resend; <b>codex model-cache</b> + stale-model fallback on resume; <b>workspace-cwd</b> for container sessions; <b>session-delete</b> from the Archived board; <b>OS-clipboard</b> copy/paste; <b>model-rejection</b> detection) plus a prettier pass. All of it was reconciled into v2 across 18 conflicted files (ipc.ts, store.ts, main.ts, renderer components, tests) — union where features were orthogonal, superset where they overlapped (e.g. one terminal:open with both the v2 bus-emit path AND dev's workspace context; one resume handler with both the harness primer AND dev's stale-model fallback + model-rejection). tsc clean, 641 unit + build + e2e + smoke all green on the merged result.</p>
+    <h2>dev merge (2026-07-18)</h2>
+    <p>
+      <code>dev</code> advanced after the v2 fork with a real feature commit (<b>service status bar</b> —
+      serviceHealth/StatusBar probing vercel/supabase/github/resend; <b>codex model-cache</b> + stale-model
+      fallback on resume; <b>workspace-cwd</b> for container sessions; <b>session-delete</b> from the Archived
+      board; <b>OS-clipboard</b> copy/paste; <b>model-rejection</b> detection) plus a prettier pass. All of it
+      was reconciled into v2 across 18 conflicted files (ipc.ts, store.ts, main.ts, renderer components,
+      tests) — union where features were orthogonal, superset where they overlapped (e.g. one terminal:open
+      with both the v2 bus-emit path AND dev's workspace context; one resume handler with both the harness
+      primer AND dev's stale-model fallback + model-rejection). tsc clean, 641 unit + build + e2e + smoke all
+      green on the merged result.
+    </p>
 
-<h2>Deviations from the frozen contract (reconciled in consolidation)</h2>
-<ul>
-<li><b>Linear link storage</b> (S2): <code>projects.linearRef</code> wasn't in the frozen schema → LinearLink persisted as a 0700 file under <code>~/AgentIDE/linear/</code>. Functional; a future column migration is optional.</li>
-<li><b>Bridge additions</b> (S6): 6 methods/events the predeclared surface missed (queue autoAdvance get/set, queue:changed, session:handoff targetInFix) — kept as canonical bridge, unioned with S1/S8 additive fields.</li>
-<li><b>Store.setSessionCost</b> (S5): named in the plan but absent → cost persisted via getSession→saveSession (costJson). Fine.</li>
-<li><b>Snapshots/rollback (#9) deferred</b> — six review rounds showed the concurrent-writer + staged/unstaged + undo surface is research-grade. S4 shipped git-awareness + read-only diff only; the schema seam stays frozen for a later run. This is the one requested item NOT fully delivered this run, by deliberate decision.</li>
-</ul>
+    <h2>Deviations from the frozen contract (reconciled in consolidation)</h2>
+    <ul>
+      <li>
+        <b>Linear link storage</b> (S2): <code>projects.linearRef</code> wasn't in the frozen schema →
+        LinearLink persisted as a 0700 file under <code>~/AgentIDE/linear/</code>. Functional; a future column
+        migration is optional.
+      </li>
+      <li>
+        <b>Bridge additions</b> (S6): 6 methods/events the predeclared surface missed (queue autoAdvance
+        get/set, queue:changed, session:handoff targetInFix) — kept as canonical bridge, unioned with S1/S8
+        additive fields.
+      </li>
+      <li>
+        <b>Store.setSessionCost</b> (S5): named in the plan but absent → cost persisted via
+        getSession→saveSession (costJson). Fine.
+      </li>
+      <li>
+        <b>Snapshots/rollback (#9) deferred</b> — six review rounds showed the concurrent-writer +
+        staged/unstaged + undo surface is research-grade. S4 shipped git-awareness + read-only diff only; the
+        schema seam stays frozen for a later run. This is the one requested item NOT fully delivered this run,
+        by deliberate decision.
+      </li>
+    </ul>
 
-<h2>Your checklist (only you can do these)</h2>
-<ol>
-<li><b>Live Linear OAuth</b> — link a project to Linear (Cmd+L → Link). The full OAuth+MCP client is built and unit-tested against a fake server, but the live browser OAuth round-trip can't run headlessly. This is the one user-acceptance step.</li>
-<li><b>Visual pass</b> — <code>npm run dev</code> (or launch "Nacho's IDE"): Backlog tab, queue drawer (▷), ⌘K search, split view, stage chips, harness editor (📜).</li>
-<li><b>Merged branches</b> — <code>feat/v2-consolidated</code> merges to <code>dev</code>; the 8 stream branches + <code>feat/v2-foundation</code> are pushed for reference. Delete them once satisfied.</li>
-</ol>
+    <h2>Your checklist (only you can do these)</h2>
+    <ol>
+      <li>
+        <b>Live Linear OAuth</b> — link a project to Linear (Cmd+L → Link). The full OAuth+MCP client is built
+        and unit-tested against a fake server, but the live browser OAuth round-trip can't run headlessly.
+        This is the one user-acceptance step.
+      </li>
+      <li>
+        <b>Visual pass</b> — <code>npm run dev</code> (or launch "Nacho's IDE"): Backlog tab, queue drawer
+        (▷), ⌘K search, split view, stage chips, harness editor (📜).
+      </li>
+      <li>
+        <b>Merged branches</b> — <code>feat/v2-consolidated</code> merges to <code>dev</code>; the 8 stream
+        branches + <code>feat/v2-foundation</code> are pushed for reference. Delete them once satisfied.
+      </li>
+    </ol>
 
-<h2>Ready-to-use prompts</h2>
-<pre>“Do the Linear OAuth flow” → Cmd+L in the app, Link, complete the browser auth
+    <h2>Ready-to-use prompts</h2>
+    <pre>
+“Do the Linear OAuth flow” → Cmd+L in the app, Link, complete the browser auth
 “Run the container smoke again” → npm rebuild node-pty && AGENT_IDE_CONTAINER_SMOKE=1 npx vitest run tests/integration --testTimeout=600000
 “Build the deferred snapshot/rollback feature” → a fresh gated run off docs/plans</pre>
-</body>
+  </body>
 </html>

@@ -82,7 +82,15 @@ describe('AllSessions — attention badges, cost chips, and per-project rollup',
       ['s1', cost({ costUSD: 0.1 })],
       ['s2', cost({ provider: 'codex', costUSD: 0.4 })]
     ])
-    const el = AllSessions({ projects, sessions, attention, costs, mode: 'live', onSetMode: () => {}, onOpen: () => {} })
+    const el = AllSessions({
+      projects,
+      sessions,
+      attention,
+      costs,
+      mode: 'live',
+      onSetMode: () => {},
+      onOpen: () => {}
+    })
     expect(el.querySelector('.att-badge.input')).not.toBeNull()
     expect(el.querySelectorAll('.cost-chip').length).toBe(2)
     const rollup = el.querySelector('.as-rollup')!

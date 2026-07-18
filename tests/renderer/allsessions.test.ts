@@ -93,7 +93,13 @@ describe('AllSessions (NN4 global board)', () => {
         spawnedApprovalMode: 'guarded'
       }
     ]
-    const el = AllSessions({ projects, sessions: staged, mode: 'live', onSetMode: () => {}, onOpen: () => {} })
+    const el = AllSessions({
+      projects,
+      sessions: staged,
+      mode: 'live',
+      onSetMode: () => {},
+      onOpen: () => {}
+    })
     const chip = el.querySelector('.as-row .stage-chip.fix')
     expect(chip).toBeTruthy()
     expect(chip!.textContent).toBe('Fix')
@@ -116,7 +122,13 @@ describe('AllSessions (NN4 global board)', () => {
         spawnedApprovalMode: 'guarded'
       }
     ]
-    const el = AllSessions({ projects, sessions: staged, mode: 'live', onSetMode: () => {}, onOpen: () => {} })
+    const el = AllSessions({
+      projects,
+      sessions: staged,
+      mode: 'live',
+      onSetMode: () => {},
+      onOpen: () => {}
+    })
     expect(el.querySelector('.as-row .stage-chip.fix')).toBeTruthy()
     expect(el.querySelector('.as-row .approval-ind.guarded')!.textContent).toBe('guarded')
   })
@@ -134,7 +146,13 @@ describe('AllSessions (NN4 global board)', () => {
         updatedAt: 1
       }
     ]
-    const el = AllSessions({ projects, sessions: withTerm, mode: 'live', onSetMode: () => {}, onOpen: () => {} })
+    const el = AllSessions({
+      projects,
+      sessions: withTerm,
+      mode: 'live',
+      onSetMode: () => {},
+      onOpen: () => {}
+    })
     expect(el.querySelector('.stage-chip')).toBeNull()
   })
 })

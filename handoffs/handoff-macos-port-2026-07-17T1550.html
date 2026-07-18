@@ -1,82 +1,297 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Handoff — Agent IDE macOS port (2026-07-17)</title>
-<style>
-  body { font: 14px/1.55 -apple-system, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  h1 { font-size: 1.4rem; } h2 { font-size: 1.05rem; margin-top: 1.6rem; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
-  code, pre { background: #f4f4f4; border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
-  pre { padding: 10px; overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  td, th { border: 1px solid #ddd; padding: 5px 8px; text-align: left; vertical-align: top; }
-  .ok { color: #0a7a2f; font-weight: 600; } .warn { color: #a15c00; font-weight: 600; } .bad { color: #b3261e; font-weight: 600; }
-</style>
-</head>
-<body>
-<h1>Agent IDE — macOS port &amp; feature enablement</h1>
-<p><b>Repo:</b> <code>~/Projects/agent-ide/agent-ide</code> (branch <code>dev</code>, all changes <b>uncommitted</b> — commit/push needs your approval).<br>
-<b>Scope (approved):</b> everything works on this MacBook — launch, terminals, provider sessions with subscription auth, devcontainers on OrbStack, port forwarding, chat history + summarization, and a new library <b>agents</b> category with an add flow.<br>
-<b>Process:</b> backlog → 6-round Codex review gate (24→11→3→1→1→0 blocking findings) → implementation → verification.</p>
+  <head>
+    <meta charset="utf-8" />
+    <title>Handoff — Agent IDE macOS port (2026-07-17)</title>
+    <style>
+      body {
+        font:
+          14px/1.55 -apple-system,
+          sans-serif;
+        max-width: 900px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color: #1a1a1a;
+      }
+      h1 {
+        font-size: 1.4rem;
+      }
+      h2 {
+        font-size: 1.05rem;
+        margin-top: 1.6rem;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 3px;
+      }
+      code,
+      pre {
+        background: #f4f4f4;
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-size: 12.5px;
+      }
+      pre {
+        padding: 10px;
+        overflow-x: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+      }
+      td,
+      th {
+        border: 1px solid #ddd;
+        padding: 5px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .ok {
+        color: #0a7a2f;
+        font-weight: 600;
+      }
+      .warn {
+        color: #a15c00;
+        font-weight: 600;
+      }
+      .bad {
+        color: #b3261e;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Agent IDE — macOS port &amp; feature enablement</h1>
+    <p>
+      <b>Repo:</b> <code>~/Projects/agent-ide/agent-ide</code> (branch <code>dev</code>, all changes
+      <b>uncommitted</b> — commit/push needs your approval).<br />
+      <b>Scope (approved):</b> everything works on this MacBook — launch, terminals, provider sessions with
+      subscription auth, devcontainers on OrbStack, port forwarding, chat history + summarization, and a new
+      library <b>agents</b> category with an add flow.<br />
+      <b>Process:</b> backlog → 6-round Codex review gate (24→11→3→1→1→0 blocking findings) → implementation →
+      verification.
+    </p>
 
-<h2>Verification evidence (all run on this machine)</h2>
-<table>
-<tr><th>Gate</th><th>Result</th></tr>
-<tr><td><code>npm run build</code> + <code>npx tsc --noEmit</code></td><td class="ok">clean</td></tr>
-<tr><td><code>npm test</code> (unit)</td><td class="ok">279 passed (26 files; +~30 new tests)</td></tr>
-<tr><td><code>npm run native-gate</code> (Electron ABI: better-sqlite3, node-pty)</td><td class="ok">ALL NATIVE MODULES OK</td></tr>
-<tr><td><code>npm run e2e</code> (Playwright/Electron)</td><td class="ok">12/12 incl. new window-lifecycle spec and ticket success/failure specs</td></tr>
-<tr><td>Container smoke (<code>AGENT_IDE_CONTAINER_SMOKE=1</code>, real OrbStack)</td><td class="ok">5/5 — exec context (pwd/HOME/whoami), seeded <b>writable authenticated</b> codex (<code>login status</code> exit 0 in-container), port forward round-trip (HTTP 200 host→container) + relay teardown, real interactive codex TUI session in-container (trust dialog → main UI)</td></tr>
-<tr><td>Live summarization (real confined <code>claude&nbsp;-p</code>)</td><td class="ok">schema-valid ticket generated through <code>generateTicket()</code>; billed to subscription per your NN0 decision</td></tr>
-<tr><td>Adversarial sentinel (headless isolation)</td><td class="ok">random secret NOT leaked; fabricated "tool output" proved inert (claimed file missing while it existed)</td></tr>
-<tr><td>Provider sessions (host, picker models)</td><td class="ok">codex: TUI + marker survives stripAnsi &amp; primer. claude: <code>--model claude-opus-4-8</code> accepted (headless "OK")</td></tr>
-<tr><td>Clean-env <code>.app</code> launch (Finder-equivalent)</td><td class="ok">Electron booted as "Nacho's IDE" with the launcher's own PATH; log at <code>~/Library/Logs/nachos-ide/launch.log</code></td></tr>
-</table>
+    <h2>Verification evidence (all run on this machine)</h2>
+    <table>
+      <tr>
+        <th>Gate</th>
+        <th>Result</th>
+      </tr>
+      <tr>
+        <td><code>npm run build</code> + <code>npx tsc --noEmit</code></td>
+        <td class="ok">clean</td>
+      </tr>
+      <tr>
+        <td><code>npm test</code> (unit)</td>
+        <td class="ok">279 passed (26 files; +~30 new tests)</td>
+      </tr>
+      <tr>
+        <td><code>npm run native-gate</code> (Electron ABI: better-sqlite3, node-pty)</td>
+        <td class="ok">ALL NATIVE MODULES OK</td>
+      </tr>
+      <tr>
+        <td><code>npm run e2e</code> (Playwright/Electron)</td>
+        <td class="ok">12/12 incl. new window-lifecycle spec and ticket success/failure specs</td>
+      </tr>
+      <tr>
+        <td>Container smoke (<code>AGENT_IDE_CONTAINER_SMOKE=1</code>, real OrbStack)</td>
+        <td class="ok">
+          5/5 — exec context (pwd/HOME/whoami), seeded <b>writable authenticated</b> codex (<code
+            >login status</code
+          >
+          exit 0 in-container), port forward round-trip (HTTP 200 host→container) + relay teardown, real
+          interactive codex TUI session in-container (trust dialog → main UI)
+        </td>
+      </tr>
+      <tr>
+        <td>Live summarization (real confined <code>claude&nbsp;-p</code>)</td>
+        <td class="ok">
+          schema-valid ticket generated through <code>generateTicket()</code>; billed to subscription per your
+          NN0 decision
+        </td>
+      </tr>
+      <tr>
+        <td>Adversarial sentinel (headless isolation)</td>
+        <td class="ok">
+          random secret NOT leaked; fabricated "tool output" proved inert (claimed file missing while it
+          existed)
+        </td>
+      </tr>
+      <tr>
+        <td>Provider sessions (host, picker models)</td>
+        <td class="ok">
+          codex: TUI + marker survives stripAnsi &amp; primer. claude:
+          <code>--model claude-opus-4-8</code> accepted (headless "OK")
+        </td>
+      </tr>
+      <tr>
+        <td>Clean-env <code>.app</code> launch (Finder-equivalent)</td>
+        <td class="ok">
+          Electron booted as "Nacho's IDE" with the launcher's own PATH; log at
+          <code>~/Library/Logs/nachos-ide/launch.log</code>
+        </td>
+      </tr>
+    </table>
 
-<h2>What changed (38 files, +1130/−238; 12 new files)</h2>
-<table>
-<tr><th>Area</th><th>Change</th></tr>
-<tr><td>Platform flags</td><td><code>--ozone-platform=x11</code> now Linux-only via <code>scripts/run-electron.js</code> + <code>e2e/launch.ts</code>; removed from package.json scripts and all specs.</td></tr>
-<tr><td>macOS launcher</td><td><code>scripts/install-macos-app.sh</code> → <code>~/Applications/Nacho's IDE.app</code> (own PATH, log file, osascript alert on failure, .icns generated from icon.svg). <code>launch.sh</code> no longer swallows rebuild failures.</td></tr>
-<tr><td>App lifecycle (macOS)</td><td>Store/IPC hoisted to app scope (single registration); pty events routed to the live window; sessions survive window close and reopened windows <b>attach</b> to live ptys (<code>pty:alive</code>); awaited bounded shutdown teardown of relays.</td></tr>
-<tr><td>Terminals</td><td>Host terminals use <code>$SHELL</code> (zsh, not macOS bash 3.2); Cmd+C/V copy-paste.</td></tr>
-<tr><td>Summarization (B1)</td><td><code>createCliHeadlessRunner()</code>: confined <code>claude -p --tools "" --setting-sources "" --strict-mcp-config --no-session-persistence</code>, prompt on stdin, fresh empty cwd, 5-min timeout. Codex fallback dropped (unsandboxable reads). Uncapped transcript read for tickets; ticket file write is required-for-success with deterministic name <code>ticket-&lt;sessionId&gt;.md</code>; ticket row + status advance in one SQLite transaction; e2e seam <code>AGENT_IDE_TICKET_CMD</code>.</td></tr>
-<tr><td>Library agents (B2)</td><td>New <code>agents</code> category (<code>agents/&lt;slug&gt;.md</code>: JSON-quoted YAML frontmatter + <code># Instructions / # Data / # Context</code> layers), 🤖 pill, "New agent" form, validation (slug, single-line description, 64KB/layer), exclusive create (no overwrite), round-trip tested against a conforming YAML parser. Multi-line insertion only into provider sessions, bracketed-paste wrapped; local-first library (sync refuses to clobber local items).</td></tr>
-<tr><td>History (B3)</td><td><code>historySync</code> exposed in the bridge + "Sync history" button on the home board with per-step results.</td></tr>
-<tr><td>Containers (B4)</td><td>Exec context resolved authoritatively (remoteUser via merged config, home via container passwd, <code>-w</code> workspace folder, <code>-e HOME</code>) and shared by sessions/terminals/health/install. Credentials seeded via <b>docker cp</b> (one-way, never overwrites, works for pre-existing containers): codex <code>auth.json/config.toml</code>, gemini oauth/settings; claude opt-in. Tracked fixture + integration suite.</td></tr>
-<tr><td>Health/context (B5/B6)</td><td><code>provider:health</code> honors an explicit host/container context; sessions persist <code>useContainer</code> (additive migration) and resume in the right context after restarts; session upsert now persists provider switches (pre-existing bug).</td></tr>
-</table>
+    <h2>What changed (38 files, +1130/−238; 12 new files)</h2>
+    <table>
+      <tr>
+        <th>Area</th>
+        <th>Change</th>
+      </tr>
+      <tr>
+        <td>Platform flags</td>
+        <td>
+          <code>--ozone-platform=x11</code> now Linux-only via <code>scripts/run-electron.js</code> +
+          <code>e2e/launch.ts</code>; removed from package.json scripts and all specs.
+        </td>
+      </tr>
+      <tr>
+        <td>macOS launcher</td>
+        <td>
+          <code>scripts/install-macos-app.sh</code> → <code>~/Applications/Nacho's IDE.app</code> (own PATH,
+          log file, osascript alert on failure, .icns generated from icon.svg). <code>launch.sh</code> no
+          longer swallows rebuild failures.
+        </td>
+      </tr>
+      <tr>
+        <td>App lifecycle (macOS)</td>
+        <td>
+          Store/IPC hoisted to app scope (single registration); pty events routed to the live window; sessions
+          survive window close and reopened windows <b>attach</b> to live ptys (<code>pty:alive</code>);
+          awaited bounded shutdown teardown of relays.
+        </td>
+      </tr>
+      <tr>
+        <td>Terminals</td>
+        <td>Host terminals use <code>$SHELL</code> (zsh, not macOS bash 3.2); Cmd+C/V copy-paste.</td>
+      </tr>
+      <tr>
+        <td>Summarization (B1)</td>
+        <td>
+          <code>createCliHeadlessRunner()</code>: confined
+          <code>claude -p --tools "" --setting-sources "" --strict-mcp-config --no-session-persistence</code>,
+          prompt on stdin, fresh empty cwd, 5-min timeout. Codex fallback dropped (unsandboxable reads).
+          Uncapped transcript read for tickets; ticket file write is required-for-success with deterministic
+          name <code>ticket-&lt;sessionId&gt;.md</code>; ticket row + status advance in one SQLite
+          transaction; e2e seam <code>AGENT_IDE_TICKET_CMD</code>.
+        </td>
+      </tr>
+      <tr>
+        <td>Library agents (B2)</td>
+        <td>
+          New <code>agents</code> category (<code>agents/&lt;slug&gt;.md</code>: JSON-quoted YAML frontmatter
+          + <code># Instructions / # Data / # Context</code> layers), 🤖 pill, "New agent" form, validation
+          (slug, single-line description, 64KB/layer), exclusive create (no overwrite), round-trip tested
+          against a conforming YAML parser. Multi-line insertion only into provider sessions, bracketed-paste
+          wrapped; local-first library (sync refuses to clobber local items).
+        </td>
+      </tr>
+      <tr>
+        <td>History (B3)</td>
+        <td>
+          <code>historySync</code> exposed in the bridge + "Sync history" button on the home board with
+          per-step results.
+        </td>
+      </tr>
+      <tr>
+        <td>Containers (B4)</td>
+        <td>
+          Exec context resolved authoritatively (remoteUser via merged config, home via container passwd,
+          <code>-w</code> workspace folder, <code>-e HOME</code>) and shared by
+          sessions/terminals/health/install. Credentials seeded via <b>docker cp</b> (one-way, never
+          overwrites, works for pre-existing containers): codex <code>auth.json/config.toml</code>, gemini
+          oauth/settings; claude opt-in. Tracked fixture + integration suite.
+        </td>
+      </tr>
+      <tr>
+        <td>Health/context (B5/B6)</td>
+        <td>
+          <code>provider:health</code> honors an explicit host/container context; sessions persist
+          <code>useContainer</code> (additive migration) and resume in the right context after restarts;
+          session upsert now persists provider switches (pre-existing bug).
+        </td>
+      </tr>
+    </table>
 
-<h2>Deviations from the reviewed plan (recorded)</h2>
-<ul>
-<li><b>Seed mounts → docker cp:</b> the installed devcontainer CLI (0.87.0) rejects <code>readonly</code> in <code>--mount</code>, so staging mounts were impossible. docker-cp seeding is strictly better (no host write-back path at all; fixes R2-2 rebuild-for-mounts without UI).</li>
-<li><b>Library mount is now writable in containers</b> (same CLI grammar limitation) — documented in RUNNING.md.</li>
-<li><b>Old ticket files</b>: filenames changed to <code>ticket-&lt;sessionId&gt;.md</code>; any pre-existing <code>&lt;date&gt;-&lt;title&gt;.md</code> tickets remain readable but retries no longer target them.</li>
-</ul>
+    <h2>Deviations from the reviewed plan (recorded)</h2>
+    <ul>
+      <li>
+        <b>Seed mounts → docker cp:</b> the installed devcontainer CLI (0.87.0) rejects
+        <code>readonly</code> in <code>--mount</code>, so staging mounts were impossible. docker-cp seeding is
+        strictly better (no host write-back path at all; fixes R2-2 rebuild-for-mounts without UI).
+      </li>
+      <li>
+        <b>Library mount is now writable in containers</b> (same CLI grammar limitation) — documented in
+        RUNNING.md.
+      </li>
+      <li>
+        <b>Old ticket files</b>: filenames changed to <code>ticket-&lt;sessionId&gt;.md</code>; any
+        pre-existing <code>&lt;date&gt;-&lt;title&gt;.md</code> tickets remain readable but retries no longer
+        target them.
+      </li>
+    </ul>
 
-<h2>What went wrong / discovered en route</h2>
-<ul>
-<li>Pre-existing macOS-only test failures (path canonicalization: <code>/home</code> firmlink, <code>/tmp→/private/tmp</code>) — tests fixed to canonicalize.</li>
-<li>The dual-ABI trap bit once during verification (running playwright without <code>npm run e2e</code>'s rebuild) — behaved exactly as RUNNING.md documents.</li>
-<li>Provider-smoke can't fully render claude/gemini TUIs headlessly (they need a real terminal emulator answering queries; the app's xterm.js does this). codex proved the pipeline; claude verified headless; see checklist for the 2-minute in-app checks.</li>
-<li><b>gemini CLI hangs even headless</b> (60s+ on <code>gemini -p</code>) — almost certainly stale OAuth needing interactive re-login. Not an app defect; remedy below.</li>
-</ul>
+    <h2>What went wrong / discovered en route</h2>
+    <ul>
+      <li>
+        Pre-existing macOS-only test failures (path canonicalization: <code>/home</code> firmlink,
+        <code>/tmp→/private/tmp</code>) — tests fixed to canonicalize.
+      </li>
+      <li>
+        The dual-ABI trap bit once during verification (running playwright without <code>npm run e2e</code>'s
+        rebuild) — behaved exactly as RUNNING.md documents.
+      </li>
+      <li>
+        Provider-smoke can't fully render claude/gemini TUIs headlessly (they need a real terminal emulator
+        answering queries; the app's xterm.js does this). codex proved the pipeline; claude verified headless;
+        see checklist for the 2-minute in-app checks.
+      </li>
+      <li>
+        <b>gemini CLI hangs even headless</b> (60s+ on <code>gemini -p</code>) — almost certainly stale OAuth
+        needing interactive re-login. Not an app defect; remedy below.
+      </li>
+    </ul>
 
-<h2>Your checklist (things only you can do)</h2>
-<ol>
-<li><b>Visual check:</b> <code>npm run dev</code> (or launch "Nacho's IDE" from Spotlight): window opens, terminals live, launch codex/claude sessions, insert a library agent into a session, reconnect a session and confirm the primer carries context (type a marker phrase first).</li>
-<li><b>Gemini re-auth:</b> open a gemini login from a provider row (or run <code>gemini</code> in an in-app terminal) and complete the browser flow — its CLI currently hangs headless.</li>
-<li><b>Claude in a container (optional):</b> launch a containerized claude session and run <code>/login</code> — the OAuth loopback is port-forwarded; macOS Keychain creds can't be copied in.</li>
-<li><b>Cleanup (your call, never deleted by me):</b> 6 stopped smoke containers <code>docker ps -a | grep agide-smoke</code> → <code>docker rm</code>; scratch temp dirs under <code>$TMPDIR/agide-*</code>.</li>
-<li><b>Commit:</b> say the word and I'll commit (and push) the 38-file change set on <code>dev</code>.</li>
-</ol>
+    <h2>Your checklist (things only you can do)</h2>
+    <ol>
+      <li>
+        <b>Visual check:</b> <code>npm run dev</code> (or launch "Nacho's IDE" from Spotlight): window opens,
+        terminals live, launch codex/claude sessions, insert a library agent into a session, reconnect a
+        session and confirm the primer carries context (type a marker phrase first).
+      </li>
+      <li>
+        <b>Gemini re-auth:</b> open a gemini login from a provider row (or run <code>gemini</code> in an
+        in-app terminal) and complete the browser flow — its CLI currently hangs headless.
+      </li>
+      <li>
+        <b>Claude in a container (optional):</b> launch a containerized claude session and run
+        <code>/login</code> — the OAuth loopback is port-forwarded; macOS Keychain creds can't be copied in.
+      </li>
+      <li>
+        <b>Cleanup (your call, never deleted by me):</b> 6 stopped smoke containers
+        <code>docker ps -a | grep agide-smoke</code> → <code>docker rm</code>; scratch temp dirs under
+        <code>$TMPDIR/agide-*</code>.
+      </li>
+      <li>
+        <b>Commit:</b> say the word and I'll commit (and push) the 38-file change set on <code>dev</code>.
+      </li>
+    </ol>
 
-<h2>Addendum (2026-07-17, post-handoff)</h2>
-<p>macOS showed the "Support Ending for Intel-Based Apps" warning for <b>Python</b>: the only host Python was the CLT 3.9 framework (universal bundle carrying x86_64 slices), launched by node-gyp on every <code>electron-rebuild</code>. Resolved by installing Homebrew Python 3.14.6 (pure arm64) — it precedes <code>/usr/bin</code> in both your shell PATH and the .app launcher PATH, so gyp and scripts now use it. Verified: <code>which python3</code> → <code>/opt/homebrew/bin/python3</code>, arch arm64, electron-rebuild green. No repo change was needed.</p>
+    <h2>Addendum (2026-07-17, post-handoff)</h2>
+    <p>
+      macOS showed the "Support Ending for Intel-Based Apps" warning for <b>Python</b>: the only host Python
+      was the CLT 3.9 framework (universal bundle carrying x86_64 slices), launched by node-gyp on every
+      <code>electron-rebuild</code>. Resolved by installing Homebrew Python 3.14.6 (pure arm64) — it precedes
+      <code>/usr/bin</code> in both your shell PATH and the .app launcher PATH, so gyp and scripts now use it.
+      Verified: <code>which python3</code> → <code>/opt/homebrew/bin/python3</code>, arch arm64,
+      electron-rebuild green. No repo change was needed.
+    </p>
 
-<h2>Ready-to-use prompts</h2>
-<pre>“Commit the macOS port on dev with a suitable message” (I will ask before pushing)
+    <h2>Ready-to-use prompts</h2>
+    <pre>
+“Commit the macOS port on dev with a suitable message” (I will ask before pushing)
 “Run the container smoke again”  → npm rebuild node-pty && AGENT_IDE_CONTAINER_SMOKE=1 npx vitest run tests/integration --testTimeout=600000
 “Reinstall the app bundle”       → bash scripts/install-macos-app.sh</pre>
-</body>
+  </body>
 </html>
