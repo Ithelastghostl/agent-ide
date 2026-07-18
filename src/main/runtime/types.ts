@@ -38,6 +38,8 @@ export interface ContainerRuntime {
   findRunning(workspace: string): Promise<string | null>
   findPresence(workspace: string): Promise<ContainerPresence>
   startById(id: string): Promise<void>
+  /** `docker stop` — reversible; preserves container state for a fast restart. */
+  stopById(id: string): Promise<void>
   /** The non-root user to `docker exec` as (devcontainer remoteUser / uid≥1000). */
   resolveUser(containerId: string): Promise<string | null>
   /** That user's home from the container's passwd (R3-1); conventional fallback. */

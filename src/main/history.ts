@@ -1,6 +1,6 @@
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, existsSync, renameSync } from 'node:fs'
 
 /** Root of the committable per-session history folder (mirrors SQLite transcripts
  *  in a human-readable, git-friendly form). One file per session. */
@@ -19,6 +19,22 @@ export function historyFile(sessionId: string): string {
     .replace(/[^a-zA-Z0-9._-]/g, '_') // drop separators / unsafe chars
     .replace(/\.\.+/g, '_') // collapse any '..' so no traversal token survives
   return join(historyDir(), `${safe}.log`)
+}
+
+/** Remove a session's on-disk history when the session is permanently deleted.
+ *  Per the never-rm policy this MOVES the file to a `Bin/` subfolder of the history
+ *  dir rather than unlinking it — the chat is gone from the app but recoverable
+ *  from disk. Best-effort + idempotent: a missing file is a no-op. */
+export function removeHistory(sessionId: string): void {
+  const file = historyFile(sessionId)
+  if (!existsSync(file)) return
+  const bin = join(historyDir(), 'Bin')
+  mkdirSync(bin, { recursive: true })
+  try {
+    renameSync(file, join(bin, basename(file)))
+  } catch {
+    /* best-effort: if the move fails, leave the file in place rather than throw */
+  }
 }
 
 /** Strip ANSI/VT control sequences and other terminal noise from raw pty output,

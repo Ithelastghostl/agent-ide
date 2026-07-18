@@ -1,4 +1,4 @@
-import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, shell, clipboard, BrowserWindow } from 'electron'
 import {
   existsSync,
   readFileSync,
@@ -12,7 +12,7 @@ import { readdir } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 import { launchArgv } from './providers'
-import { allModels } from './models'
+import { allModels, defaultModel } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory, cloneRepo, cloneUrl, pullRepo } from './github'
 import { libraryDir, scanLibrary, readLibraryItem, libraryIsClone, addAgent } from './library'
@@ -21,6 +21,7 @@ import { isRegisteredAgent, composeLaunchPrimer } from './agentPreset'
 // ops now go through runtime.container (M1).
 import { containerExecArgv, libraryConfigMount, providerSeedFiles } from './devcontainer'
 import { loginArgv } from './providerHealth'
+import { probeAllServices, loginArgv as serviceLoginArgv } from './serviceHealth'
 import { loopbackPort } from './portForwarder'
 import type {
   Runtime,
@@ -29,12 +30,17 @@ import type {
   PortForwardService,
   PortWatchHandle
 } from './runtime'
-import { historyFile, buildPrimer, stripAnsi } from './history'
+import { historyFile, buildPrimer, stripAnsi, removeHistory } from './history'
 import { hostShell } from './ptyManager'
 import { sessionEvents } from './sessionEvents'
 import { Store } from './store'
 import { confinedPath } from './confine'
-import { validateLaunchRequest, validateResumeSession, validateTaskTransition } from './validate'
+import {
+  validateLaunchRequest,
+  validateResumeSession,
+  validateTaskTransition,
+  isKnownModel
+} from './validate'
 import { writeRawLog, writeTicketFile } from './projectLog'
 import { generateTicket, type HeadlessRunner } from './ticketService'
 import { notEnabledRunner } from './headlessRunner'
@@ -50,11 +56,13 @@ import { registerAttentionIpc } from './ipc/attention'
 import type { IpcDeps } from './ipc/deps'
 import {
   isProvider,
+  SERVICES,
   type Provider,
   type Session,
   type TaskKind,
   type TaskSubkind,
-  type SessionStage
+  type SessionStage,
+  type ServiceName
 } from '@shared/types'
 
 export interface FileNode {
@@ -476,6 +484,28 @@ export function registerIpc(
     return launch.setDesiredModel(id, provider as Provider, model)
   })
 
+  // Terminal copy/paste goes through the OS clipboard here in main, NOT the
+  // renderer's navigator.clipboard: the async web clipboard needs document focus
+  // + transient user activation, which the xterm keydown path can't guarantee, so
+  // writes silently no-op (Ctrl+Shift+C "does nothing"). Electron's clipboard is
+  // synchronous and has no such requirement.
+  ipcMain.handle('clipboard:write', (_e, text: string) => {
+    clipboard.writeText(text)
+  })
+  ipcMain.handle('clipboard:read', () => clipboard.readText())
+
+  // Codex prints a 400 and STAYS at its prompt (it doesn't exit) when the chosen
+  // model isn't allowed for a ChatGPT-account login — so there's no crash to
+  // catch. Scan the session's output for that specific error and tell the
+  // renderer, which then offers the model picker. Gated on the error marker so we
+  // don't parse every chunk. `sessionModel` lets the event name the bad model.
+  const sessionModel = new Map<string, string>()
+  const detectModelRejection = (id: string, data: string): void => {
+    if (!data.includes('invalid_request_error')) return
+    if (!/not supported when using Codex with a ChatGPT account/.test(data)) return
+    sendToRenderer('session:model-rejected', { id, model: sessionModel.get(id) ?? '', message: data.trim() })
+  }
+
   // Open a URL in the host's default browser. Runs host-side, so it works even
   // when the originating session lives inside a container (which has no browser
   // or host display). URLs can come from untrusted CLI output — isSafeExternalUrl
@@ -774,7 +804,18 @@ export function registerIpc(
     typeof projectId === 'string' && store ? store.getTickets(projectId) : []
   )
 
-  // F13: open a plain shell session (no agent) in the project's context.
+  // Permanently delete a session (from the home board's Archived view). Removes
+  // the DB row + its transcript and moves the on-disk history file to a Bin/
+  // (never-rm policy). Kills any lingering pty first (defensive — archived
+  // sessions normally have none). Irreversible from the app; the renderer confirms.
+  ipcMain.handle('session:delete', (_e, id: string) => {
+    mgr.kill(id)
+    store?.deleteSession(id)
+    removeHistory(id)
+  })
+
+  // F13: open a plain shell session (no agent) in the project's context. Uses the
+  // v2 bus-emitting exit path (archiveAndEmit/emitExit) + S1 backlog binding.
   ipcMain.handle(
     'terminal:open',
     async (
@@ -854,6 +895,51 @@ export function registerIpc(
   // restarts): 'running' | 'stopped' (built but exited) | 'none' (never built).
   ipcMain.handle('container:status', async (_e, _projectId: string, workspace: string) => {
     return (await container.findPresence(workspace)).state
+  })
+
+  // Stop (not remove) the project's running container — reversible, preserves its
+  // state, so the next start is a fast restart rather than a rebuild. `docker stop`
+  // terminates any `docker exec` sessions running inside it: each session's pty
+  // exits 'crashed' → flips to idle + reconnectable (history retained) and its port
+  // watcher is torn down via the normal exit handler. We also drop the cached id
+  // so a subsequent launch re-resolves Docker truth. The renderer warns the user
+  // about live sessions before calling this. Returns the new state for the button.
+  ipcMain.handle(
+    'container:stop',
+    async (_e, projectId: string, workspace: string): Promise<'stopped' | 'none'> => {
+      const id = await container.findRunning(workspace)
+      if (!id) {
+        // Nothing running — report the real current state so the UI stays accurate.
+        containerByProject.delete(projectId)
+        const state = (await container.findPresence(workspace)).state
+        sendToRenderer('container:status', { projectId, state })
+        return state === 'none' ? 'none' : 'stopped'
+      }
+      await container.stopById(id)
+      containerByProject.delete(projectId)
+      sendToRenderer('container:status', { projectId, state: 'stopped' })
+      return 'stopped'
+    }
+  )
+
+  // F16: external-service connectivity for the status bar (vercel/supabase/
+  // github/resend). Probe all in parallel (timeboxed — these CLIs can hang).
+  ipcMain.handle('service:health', () => probeAllServices())
+
+  // F16: connect a service — open a HOST terminal session running its login
+  // command (interactive browser/device flow), like provider:login. Returns the
+  // session id so the renderer can surface it as the active terminal. cwd is the
+  // open project's path (or home) just to give the shell a sensible directory.
+  ipcMain.handle('service:login', (_e, service: ServiceName, cwd: string): string => {
+    if (!SERVICES.includes(service)) throw new Error(`bad service: ${service}`)
+    const id = `login-${service}-${newSessionId()}`
+    const { cmd, args } = serviceLoginArgv(service)
+    mgr.spawn(
+      { id, shell: cmd, args, cwd: cwd || homedir(), env: {} },
+      (data) => sendToRenderer('pty:data', { id, data }),
+      ({ reason }) => sendToRenderer('session:exit', { id, reason })
+    )
+    return id
   })
 
   // F8: provider connection health, in the project's context. An explicit
@@ -998,12 +1084,14 @@ export function registerIpc(
     }
     // Spawn FIRST; only persist once the pty actually started (Codex P2 — a
     // failed spawn must not leave a persisted "running" ghost session).
+    sessionModel.set(id, req.model)
     try {
       mgr.spawn(
         { id, shell, args: spawnArgs, cwd, env: {} },
         (data) => {
           sendToRenderer('pty:data', { id, data })
           recordOutput(store, id, data)
+          detectModelRejection(id, data)
         },
         ({ reason }) => {
           // History always retained (item 7). Clean close -> archived; crash ->
@@ -1079,8 +1167,18 @@ export function registerIpc(
         modelOverride = { provider: ov.provider, model: ov.model }
       }
       const provider = modelOverride?.provider ?? s.provider
-      const model = modelOverride?.model ?? s.model
+      let model = modelOverride?.model ?? s.model
       if (!isProvider(provider)) throw new Error(`bad provider: ${provider}`)
+      // A session saved before the provider's model line rotated (e.g. gpt-5-codex,
+      // now retired) would relaunch a dead id and 400. If the stored model is no
+      // longer launchable, fall back to the provider's current default so the
+      // resume succeeds instead of dropping the user at a rejected prompt.
+      if (!isKnownModel(provider, model)) {
+        const fallback = defaultModel(provider)
+        console.warn(`[resume] stale model ${model} for ${provider} → ${fallback}`)
+        model = fallback
+      }
+      sessionModel.set(s.id, model)
       // Fresh interactive launch (NOT resumeArgv). autoApprove == in a container.
       const { cmd, args } = launchArgv({ provider, model, autoApprove: useContainer })
       let shell = cmd
@@ -1103,6 +1201,7 @@ export function registerIpc(
         (data) => {
           sendToRenderer('pty:data', { id: s.id, data })
           recordOutput(store, s.id, data)
+          detectModelRejection(s.id, data)
         },
         ({ reason }) => {
           stopPortWatch(s.id)

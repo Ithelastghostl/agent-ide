@@ -6,6 +6,7 @@ import {
   findRunningContainer,
   findContainerPresence,
   startContainerById,
+  stopContainerById,
   resolveContainerUser,
   resolveContainerHome,
   containerWorkspaceFolder,
@@ -70,6 +71,9 @@ class LinuxContainerRuntime implements ContainerRuntime {
   }
   startById(id: string): Promise<void> {
     return startContainerById(id)
+  }
+  stopById(id: string): Promise<void> {
+    return stopContainerById(id)
   }
   resolveUser(containerId: string): Promise<string | null> {
     return resolveContainerUser(containerId)

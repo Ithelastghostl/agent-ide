@@ -85,6 +85,9 @@ export class FakeContainerRuntime implements ContainerRuntime {
   startById(): Promise<void> {
     return Promise.resolve()
   }
+  stopById(): Promise<void> {
+    return Promise.resolve()
+  }
   resolveUser(containerId: string): Promise<string | null> {
     return Promise.resolve(this.userByContainer.get(containerId) ?? null)
   }

@@ -6,6 +6,8 @@ declare module '*.css'
 // The preload bridge surface available on window.
 interface AgentIDEBridge {
   ping(): Promise<string>
+  clipboardWrite(text: string): Promise<void>
+  clipboardRead(): Promise<string>
   openExternal(url: string, sessionId?: string): Promise<boolean>
   modelsAll(): Promise<Record<import('@shared/types').Provider, import('@shared/types').Model[]>>
   sessionLaunch(req: {
@@ -28,6 +30,7 @@ interface AgentIDEBridge {
     id: string
   ): Promise<{ ok?: true; ticketId?: string; ticketPath?: string; error?: string }>
   logTickets(projectId: string): Promise<import('@shared/types').Ticket[]>
+  sessionDelete(id: string): Promise<void>
   terminalOpen(req: {
     projectId: string
     cwd: string
@@ -36,7 +39,12 @@ interface AgentIDEBridge {
   }): Promise<import('@shared/types').Session>
   containerStart(projectId: string, workspace: string, importConfig: boolean): Promise<string>
   containerStatus(projectId: string, workspace: string): Promise<'running' | 'stopped' | 'none'>
-  onContainerStatus(cb: (p: { projectId: string; state: 'starting' | 'running' | 'error' }) => void): void
+  containerStop(projectId: string, workspace: string): Promise<'stopped' | 'none'>
+  onContainerStatus(
+    cb: (p: { projectId: string; state: 'none' | 'stopped' | 'starting' | 'running' | 'error' }) => void
+  ): void
+  serviceHealth(): Promise<Record<import('@shared/types').ServiceName, import('@shared/types').ServiceStatus>>
+  serviceLogin(service: import('@shared/types').ServiceName, cwd: string): Promise<string>
   providerHealth(
     provider: string,
     projectId: string,
@@ -70,6 +78,7 @@ interface AgentIDEBridge {
   onPtyData(cb: (p: { id: string; data: string }) => void): () => void
   onSessionExit(cb: (p: { id: string; reason: 'closed' | 'crashed' }) => void): void
   onNotice(cb: (p: { message: string }) => void): void
+  onSessionModelRejected(cb: (p: { id: string; model: string; message: string }) => void): void
   transcriptGet(id: string): Promise<string>
   libraryList(): Promise<import('@shared/types').LibraryContents>
   libraryRead(relPath: string): Promise<{ content?: string; error?: string }>
