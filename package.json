@@ -20,7 +20,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "better-sqlite3": "12.11.1",
     "electron": "42.5.2",
@@ -39,5 +38,14 @@
     "vite": "7.3.5",
     "vitest": "4.1.9",
     "yaml": "^2.9.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.27.7": true,
+    "fsevents@2.3.3": true,
+    "fsevents@2.3.2": true,
+    "node-pty@1.1.0": true,
+    "electron@42.5.2": true
   }
 }
