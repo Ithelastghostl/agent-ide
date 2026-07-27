@@ -76,6 +76,20 @@ test('window resize reflows the terminal grid and the pty (both axes)', async ()
   await win.locator('.provrow.terminal .add').click({ timeout: 20_000 })
   await win.waitForSelector('.terminal-host .xterm', { timeout: 15_000 })
 
+  // The pty spawns at 80x24 and the INITIAL fit must already propagate the
+  // real grid — with NO window resize. Regression: term.onResize was
+  // registered after the first fit, whose synchronous resize event was
+  // therefore dropped, leaving the pty at 80x24 for the session's life.
+  await expect
+    .poll(
+      async () => {
+        const s = await sttySize(win, nextMarker())
+        return s.rows !== 24 || s.cols !== 80
+      },
+      { timeout: 15_000 }
+    )
+    .toBe(true)
+
   const setSize = (w: number, h: number) =>
     app.evaluate(({ BrowserWindow }, s) => {
       const bw = BrowserWindow.getAllWindows()[0]

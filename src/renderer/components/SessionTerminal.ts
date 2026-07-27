@@ -179,6 +179,13 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
   })
 
   queueMicrotask(() => {
+    // Register BEFORE open()+fit: xterm fires its resize event synchronously
+    // inside term.resize(), so the FIRST fit (default 80x24 → pane size) is
+    // dropped if the listener attaches later — the pty then stays at its 80x24
+    // spawn size until some later window resize, and the session's TUI wraps in
+    // a top-left 80x24 box for its whole life.
+    term.onResize(({ cols, rows }) => window.agentIDE.ptyResize(sessionId, cols, rows))
+
     term.open(host)
     fitToHost()
 
@@ -208,8 +215,6 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
         for (const chunk of pending) term.write(chunk)
         pending.length = 0
       })
-
-    term.onResize(({ cols, rows }) => window.agentIDE.ptyResize(sessionId, cols, rows))
 
     // F5: right-click context menu with Copy / Paste (reuses shared showMenu).
     // When the cursor is over a URL, also offer Open / Copy link address.
