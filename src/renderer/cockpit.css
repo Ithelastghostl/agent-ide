@@ -1661,7 +1661,11 @@
 .ed-split.on { color: #fff; border-color: var(--accent); background: var(--accent-bg10); }
 
 .sv-split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
-.sv-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+/* flex:1 so a LONE pane stretches to fill .superv — without it the pane was
+   content-sized, so the terminal-host's height was driven BY the terminal's own
+   24 rows and vertical refit could never see more room. Inside .sv-split (a
+   grid) the flex property is ignored and grid stretch applies as before. */
+.sv-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .sv-split .sv-pane { border-right: 1px solid var(--border); }
 .sv-split .sv-pane:last-child { border-right: none; }
 .sv-split .sv-pane.focused { box-shadow: inset 0 0 0 1px var(--accent-border); }

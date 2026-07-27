@@ -1,5 +1,4 @@
 import { Terminal, type ILink } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { showMenu, type MenuItem } from '../ui'
 
@@ -52,8 +51,26 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
       selectionBackground: 'rgba(83,58,253,0.3)'
     }
   })
-  const fit = new FitAddon()
-  term.loadAddon(fit)
+  // Refit the terminal to the host's inner size. NOT @xterm/addon-fit — that
+  // addon (0.11, xterm-5 era) reads `_core._renderService.dimensions`, which
+  // @xterm/xterm@6 no longer has, so fit() silently no-oped and the terminal
+  // never reflowed on window resize (same xterm-6 breakage as addon-web-links
+  // above). Uses the same public geometry as linkAtEvent: cell size = rendered
+  // .xterm-rows box divided by current cols/rows.
+  function fitToHost(): void {
+    const rowsEl = host.querySelector('.xterm-rows') as HTMLElement | null
+    if (!rowsEl || !term.cols || !term.rows) return
+    const rect = rowsEl.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    const cellW = rect.width / term.cols
+    const cellH = rect.height / term.rows
+    const style = getComputedStyle(host)
+    const availW = host.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    const availH = host.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)
+    const cols = Math.max(2, Math.floor(availW / cellW))
+    const rows = Math.max(1, Math.floor(availH / cellH))
+    if (cols !== term.cols || rows !== term.rows) term.resize(cols, rows)
+  }
 
   // Clickable PLAIN-TEXT URLs (no OSC-8 escape): scan each row for http(s) URLs
   // and hand xterm a link range per match. Left-click → host browser. (OSC-8
@@ -163,11 +180,7 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
 
   queueMicrotask(() => {
     term.open(host)
-    try {
-      fit.fit()
-    } catch {
-      /* host not laid out yet */
-    }
+    fitToHost()
 
     term.onData((d) => window.agentIDE.ptyWrite(sessionId, d))
 
@@ -216,14 +229,9 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
       showMenu(e.clientX, e.clientY, items)
     })
 
-    // refit on container resize
-    const ro = new ResizeObserver(() => {
-      try {
-        fit.fit()
-      } catch {
-        /* ignore */
-      }
-    })
+    // refit on container resize (fires once at observe time, covering the case
+    // where the host wasn't laid out yet when open() ran)
+    const ro = new ResizeObserver(() => fitToHost())
     ro.observe(host)
 
     host.__dispose = () => {
