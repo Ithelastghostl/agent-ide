@@ -15,6 +15,11 @@ import { join } from 'path'
 // KERNEL believes the terminal size is — it can only change if renderer fit →
 // term.resize → onResize → ptyResize → ioctl all fired.
 
+// Markers must be SHORT: at small widths a long echo line wraps across rows and
+// the per-row regex would never match (observed with `SZH${Date.now()}`).
+let seq = 0
+const nextMarker = () => `ZQ${++seq}`
+
 async function sttySize(win: import('@playwright/test').Page, marker: string): Promise<{ rows: number; cols: number }> {
   await win.evaluate(
     async ({ m }) => {
@@ -78,23 +83,24 @@ test('window resize reflows the terminal grid and the pty (both axes)', async ()
     }, { w, h })
 
   await setSize(1280, 900)
-  const large = await sttySize(win, 'SZL')
+  const large = await sttySize(win, nextMarker())
 
   // Shrink height only → rows must drop (the vertical axis of the regression).
-  await setSize(1280, 560)
+  await setSize(1280, 600)
   await expect
-    .poll(async () => (await sttySize(win, `SZV${Date.now()}`)).rows, { timeout: 10_000 })
+    .poll(async () => (await sttySize(win, nextMarker())).rows, { timeout: 15_000 })
     .toBeLessThan(large.rows)
 
-  // Shrink width only → cols must drop.
-  await setSize(760, 560)
+  // Shrink width only → cols must drop. Keep the terminal wide enough that the
+  // echo command line itself doesn't wrap.
+  await setSize(980, 600)
   await expect
-    .poll(async () => (await sttySize(win, `SZH${Date.now()}`)).cols, { timeout: 10_000 })
+    .poll(async () => (await sttySize(win, nextMarker())).cols, { timeout: 15_000 })
     .toBeLessThan(large.cols)
 
   // Grow back → both must grow again (fit is live, not one-shot).
   await setSize(1280, 900)
-  const restored = await sttySize(win, 'SZR')
+  const restored = await sttySize(win, nextMarker())
   expect(restored.rows).toBeGreaterThan(large.rows - 3)
   expect(restored.cols).toBeGreaterThan(large.cols - 3)
 
