@@ -60,6 +60,29 @@ export function detectDevcontainer(localPath: string): boolean {
   )
 }
 
+/** Re-run devcontainer detection over stored projects and return the ones whose
+ *  flag changed.
+ *
+ *  hasDevcontainer used to be detected ONCE at project creation and then frozen
+ *  in the DB, so adding a .devcontainer to an existing project never surfaced
+ *  its "Build & start container" button — the row still said false. Detection is
+ *  a cheap existsSync per project, so we redo it on every list and let the
+ *  filesystem stay the source of truth. Removing a devcontainer clears the flag
+ *  the same way.
+ *
+ *  Returns only the CHANGED projects so the caller can persist just those. */
+export function refreshDevcontainers(projects: Project[]): Project[] {
+  const changed: Project[] = []
+  for (const p of projects) {
+    const actual = detectDevcontainer(p.localPath)
+    if (actual !== p.hasDevcontainer) {
+      p.hasDevcontainer = actual // mutate in place: callers hand back the list they'll return
+      changed.push(p)
+    }
+  }
+  return changed
+}
+
 /** Build a Project record for a repo cloned at localPath. */
 export function projectFromRepo(repo: string, localPath: string): Project {
   return {

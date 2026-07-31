@@ -13,7 +13,7 @@ import { join, resolve, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 import { launchArgv, resolveEffort } from './providers'
 import { allModels, defaultModel } from './models'
-import { addProject, addProjectFromUrl, openLocalProject } from './projects'
+import { addProject, addProjectFromUrl, openLocalProject, refreshDevcontainers } from './projects'
 import { listRepos, syncHistory, cloneRepo, cloneUrl, pullRepo } from './github'
 import { libraryDir, scanLibrary, readLibraryItem, libraryIsClone, addAgent } from './library'
 import { isRegisteredAgent, composeLaunchPrimer } from './agentPreset'
@@ -592,7 +592,14 @@ export function registerIpc(
     store?.saveProject(p)
     return p
   })
-  ipcMain.handle('projects:list', () => store?.listProjects() ?? [])
+  // Re-detect devcontainers on every list: the flag is stored, but the file can
+  // appear or disappear after the project was added, and a stale `false` hides
+  // the Build & start container button for a project that plainly has one.
+  ipcMain.handle('projects:list', () => {
+    const projects = store?.listProjects() ?? []
+    for (const p of refreshDevcontainers(projects)) store?.saveProject(p)
+    return projects
+  })
 
   // B1: the renderer names the project by id; main resolves the confined root
   // from its own Store (never a renderer-supplied filesystem path).

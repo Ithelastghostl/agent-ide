@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
 import {
   detectDevcontainer,
+  refreshDevcontainers,
   localPathFor,
   projectFromRepo,
   projectFromPath,
   projectId
 } from '../../src/main/projects'
+import type { Project } from '@shared/types'
 import { repoNameFromUrl } from '../../src/main/github'
 
 describe('detectDevcontainer', () => {
@@ -110,5 +112,85 @@ describe('repoNameFromUrl', () => {
     expect(repoNameFromUrl('https://github.com/me/cool-repo.git')).toBe('cool-repo')
     expect(repoNameFromUrl('git@github.com:me/cool-repo.git')).toBe('cool-repo')
     expect(repoNameFromUrl('https://gitlab.com/group/sub/thing')).toBe('thing')
+  })
+})
+
+describe('refreshDevcontainers', () => {
+  const mk = (localPath: string, hasDevcontainer: boolean): Project => ({
+    id: 'p1',
+    name: basename(localPath),
+    repo: '',
+    localPath,
+    hasDevcontainer
+  })
+  const withDevcontainer = (dir: string) => {
+    mkdirSync(join(dir, '.devcontainer'), { recursive: true })
+    writeFileSync(join(dir, '.devcontainer', 'devcontainer.json'), '{}')
+  }
+
+  it('flips a stale false to true when a devcontainer was added later', () => {
+    // The real bug: the project was stored before the .devcontainer existed, so
+    // the flag stayed false and the Start-container button never rendered.
+    const dir = mkdtempSync(join(tmpdir(), 'agide-'))
+    withDevcontainer(dir)
+    const projects = [mk(dir, false)]
+
+    const changed = refreshDevcontainers(projects)
+
+    expect(changed).toHaveLength(1)
+    expect(projects[0].hasDevcontainer).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('clears the flag when the devcontainer is removed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agide-'))
+    const projects = [mk(dir, true)]
+
+    const changed = refreshDevcontainers(projects)
+
+    expect(changed).toHaveLength(1)
+    expect(projects[0].hasDevcontainer).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('reports no change when the flag already matches disk', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agide-'))
+    withDevcontainer(dir)
+    const projects = [mk(dir, true)]
+
+    expect(refreshDevcontainers(projects)).toHaveLength(0)
+    expect(projects[0].hasDevcontainer).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('returns only the changed projects, leaving the rest untouched', () => {
+    const withC = mkdtempSync(join(tmpdir(), 'agide-'))
+    const withoutC = mkdtempSync(join(tmpdir(), 'agide-'))
+    withDevcontainer(withC)
+    const stale = { ...mk(withC, false), id: 'stale' }
+    const fine = { ...mk(withoutC, false), id: 'fine' }
+
+    const changed = refreshDevcontainers([stale, fine])
+
+    expect(changed.map((p) => p.id)).toEqual(['stale'])
+    expect(fine.hasDevcontainer).toBe(false)
+    rmSync(withC, { recursive: true, force: true })
+    rmSync(withoutC, { recursive: true, force: true })
+  })
+
+  it('treats a missing folder as no devcontainer instead of throwing', () => {
+    const projects = [mk(join(tmpdir(), 'agide-does-not-exist-xyz'), true)]
+    expect(() => refreshDevcontainers(projects)).not.toThrow()
+    expect(projects[0].hasDevcontainer).toBe(false)
+  })
+
+  it('is idempotent — a second pass reports nothing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agide-'))
+    withDevcontainer(dir)
+    const projects = [mk(dir, false)]
+
+    expect(refreshDevcontainers(projects)).toHaveLength(1)
+    expect(refreshDevcontainers(projects)).toHaveLength(0)
+    rmSync(dir, { recursive: true, force: true })
   })
 })
