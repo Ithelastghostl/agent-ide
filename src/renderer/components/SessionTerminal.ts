@@ -10,13 +10,22 @@ import { showMenu, type MenuItem } from '../ui'
 // stable xterm-6 API the addon merely wraps.
 const URL_RE = /https?:\/\/[^\s"'`<>()]+/g
 
+/** A cached terminal element. `__focus`/`__hasFocus` let the renderer carry
+ *  keyboard focus across a re-render (which detaches and re-attaches this node);
+ *  `__dispose` tears down listeners when the element is dropped for good. */
+export type TerminalHost = HTMLElement & {
+  __dispose?: () => void
+  __focus?: () => void
+  __hasFocus?: () => boolean
+}
+
 /** An xterm terminal that ATTACHES to a pty the main process already started
  *  (via session:launch / terminal:open / session:resume). The renderer never
  *  spawns raw shells. The returned element carries a `dispose()` (on
  *  `el.__dispose`) that unsubscribes the pty:data listener and disposes the
  *  terminal — call it when the element is dropped (avoids listener leaks). */
-export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: () => void } {
-  const host = document.createElement('div') as HTMLElement & { __dispose?: () => void }
+export function SessionTerminal(sessionId: string): TerminalHost {
+  const host = document.createElement('div') as TerminalHost
   host.className = 'terminal-host'
 
   // Open a URL in the host browser via main. Pass sessionId so main can forward
@@ -238,6 +247,14 @@ export function SessionTerminal(sessionId: string): HTMLElement & { __dispose?: 
     // where the host wasn't laid out yet when open() ran)
     const ro = new ResizeObserver(() => fitToHost())
     ro.observe(host)
+
+    // Focus control for the re-render cycle. render() empties #root, which
+    // DETACHES this (cached, reused) element — and detaching a focused node
+    // drops focus to <body>, so keystrokes stopped reaching the pty mid-typing
+    // on any idle/attention/cost event. main.ts saves __hasFocus before the
+    // teardown and calls __focus() after re-attaching. See restoreFocus there.
+    host.__focus = () => term.focus()
+    host.__hasFocus = () => host.contains(document.activeElement)
 
     host.__dispose = () => {
       unsubscribe()

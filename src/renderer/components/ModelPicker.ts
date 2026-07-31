@@ -1,4 +1,4 @@
-import { PROVIDERS, type Provider, type Model } from '@shared/types'
+import { PROVIDERS, EFFORTS, type Provider, type Model, type Effort } from '@shared/types'
 
 const PROVIDER_LABEL: Record<Provider, string> = { codex: 'Codex', claude: 'Claude', gemini: 'Gemini' }
 const PROVIDER_VAR: Record<Provider, string> = {
@@ -10,7 +10,7 @@ const PROVIDER_VAR: Record<Provider, string> = {
 export interface ModelPickerProps {
   provider: Provider
   models: Model[]
-  onPick: (provider: Provider, modelId: string) => void
+  onPick: (provider: Provider, modelId: string, effort: Effort | null) => void
   onCancel: () => void
   // ---- S8 agent-preset extensions (all optional; omitting them keeps the
   // classic provider-fixed, model-only picker unchanged) ----
@@ -23,7 +23,18 @@ export interface ModelPickerProps {
   modelsForProvider?: (p: Provider) => Model[]
   /** S8 confirm carrying the (possibly edited) objective. Takes precedence over
    *  `onPick` when provided so callers get the prefilled/edited objective back. */
-  onLaunch?: (provider: Provider, modelId: string, objective: string) => void
+  onLaunch?: (provider: Provider, modelId: string, objective: string, effort: Effort | null) => void
+  /** Effort preselected in the row. null → "Default" (no flag; the provider CLI
+   *  keeps whatever its own config says). */
+  effort?: Effort | null
+  /** Set when AGENT_IDE_EFFORT is active. The env var outranks any pick, so the
+   *  row locks to that level and says so instead of pretending to be editable. */
+  forcedEffort?: Effort | null
+}
+
+/** Gemini's CLI has no reasoning-effort concept, so the row is meaningless there. */
+function supportsEffort(p: Provider): boolean {
+  return p !== 'gemini'
 }
 
 /** Modal: full model list for a provider (D3). With S8 props it becomes the
@@ -75,6 +86,44 @@ export function ModelPicker(p: ModelPickerProps): HTMLElement {
     modal.appendChild(objectiveInput)
   }
 
+  // Effort row. AGENT_IDE_EFFORT wins over any pick, so when it is set the row
+  // is disabled and labelled — the user sees WHY their choice can't move.
+  const forced = p.forcedEffort ?? null
+  let effort: Effort | null = forced ?? p.effort ?? null
+  const effortRow = document.createElement('div')
+  effortRow.className = 'mp-effort'
+  const effortLabel = document.createElement('span')
+  effortLabel.className = 'mp-effort-label'
+  effortRow.appendChild(effortLabel)
+  const effortBtns = document.createElement('div')
+  effortBtns.className = 'mp-effort-btns'
+  effortRow.appendChild(effortBtns)
+
+  const renderEffort = () => {
+    effortLabel.textContent = forced ? `Effort (set by AGENT_IDE_EFFORT)` : 'Effort'
+    effortRow.classList.toggle('locked', !!forced)
+    effortRow.hidden = !supportsEffort(provider)
+    effortBtns.replaceChildren()
+    // null == "Default": send no flag and let the provider CLI's own config
+    // decide (e.g. ~/.codex/config.toml model_reasoning_effort).
+    for (const level of [null, ...EFFORTS] as (Effort | null)[]) {
+      const b = document.createElement('button')
+      b.className = 'mp-effort-btn' + (level === effort ? ' on' : '')
+      b.textContent = level ?? 'Default'
+      b.disabled = !!forced
+      b.title = forced
+        ? `AGENT_IDE_EFFORT=${forced} overrides the picker`
+        : level === null
+          ? 'Use the provider CLI’s configured default'
+          : `Run this session at ${level} effort`
+      b.onclick = () => {
+        effort = level
+        renderEffort()
+      }
+      effortBtns.appendChild(b)
+    }
+  }
+
   const scroll = document.createElement('div')
   scroll.className = 'mscroll'
 
@@ -86,8 +135,10 @@ export function ModelPicker(p: ModelPickerProps): HTMLElement {
       opt.className = 'mopt'
       opt.onclick = () => {
         const objective = objectiveInput ? objectiveInput.value : (p.objective ?? '')
-        if (p.onLaunch) p.onLaunch(provider, m.id, objective)
-        else p.onPick(provider, m.id)
+        // Gemini takes no effort flag, so never carry a level out for it.
+        const chosen = supportsEffort(provider) ? effort : null
+        if (p.onLaunch) p.onLaunch(provider, m.id, objective, chosen)
+        else p.onPick(provider, m.id, chosen)
       }
       const ti = document.createElement('div')
       ti.className = 'ti'
@@ -121,6 +172,7 @@ export function ModelPicker(p: ModelPickerProps): HTMLElement {
         provider = prov
         for (const b of buttons) b.el.classList.toggle('on', b.prov === provider)
         renderModels()
+        renderEffort() // the row hides for gemini, shows again for the others
       }
       buttons.push({ prov, el: tab })
       tabs.appendChild(tab)
@@ -128,6 +180,8 @@ export function ModelPicker(p: ModelPickerProps): HTMLElement {
     modal.appendChild(tabs)
   }
 
+  renderEffort()
+  modal.appendChild(effortRow)
   renderModels()
   modal.appendChild(scroll)
 

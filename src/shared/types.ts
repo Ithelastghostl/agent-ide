@@ -39,6 +39,17 @@ export type TaskSubkind = 'code' | 'feature' | 'bug'
 // (user confirms shipped) → ticketed (addendum pass wrote a ticket — M-LOG-b).
 export type TaskStatus = 'open' | 'finished' | 'deployed' | 'ticketed'
 
+/** Reasoning effort for a session. The provider CLIs each read their own config
+ *  file when no flag is passed (e.g. Codex's ~/.codex/config.toml
+ *  `model_reasoning_effort`), so an explicit level here is what lets a per-session
+ *  choice WIN over that file — see launchArgv in ./main/providers.ts. */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type Effort = (typeof EFFORTS)[number]
+
+export function isEffort(x: string): x is Effort {
+  return (EFFORTS as readonly string[]).includes(x)
+}
+
 export interface Model {
   id: string
   label: string
@@ -82,6 +93,9 @@ export interface Session {
   desiredVersion?: number | null
   /** Agent preset this session launched from (S8), for the primer + chip. */
   agentRelPath?: string | null
+  /** Per-session reasoning effort. null → the provider CLI's own default. An
+   *  AGENT_IDE_EFFORT env var still outranks this at spawn (resolveEffort). */
+  effort?: Effort | null
   /** Parsed provider usage summary (S5). */
   cost?: CostSummary | null
 }

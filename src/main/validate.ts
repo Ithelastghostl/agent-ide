@@ -1,10 +1,12 @@
 import {
   isProvider,
+  isEffort,
   type Provider,
   type Session,
   type SessionStatus,
   type TaskKind,
-  type TaskSubkind
+  type TaskSubkind,
+  type Effort
 } from '@shared/types'
 import { modelsFor } from './models'
 import type { LaunchRequest } from './ipc' // type-only: no runtime cycle
@@ -163,8 +165,17 @@ export function validateLaunchRequest(
     importConfig: v.importConfig === undefined ? undefined : asBool(v.importConfig, 'importConfig'),
     taskKind,
     taskSubkind,
-    agentRelPath
+    agentRelPath,
+    effort: asEffort(v.effort)
   }
+}
+
+/** Effort is optional; anything unrecognised is rejected at the boundary rather
+ *  than forwarded, so a bad renderer value can never reach the provider argv. */
+function asEffort(v: unknown): Effort | null {
+  if (v === undefined || v === null || v === '') return null
+  if (typeof v !== 'string' || !isEffort(v)) throw new Error(`invalid effort: ${String(v)}`)
+  return v
 }
 
 /** Validate a session:resume payload (a persisted Session round-tripped through

@@ -283,6 +283,7 @@ export class Store {
     add('desiredVersion', 'desiredVersion INTEGER')
     add('agentRelPath', 'agentRelPath TEXT')
     add('costJson', 'costJson TEXT')
+    add('effort', 'effort TEXT')
     if (fresh) {
       // R29-2 backfill: desired=effective=COALESCE(legacy stage,'fix'); provider/
       // model mirror both sides; approval mode derived from useContainer+fix.
@@ -346,14 +347,15 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO sessions (id,projectId,provider,model,objective,status,createdAt,updatedAt,taskKind,taskSubkind,taskStatus,useContainer,
-           desiredStage,desiredProvider,desiredModel,effectiveStage,spawnedProvider,spawnedModel,spawnedApprovalMode,termState,runtimeVersion,desiredVersion,agentRelPath,costJson)
+           desiredStage,desiredProvider,desiredModel,effectiveStage,spawnedProvider,spawnedModel,spawnedApprovalMode,termState,runtimeVersion,desiredVersion,agentRelPath,costJson,effort)
          VALUES (@id,@projectId,@provider,@model,@objective,@status,@createdAt,@updatedAt,@taskKind,@taskSubkind,@taskStatus,@uc,
-           @desiredStage,@desiredProvider,@desiredModel,@effectiveStage,@spawnedProvider,@spawnedModel,@spawnedApprovalMode,@termState,@runtimeVersion,@desiredVersion,@agentRelPath,@costJson)
+           @desiredStage,@desiredProvider,@desiredModel,@effectiveStage,@spawnedProvider,@spawnedModel,@spawnedApprovalMode,@termState,@runtimeVersion,@desiredVersion,@agentRelPath,@costJson,@effort)
          ON CONFLICT(id) DO UPDATE SET status=@status, provider=@provider, model=@model, objective=@objective, updatedAt=@updatedAt,
            taskKind=@taskKind, taskSubkind=@taskSubkind, taskStatus=@taskStatus, useContainer=@uc,
            desiredStage=@desiredStage, desiredProvider=@desiredProvider, desiredModel=@desiredModel, effectiveStage=@effectiveStage,
            spawnedProvider=@spawnedProvider, spawnedModel=@spawnedModel, spawnedApprovalMode=@spawnedApprovalMode,
-           termState=@termState, runtimeVersion=@runtimeVersion, desiredVersion=@desiredVersion, agentRelPath=@agentRelPath, costJson=@costJson`
+           termState=@termState, runtimeVersion=@runtimeVersion, desiredVersion=@desiredVersion, agentRelPath=@agentRelPath, costJson=@costJson,
+           effort=@effort`
       )
       .run({
         ...s,
@@ -372,7 +374,8 @@ export class Store {
         runtimeVersion: s.runtimeVersion ?? null,
         desiredVersion: s.desiredVersion ?? null,
         agentRelPath: s.agentRelPath ?? null,
-        costJson: s.cost ? JSON.stringify(s.cost) : null
+        costJson: s.cost ? JSON.stringify(s.cost) : null,
+        effort: s.effort ?? null
       })
     if (wasActive !== ACTIVE_STATUSES.has(s.status)) this.recomputeItemsForSession(s.id)
   }

@@ -97,6 +97,9 @@ contextBridge.exposeInMainWorld('agentIDE', {
   // Replay saved terminal output for a session (chat history) on mount.
   transcriptGet: (id: string): Promise<string> => ipcRenderer.invoke('transcript:get', id),
 
+  // Effort forced by AGENT_IDE_EFFORT (null when unset) — see the picker.
+  effortForced: () => ipcRenderer.invoke('effort:forced'),
+
   // Library (Prompts/Skills/Workflows/Agents; local-first, optionally a clone).
   libraryList: () => ipcRenderer.invoke('library:list'),
   libraryRead: (relPath: string) => ipcRenderer.invoke('library:read', relPath),

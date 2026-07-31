@@ -21,6 +21,17 @@ export interface LibraryPanelProps {
   onLaunchAgent?: (item: LibraryItem) => void
   /** Agents only: open the add-agent form. */
   onAdd?: () => void
+  /** Sync the library with its git remote. Pulls when the folder is already a
+   *  clone; otherwise clones `repo`. The panel asks for a repo when it has none,
+   *  so an unconfigured library can be set up here instead of failing silently. */
+  onSync?: (repo?: string) => void
+  /** Library state, for the status line. `isClone: false` with no items means
+   *  nothing was ever configured — the common cause of "it won't sync". */
+  status?: { isClone: boolean; dir: string } | null
+  /** Message from the last sync attempt, shown under the header. */
+  syncMessage?: string | null
+  /** True while a sync is running (disables the button). */
+  syncing?: boolean
   onCancel: () => void
 }
 
@@ -122,6 +133,35 @@ export function LibraryPanel(p: LibraryPanelProps): HTMLElement {
   }
   render('')
   search.oninput = () => render(search.value)
+
+  // Sync status. An empty, non-clone library is the "not synchronizing" case:
+  // nothing was ever configured, so say that plainly and offer the fix.
+  if (p.onSync) {
+    const bar = document.createElement('div')
+    bar.className = 'lib-syncbar'
+    const msg = document.createElement('span')
+    msg.className = 'lib-syncmsg'
+    const unconfigured = p.status && !p.status.isClone
+    msg.textContent = p.syncMessage
+      ? p.syncMessage
+      : p.syncing
+        ? 'Syncing…'
+        : unconfigured
+          ? 'No library repo connected yet.'
+          : 'Connected to a git remote.'
+    if (p.syncMessage?.startsWith('Error')) msg.classList.add('err')
+    bar.appendChild(msg)
+    const sync = document.createElement('button')
+    sync.className = 'lib-sync'
+    sync.textContent = p.syncing ? 'Syncing…' : unconfigured ? 'Connect repo' : 'Sync now'
+    sync.disabled = !!p.syncing
+    sync.title = unconfigured
+      ? 'Clone your library repo into the library folder'
+      : 'Pull the latest prompts, skills, agents and workflows'
+    sync.onclick = () => p.onSync!()
+    bar.appendChild(sync)
+    modal.appendChild(bar)
+  }
 
   const foot = document.createElement('div')
   foot.className = 'foot'

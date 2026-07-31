@@ -11,7 +11,7 @@ import {
 import { readdir } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
-import { launchArgv } from './providers'
+import { launchArgv, resolveEffort } from './providers'
 import { allModels, defaultModel } from './models'
 import { addProject, addProjectFromUrl, openLocalProject } from './projects'
 import { listRepos, syncHistory, cloneRepo, cloneUrl, pullRepo } from './github'
@@ -62,7 +62,8 @@ import {
   type TaskKind,
   type TaskSubkind,
   type SessionStage,
-  type ServiceName
+  type ServiceName,
+  type Effort
 } from '@shared/types'
 
 export interface FileNode {
@@ -207,6 +208,9 @@ export interface LaunchRequest {
    *  (confinedPath(libraryDir) + membership in scanLibrary().agents); its body is
    *  primed into the session after the harness section. Persisted for the chip. */
   agentRelPath?: string | null
+  /** Per-session reasoning effort picked in the model picker. AGENT_IDE_EFFORT
+   *  still outranks it at spawn time (resolveEffort). */
+  effort?: Effort | null
 }
 
 let seq = 0
@@ -605,6 +609,11 @@ export function registerIpc(
   // Library (GitHub-backed Prompts/Skills/Workflows) — D14. The library is a
   // clone of the user's library repo under ~/AgentIDE/library; we scan it into
   // the three categories and read individual items (confined to the library).
+  // The effort forced by AGENT_IDE_EFFORT, if any. The renderer can't read
+  // process.env, and the picker needs to know so it can lock the row and show
+  // WHY a pick won't move (rather than silently ignoring the user's click).
+  ipcMain.handle('effort:forced', (): Effort | null => resolveEffort(null) ?? null)
+
   ipcMain.handle('library:list', () => scanLibrary(libraryDir()))
   // B9: validate the renderer input at the boundary; a non-string relPath is
   // refused, not passed into path resolution.
@@ -1035,7 +1044,8 @@ export function registerIpc(
     const { cmd, args } = launchArgv({
       provider: req.provider,
       model: req.model,
-      autoApprove: req.useContainer
+      autoApprove: req.useContainer,
+      effort: resolveEffort(req.effort)
     })
 
     let shell = cmd
@@ -1180,7 +1190,14 @@ export function registerIpc(
       }
       sessionModel.set(s.id, model)
       // Fresh interactive launch (NOT resumeArgv). autoApprove == in a container.
-      const { cmd, args } = launchArgv({ provider, model, autoApprove: useContainer })
+      // Effort comes from the persisted session so a reconnect keeps the level
+      // the session was launched with (AGENT_IDE_EFFORT still outranks it).
+      const { cmd, args } = launchArgv({
+        provider,
+        model,
+        autoApprove: useContainer,
+        effort: resolveEffort(store?.getSession(s.id)?.effort)
+      })
       let shell = cmd
       let spawnArgs = args
       let watchContainer: string | undefined

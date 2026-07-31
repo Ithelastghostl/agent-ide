@@ -10,7 +10,8 @@ import type {
   GitStatusSummary,
   GitDiff,
   CostSummary,
-  AttentionState
+  AttentionState,
+  Effort
 } from '@shared/types'
 import { initialState, liveCounts, liveSessionsFor, type AppState } from './state'
 import { ProjectRail } from './components/ProjectRail'
@@ -28,7 +29,7 @@ import {
 import { AgentForm } from './components/AgentForm'
 import type { LibraryCategory, LibraryContents, LibraryItem } from '@shared/types'
 import { RepoPicker } from './components/RepoPicker'
-import { SessionTerminal } from './components/SessionTerminal'
+import { SessionTerminal, type TerminalHost } from './components/SessionTerminal'
 import { AllSessions, type BoardMode } from './components/AllSessions'
 import { StatusBar } from './components/StatusBar'
 import { SearchOverlay } from './components/SearchOverlay'
@@ -126,8 +127,26 @@ window.agentIDE.onCost?.(({ sessionId }) => {
     })
 })
 
+// The effort AGENT_IDE_EFFORT forces, read once at boot (env can't change while
+// the app runs). null → the picker's effort row is freely editable.
+let forcedEffort: Effort | null = null
+function loadForcedEffort() {
+  window.agentIDE
+    .effortForced?.()
+    .then((e) => {
+      forcedEffort = e
+    })
+    .catch(() => {
+      /* older main without the channel — treat as unset */
+    })
+}
+
 // Library contents (D14), loaded once at boot; undefined → pills show "—".
 let library: LibraryContents | undefined
+/** Whether the library folder is a git clone, for the panel's sync status. */
+let libraryStatus: { isClone: boolean; dir: string } | null = null
+let librarySyncMessage: string | null = null
+let librarySyncing = false
 function loadLibrary() {
   window.agentIDE
     .libraryList()
@@ -137,6 +156,14 @@ function loadLibrary() {
     })
     .catch(() => {
       /* library unavailable */
+    })
+  window.agentIDE
+    .libraryStatus?.()
+    .then((s) => {
+      libraryStatus = s
+    })
+    .catch(() => {
+      /* status unavailable — the panel just won't label the state */
     })
 }
 
@@ -789,11 +816,53 @@ function stripFrontmatter(text: string): string {
 }
 
 // D14: open a library category in a filterable panel.
+/** Sync the library, then reopen the panel showing the result. When no repo is
+ *  connected yet we ask for one — that (not a broken pull) is why an untouched
+ *  library never synchronizes. */
+async function syncLibrary(category: LibraryCategory) {
+  let repo: string | undefined
+  if (libraryStatus && !libraryStatus.isClone) {
+    const answer = await promptText(
+      'Connect your library repo',
+      'owner/name, or a git URL'
+    )
+    if (answer === null) return // cancelled
+    repo = answer.trim()
+    if (!repo) return
+  }
+  librarySyncing = true
+  librarySyncMessage = null
+  openLibrary(category)
+  try {
+    const res = await window.agentIDE.librarySync(repo)
+    librarySyncMessage = res.error ? `Error: ${res.error}` : 'Library up to date.'
+  } catch (err) {
+    librarySyncMessage = `Error: ${(err as Error).message}`
+  }
+  librarySyncing = false
+  await refreshLibrary()
+  openLibrary(category) // reopen with the refreshed items + message
+}
+
+/** Reload library contents + status into the module cache. */
+async function refreshLibrary(): Promise<void> {
+  try {
+    library = await window.agentIDE.libraryList()
+    libraryStatus = await window.agentIDE.libraryStatus()
+  } catch {
+    /* library unavailable — keep whatever we had */
+  }
+}
+
 function openLibrary(category: LibraryCategory) {
   if (!library) return
   const items = library[category]
   const panel = LibraryPanel({
     category,
+    status: libraryStatus,
+    syncMessage: librarySyncMessage,
+    syncing: librarySyncing,
+    onSync: () => void syncLibrary(category),
     items,
     hasActiveSession: activeLivePtyId() !== null,
     onUse: (item) => {
@@ -838,7 +907,8 @@ async function launchAgentFlow(agent: LibraryItem) {
     modelsForProvider: (prov) => modelsFor(prov),
     agentName: agent.name,
     objective: agent.description || agent.name,
-    onLaunch: async (prov, modelId, objective) => {
+    forcedEffort,
+    onLaunch: async (prov, modelId, objective, effort) => {
       closeOverlay()
       try {
         const session = await window.agentIDE.sessionLaunch({
@@ -851,7 +921,8 @@ async function launchAgentFlow(agent: LibraryItem) {
           importConfig: ctx.importConfig,
           taskKind: label.taskKind,
           taskSubkind: label.taskSubkind,
-          agentRelPath: agent.relPath
+          agentRelPath: agent.relPath,
+          effort
         })
         launchedSessions.add(session.id)
         state.sessions.push(session)
@@ -1152,7 +1223,8 @@ async function launchFlow(provider: Provider, backlogItemIds: string[] = []) {
   const picker = ModelPicker({
     provider,
     models: modelsFor(provider),
-    onPick: async (prov, modelId) => {
+    forcedEffort,
+    onPick: async (prov, modelId, effort) => {
       closeOverlay()
       try {
         // S1: backlogItemIds rides along the launch payload (main binds it to the
@@ -1167,7 +1239,8 @@ async function launchFlow(provider: Provider, backlogItemIds: string[] = []) {
           importConfig: ctx.importConfig,
           taskKind: label.taskKind,
           taskSubkind: label.taskSubkind,
-          backlogItemIds
+          backlogItemIds,
+          effort
         }
         const session = await window.agentIDE.sessionLaunch(
           req as unknown as Parameters<typeof window.agentIDE.sessionLaunch>[0]
@@ -1733,7 +1806,38 @@ function reviewElFor(sessionId: string | null): HTMLElement | null {
   })
 }
 
+/** Which session terminal (if any) holds keyboard focus right now. */
+function focusedTerminalId(): string | undefined {
+  for (const [id, el] of terminals) {
+    if ((el as TerminalHost).__hasFocus?.()) return id
+  }
+  return undefined
+}
+
+/** Re-focus the terminal that was focused before a re-render.
+ *
+ *  render() empties #root, which detaches every cached terminal element; a
+ *  detached node loses focus to <body>, so an idle/attention/cost event used to
+ *  yank the caret out of the terminal you were typing in. Restoring afterwards
+ *  makes focus stick until the USER moves it (a click, or focusing another
+ *  control) — the renderer never relocates it on its own.
+ *
+ *  Deliberately a no-op when focus is on something else (a modal input, the
+ *  editor): that focus is the user's choice and must not be overridden. */
+function restoreFocus(id: string | undefined): void {
+  if (!id) return
+  // A modal/overlay opened during this render owns focus on purpose — an
+  // approval prompt or search box must keep the caret, so don't steal it back.
+  if (document.querySelector('.modal-wrap.show')) return
+  const el = terminals.get(id) as TerminalHost | undefined
+  if (!el?.isConnected) return
+  if (el.__hasFocus?.()) return
+  el.__focus?.()
+}
+
 function render() {
+  // Capture BEFORE the teardown below detaches the focused element.
+  const refocusTerminal = focusedTerminalId()
   root.innerHTML = ''
   // Window drag strip: titleBarStyle 'hiddenInset' removes the native macOS
   // title bar, so the renderer must own the drag surface. Rendered before the
@@ -1971,6 +2075,10 @@ function render() {
 
   root.appendChild(body)
   appendStatusBar()
+  // Everything is re-attached now, so the terminal can take focus back. Async
+  // so it lands after any focus() the freshly-mounted children queue themselves
+  // (e.g. the editor's mount-focus), which would otherwise win the race.
+  if (refocusTerminal) queueMicrotask(() => restoreFocus(refocusTerminal))
 }
 
 // F16: the bottom status bar, appended after the main body on every render.
@@ -2036,6 +2144,7 @@ async function boot() {
         /* no cost */
       })
   }
+  loadForcedEffort() // AGENT_IDE_EFFORT, for the picker's effort row
   loadLibrary() // D14: populate library pill counts (async, re-renders on load)
   render()
   probeServices() // F16: test external-service connectivity on startup (async)

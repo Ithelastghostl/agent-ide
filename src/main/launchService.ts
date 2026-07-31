@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import type { Provider, Session, SessionStage, ApprovalMode } from '@shared/types'
+import type { Provider, Session, SessionStage, ApprovalMode, Effort } from '@shared/types'
 import type { Store } from './store'
 import type { Runtime, TerminalRuntime } from './runtime'
-import { launchArgv } from './providers'
+import { launchArgv, resolveEffort } from './providers'
 import { sessionEvents } from './sessionEvents'
 import { composeLaunchPrimer } from './agentPreset'
 import { stripAnsi } from './history'
@@ -74,6 +74,8 @@ export interface LaunchOpts {
   useContainer: boolean
   stage?: SessionStage // fresh sessions default to 'discussion'
   agentRelPath?: string | null
+  /** Per-session reasoning effort; AGENT_IDE_EFFORT outranks it at spawn. */
+  effort?: Effort | null
   backlogItemIds?: string[]
   taskKind?: Session['taskKind']
   taskSubkind?: Session['taskSubkind']
@@ -150,7 +152,8 @@ export class LaunchService {
       runtimeVersion: 0,
       desiredVersion: 0,
       agentRelPath: opts.agentRelPath ?? null,
-      cost: null
+      cost: null,
+      effort: opts.effort ?? null
     }
     this.deps.store.saveSession(session)
     if (opts.backlogItemIds?.length) this.deps.store.bindSessionBacklog(id, opts.backlogItemIds)
@@ -206,7 +209,8 @@ export class LaunchService {
     const { cmd, args } = launchArgv({
       provider: opts.provider,
       model: opts.model,
-      autoApprove: mode === 'auto'
+      autoApprove: mode === 'auto',
+      effort: resolveEffort(opts.effort ?? session.effort)
     })
     // Mark the process with the session marker so a container process tree is
     // identifiable for confirmed termination (R32). Container id/user/home
@@ -352,7 +356,8 @@ export class LaunchService {
     const { cmd, args } = launchArgv({
       provider: opts.provider,
       model: opts.model,
-      autoApprove: mode === 'auto'
+      autoApprove: mode === 'auto',
+      effort: resolveEffort(opts.effort ?? s.effort)
     })
     this.mgr.spawn(
       { id, shell: cmd, args, cwd: opts.workspace, env: { AGENTIDE_SESSION: id } },

@@ -22,6 +22,8 @@ interface AgentIDEBridge {
     taskSubkind?: import('@shared/types').TaskSubkind
     // S8: agent preset relPath; main validates + primes the agent body.
     agentRelPath?: string | null
+    /** Per-session reasoning effort; AGENT_IDE_EFFORT still outranks it. */
+    effort?: import('@shared/types').Effort | null
   }): Promise<import('@shared/types').Session>
   sessionRename(id: string, name: string): Promise<void>
   sessionArchive(id: string): Promise<void>
@@ -80,6 +82,7 @@ interface AgentIDEBridge {
   onNotice(cb: (p: { message: string }) => void): void
   onSessionModelRejected(cb: (p: { id: string; model: string; message: string }) => void): void
   transcriptGet(id: string): Promise<string>
+  effortForced(): Promise<import('@shared/types').Effort | null>
   libraryList(): Promise<import('@shared/types').LibraryContents>
   libraryRead(relPath: string): Promise<{ content?: string; error?: string }>
   libraryStatus(): Promise<{
