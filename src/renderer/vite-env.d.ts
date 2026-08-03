@@ -42,6 +42,8 @@ interface AgentIDEBridge {
   containerStart(projectId: string, workspace: string, importConfig: boolean): Promise<string>
   containerStatus(projectId: string, workspace: string): Promise<'running' | 'stopped' | 'none'>
   containerStop(projectId: string, workspace: string): Promise<'stopped' | 'none'>
+  /** Persist where NEW sessions run for this project (Connect / Disconnect). */
+  containerModeSet(projectId: string, useContainer: boolean): Promise<{ ok: true }>
   onContainerStatus(
     cb: (p: { projectId: string; state: 'none' | 'stopped' | 'starting' | 'running' | 'error' }) => void
   ): void

@@ -432,3 +432,68 @@ describe('Store', () => {
     expect(store.getSession('ft1')?.taskStatus).toBe('ticketed')
   })
 })
+
+describe('Store — per-project container run mode', () => {
+  const proj = (id = 'p1') => ({
+    id,
+    name: 'demo',
+    repo: '',
+    localPath: '/tmp/demo',
+    hasDevcontainer: true
+  })
+
+  it('is null until the user connects or disconnects', () => {
+    const s = new Store(':memory:')
+    s.saveProject(proj())
+    expect(s.getProjectUseContainer('p1')).toBeNull()
+    expect(s.listProjects()[0].useContainer).toBeNull()
+  })
+
+  it('persists Connect and Disconnect', () => {
+    const s = new Store(':memory:')
+    s.saveProject(proj())
+
+    s.setProjectUseContainer('p1', true)
+    expect(s.getProjectUseContainer('p1')).toBe(true)
+    expect(s.listProjects()[0].useContainer).toBe(true)
+
+    s.setProjectUseContainer('p1', false)
+    expect(s.getProjectUseContainer('p1')).toBe(false)
+    expect(s.listProjects()[0].useContainer).toBe(false)
+  })
+
+  it('survives a saveProject — the devcontainer refresh must not wipe it', () => {
+    // projects:list re-saves rows whose hasDevcontainer changed; that upsert
+    // must leave an explicit Connect intact.
+    const s = new Store(':memory:')
+    s.saveProject(proj())
+    s.setProjectUseContainer('p1', true)
+
+    s.saveProject({ ...proj(), hasDevcontainer: false })
+
+    expect(s.getProjectUseContainer('p1')).toBe(true)
+  })
+
+  it('keeps the mode per project', () => {
+    const s = new Store(':memory:')
+    s.saveProject(proj('a'))
+    s.saveProject({ ...proj('b'), localPath: '/tmp/other' })
+    s.setProjectUseContainer('a', true)
+    expect(s.getProjectUseContainer('a')).toBe(true)
+    expect(s.getProjectUseContainer('b')).toBeNull()
+  })
+
+  it('returns null for an unknown project instead of throwing', () => {
+    const s = new Store(':memory:')
+    expect(s.getProjectUseContainer('nope')).toBeNull()
+  })
+
+  it('migration is idempotent', () => {
+    const s = new Store(':memory:')
+    s.saveProject(proj())
+    s.setProjectUseContainer('p1', true)
+    s.migrateProjectUseContainer()
+    s.migrateProjectUseContainer()
+    expect(s.getProjectUseContainer('p1')).toBe(true)
+  })
+})

@@ -291,6 +291,10 @@ export interface Project {
   repo: string // owner/name
   localPath: string
   hasDevcontainer: boolean
+  /** Where NEW sessions run: true = in the devcontainer, false = on the host.
+   *  null/undefined = never chosen, so the launch flow asks. Persisted so a
+   *  Connect survives an app restart. */
+  useContainer?: boolean | null
 }
 
 // M-LOG-b (§4.4): the schema-constrained fields the addendum pass must produce

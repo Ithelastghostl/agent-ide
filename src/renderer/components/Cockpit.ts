@@ -42,6 +42,12 @@ export interface CockpitProps {
   onStartContainer?: () => void
   /** Stop a running container (reversible). Shown when containerState==='running'. */
   onStopContainer?: () => void
+  /** Where NEW sessions run: true = inside the container, false = on the host.
+   *  Distinct from containerState, which is only whether Docker has it up. */
+  inContainer?: boolean
+  /** Flip the project between container and host mode. Affects new sessions
+   *  only; running sessions keep the context they launched with. */
+  onToggleContainerMode?: () => void
 }
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -176,32 +182,77 @@ export function Cockpit(p: CockpitProps): HTMLElement {
   div.className = 'cp-div'
   el.appendChild(div)
 
-  // F14: Start-container button (devcontainer projects only). When running, the
-  // control becomes a (reversible) Stop button so the container can be torn down.
+  // F14: container controls (devcontainer projects only). Two separate things,
+  // which used to be conflated:
+  //   1. WHERE new sessions run — container or host (`inContainer`). This is the
+  //      state the user actually cares about, and it was previously invisible:
+  //      set once by a dialog with no indicator and no way back.
+  //   2. Whether Docker has the container UP (`containerState`) — the lifecycle.
+  // A container can be running while sessions still launch on the host, so the
+  // bar states both rather than implying one from the other.
   if (p.showContainerButton) {
     const cbar = document.createElement('div')
     cbar.className = 'container-bar'
     const st = p.containerState ?? 'none'
+    const inC = p.inContainer === true
+
+    // Line 1: where sessions run, plus the container's own state.
+    const status = document.createElement('div')
+    status.className = 'cx-status' + (inC ? ' on' : '')
+    const dot = document.createElement('span')
+    dot.className = 'cx-dot ' + (inC ? 'in' : 'host')
+    const label = document.createElement('span')
+    label.className = 'cx-where'
+    label.textContent = inC ? 'Sessions run in the container' : 'Sessions run on the host'
+    const sub = document.createElement('span')
+    sub.className = 'cx-sub'
+    const stateWord: Record<string, string> = {
+      none: 'container not built',
+      stopped: 'container stopped',
+      starting: 'container starting…',
+      running: 'container running',
+      error: 'container failed to start'
+    }
+    sub.textContent = stateWord[st]
+    status.append(dot, label, sub)
+    cbar.appendChild(status)
+
+    const actions = document.createElement('div')
+    actions.className = 'cx-actions'
+
+    // Connect / Disconnect — the mode toggle. Disconnect never stops the
+    // container or kills sessions; it only routes NEW sessions to the host.
+    const conn = document.createElement('button')
+    conn.className = 'container-btn cx-conn' + (inC ? ' on' : '')
+    conn.textContent = inC ? '⤫ Disconnect' : '⇥ Connect'
+    conn.disabled = st === 'starting'
+    conn.title = inC
+      ? 'Run new sessions on the host instead. Running sessions are unaffected.'
+      : 'Run new sessions inside the container. Starts it first if needed.'
+    conn.onclick = () => p.onToggleContainerMode?.()
+    actions.appendChild(conn)
+
+    // Lifecycle button: start/stop the container itself.
     const btn = document.createElement('button')
     if (st === 'running') {
-      // Running → show a Stop action (the only state whose click stops, not starts).
-      btn.className = 'container-btn running stop'
+      btn.className = 'container-btn cx-life running stop'
       btn.textContent = '⏹ Stop container'
       btn.disabled = false
       btn.onclick = () => p.onStopContainer?.()
     } else {
-      btn.className = 'container-btn ' + st
+      btn.className = 'container-btn cx-life ' + st
       const labels: Record<string, string> = {
-        none: '▶ Build & start container',
-        stopped: '▶ Restart container',
+        none: '▶ Build & start',
+        stopped: '▶ Restart',
         starting: '◐ Starting…',
-        error: '⚠ Start failed — retry'
+        error: '⚠ Retry start'
       }
       btn.textContent = labels[st]
       btn.disabled = st === 'starting'
       btn.onclick = () => p.onStartContainer?.()
     }
-    cbar.appendChild(btn)
+    actions.appendChild(btn)
+    cbar.appendChild(actions)
     el.appendChild(cbar)
   }
 

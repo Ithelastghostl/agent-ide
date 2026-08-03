@@ -163,6 +163,7 @@ export class Store {
     this.migrateProjectIds() // B7: upgrade legacy kebab ids to durable hash ids
     this.migrateSessionTaskColumns() // M-LOG-a: add task label columns (additive)
     this.migrateProjectAutoAdvance() // S6 (v2): queue auto-advance flag (additive)
+    this.migrateProjectUseContainer() // per-project container/host run mode (additive)
     this.migrateSessionV2Columns() // v2: desired/applied/termState/version columns
     this.migrateTicketsToBacklog() // v2: one-time tickets → backlog_items (C-7)
     this.rebuildFtsIfEmpty() // v2: populate FTS from existing content on upgrade
@@ -205,9 +206,13 @@ export class Store {
 
   listProjects(): Project[] {
     return this.db
-      .prepare(`SELECT id,name,repo,localPath,hasDevcontainer FROM projects`)
+      .prepare(`SELECT id,name,repo,localPath,hasDevcontainer,useContainer FROM projects`)
       .all()
-      .map((r: any) => ({ ...r, hasDevcontainer: !!r.hasDevcontainer }))
+      .map((r: any) => ({
+        ...r,
+        hasDevcontainer: !!r.hasDevcontainer,
+        useContainer: r.useContainer == null ? null : !!r.useContainer
+      }))
   }
 
   /** A single project by id, or undefined if unknown. Used by main to resolve a
@@ -243,6 +248,33 @@ export class Store {
     if (!cols.has('autoAdvance')) {
       this.db.exec(`ALTER TABLE projects ADD COLUMN autoAdvance INTEGER NOT NULL DEFAULT 0`)
     }
+  }
+
+  /** Per-project run mode: whether NEW sessions launch inside the devcontainer.
+   *  NULL = never chosen (the launch flow asks). Additive; existing rows get
+   *  NULL so behaviour is unchanged until the user connects or disconnects. */
+  migrateProjectUseContainer(): void {
+    const cols = new Set(
+      (this.db.prepare(`PRAGMA table_info(projects)`).all() as { name: string }[]).map((c) => c.name)
+    )
+    if (!cols.has('useContainer')) {
+      this.db.exec(`ALTER TABLE projects ADD COLUMN useContainer INTEGER`)
+    }
+  }
+
+  /** The project's persisted run mode, or null when never chosen. */
+  getProjectUseContainer(projectId: string): boolean | null {
+    const r = this.db.prepare(`SELECT useContainer FROM projects WHERE id = ?`).get(projectId) as
+      | { useContainer?: number | null }
+      | undefined
+    return r?.useContainer == null ? null : r.useContainer === 1
+  }
+
+  /** Persist the project's run mode (Connect / Disconnect). */
+  setProjectUseContainer(projectId: string, useContainer: boolean): void {
+    this.db
+      .prepare(`UPDATE projects SET useContainer = ? WHERE id = ?`)
+      .run(useContainer ? 1 : 0, projectId)
   }
 
   /** Whether a project's queue auto-advances on session completion (S6). */

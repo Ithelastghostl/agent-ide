@@ -909,6 +909,18 @@ export function registerIpc(
   )
   // Container status for this project, by Docker state (accurate across app
   // restarts): 'running' | 'stopped' (built but exited) | 'none' (never built).
+  // Persist the project's run mode (Connect / Disconnect). Kept separate from
+  // container:start/stop — the mode says where NEW sessions go, not whether
+  // Docker has the container up. Validated: unknown projects are ignored.
+  ipcMain.handle('containerMode:set', (_e, projectId: unknown, useContainer: unknown) => {
+    if (typeof projectId !== 'string' || typeof useContainer !== 'boolean') {
+      throw new Error('invalid containerMode payload')
+    }
+    if (!store?.getProject(projectId)) throw new Error('unknown project')
+    store.setProjectUseContainer(projectId, useContainer)
+    return { ok: true as const }
+  })
+
   ipcMain.handle('container:status', async (_e, _projectId: string, workspace: string) => {
     return (await container.findPresence(workspace)).state
   })

@@ -695,7 +695,10 @@ function loadContainerStatus(projectId: string, localPath: string) {
     // s is 'running' | 'stopped' | 'none'. Reflect it on the button.
     if (containerState.get(projectId) !== s) {
       containerState.set(projectId, s)
-      if (s === 'running') runInContainer.set(projectId, true) // running implies container mode
+      // A running container implies container mode ONLY as a default, never as
+      // an override: the user can Disconnect while leaving the container up, and
+      // re-detecting its status must not silently reconnect them.
+      if (s === 'running' && !runInContainer.has(projectId)) runInContainer.set(projectId, true)
       render()
     }
   })
@@ -1344,6 +1347,63 @@ async function stopContainer() {
     console.error('stop container failed', err)
     containerState.set(proj.id, prev ?? 'running')
     render()
+  }
+}
+
+/** Connect / Disconnect: flip where NEW sessions run for this project.
+ *
+ *  Deliberately separate from starting and stopping the container. Disconnect
+ *  leaves the container up and running sessions alive — it only routes the next
+ *  session to the host. Connect offers to start the container first when it
+ *  isn't up, since a container session needs one.
+ *
+ *  The choice is persisted per project (containerMode:set) so it survives an app
+ *  restart, matching how each session already stores its own useContainer. */
+async function toggleContainerMode() {
+  const proj = currentProject()
+  if (!proj?.hasDevcontainer) return
+  const wasIn = runInContainer.get(proj.id) ?? false
+
+  if (!wasIn) {
+    // Connecting. Offer to bring the container up when it isn't running.
+    const st = containerState.get(proj.id) ?? 'none'
+    if (st !== 'running' && st !== 'starting') {
+      const choice = await chooseOption<'go'>(
+        `Run “${proj.name}” sessions in the container?`,
+        [{ label: st === 'none' ? 'Build & connect' : 'Start & connect', value: 'go', primary: true }],
+        { label: 'Import my ~/.claude skills + config (read-only)', checked: true },
+        'The container needs to be running for container sessions.'
+      )
+      if (!choice) return
+      runInContainer.set(proj.id, true)
+      void persistContainerMode(proj.id, true)
+      containerState.set(proj.id, 'starting')
+      render()
+      try {
+        await window.agentIDE.containerStart(proj.id, proj.localPath, choice.checked)
+      } catch (err) {
+        console.error('connect: container start failed', err)
+        containerState.set(proj.id, 'error')
+        render()
+      }
+      return
+    }
+    runInContainer.set(proj.id, true)
+  } else {
+    runInContainer.set(proj.id, false)
+    flash('New sessions will run on the host. Running sessions are unaffected.')
+  }
+  void persistContainerMode(proj.id, runInContainer.get(proj.id) === true)
+  render()
+}
+
+/** Persist the project's run mode so Connect survives a restart. Best-effort:
+ *  the in-memory map still drives this run if the write fails. */
+async function persistContainerMode(projectId: string, useContainer: boolean): Promise<void> {
+  try {
+    await window.agentIDE.containerModeSet?.(projectId, useContainer)
+  } catch {
+    /* older main without the channel — mode stays per-run */
   }
 }
 
@@ -2067,6 +2127,8 @@ function render() {
       onOpenTerminal: openTerminal,
       showContainerButton: proj.hasDevcontainer,
       containerState: containerState.get(proj.id) ?? 'none',
+      inContainer: runInContainer.get(proj.id) ?? false,
+      onToggleContainerMode: () => void toggleContainerMode(),
       onStartContainer: startContainer,
       agentNameFor,
       onStopContainer: stopContainer
@@ -2116,6 +2178,11 @@ async function boot() {
     // context (B6) so health checks and resumes start from the real mode.
     for (const s of [...sessions].sort((a, b) => a.updatedAt - b.updatedAt)) {
       if (typeof s.useContainer === 'boolean') runInContainer.set(s.projectId, s.useContainer)
+    }
+    // An explicit Connect/Disconnect on the project OUTRANKS the session-derived
+    // seed above — it is the user's stated choice, not an inference from history.
+    for (const proj of state.projects) {
+      if (typeof proj.useContainer === 'boolean') runInContainer.set(proj.id, proj.useContainer)
     }
   } catch (err) {
     console.error('boot hydrate failed', err)

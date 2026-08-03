@@ -701,6 +701,19 @@
 .container-bar {
   padding: 8px 14px 0;
 }
+/* Where new sessions run (container vs host) + the container's own state. The
+   two are independent: a container can be running while sessions go to the host. */
+.cx-status { display: flex; align-items: center; gap: 7px; padding: 0 2px 7px; font-size: 11px; }
+.cx-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--text-muted); }
+.cx-dot.in { background: var(--success); }
+.cx-where { color: var(--text-secondary); }
+.cx-status.on .cx-where { color: var(--text-primary); font-weight: 600; }
+.cx-sub { color: var(--text-muted); margin-left: auto; }
+.cx-actions { display: flex; gap: 6px; }
+.cx-actions .container-btn { width: auto; flex: 1; }
+/* Connect reads as the primary action; Disconnect is present but not shouted. */
+.cx-conn.on { color: var(--text-secondary); }
+.cx-conn:not(.on) { color: var(--text-primary); border-color: var(--accent-dim); }
 .container-btn {
   width: 100%;
   padding: 8px 10px;

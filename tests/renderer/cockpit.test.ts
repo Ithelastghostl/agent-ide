@@ -162,7 +162,7 @@ describe('Cockpit', () => {
         started = true
       }
     })
-    const btn = el.querySelector('.container-btn') as HTMLButtonElement
+    const btn = el.querySelector('.cx-life') as HTMLButtonElement
     expect(btn).toBeTruthy()
     expect(btn.textContent).toContain('Build') // 'none' -> Build & start
     btn.click()
@@ -178,7 +178,7 @@ describe('Cockpit', () => {
         onSelectSession: () => {},
         showContainerButton: true,
         containerState: s
-      }).querySelector('.container-btn') as HTMLButtonElement
+      }).querySelector('.cx-life') as HTMLButtonElement
     expect(mk('none').textContent).toContain('Build')
     expect(mk('stopped').textContent).toContain('Restart')
     // Running now offers a (reversible) Stop action instead of a dead 'running' label.
@@ -204,7 +204,7 @@ describe('Cockpit', () => {
         stopped = true
       }
     })
-    const btn = el.querySelector('.container-btn') as HTMLButtonElement
+    const btn = el.querySelector('.cx-life') as HTMLButtonElement
     expect(btn.disabled).toBe(false) // running is now clickable (to stop), not disabled
     expect(btn.textContent).toContain('Stop')
     btn.click()
