@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('agentIDE', {
     ipcRenderer.invoke('container:start', projectId, workspace, importConfig),
   containerStatus: (projectId: string, workspace: string) =>
     ipcRenderer.invoke('container:status', projectId, workspace),
+  containerHasCli: () => ipcRenderer.invoke('container:hasCli'),
   containerModeSet: (projectId: string, useContainer: boolean) =>
     ipcRenderer.invoke('containerMode:set', projectId, useContainer),
   containerStop: (projectId: string, workspace: string) =>

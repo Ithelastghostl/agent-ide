@@ -119,4 +119,23 @@ describe('container bar — am I inside the container?', () => {
     const { el } = mount({})
     expect(where(el)).toBe('Sessions run on the host')
   })
+
+  describe('devcontainer CLI prerequisite', () => {
+    it('warns with the fix command when the CLI is missing', () => {
+      // Without the CLI, session:launch throws before creating a session — the
+      // click looks like a no-op. Say so before the user clicks.
+      const { el } = mount({ hasDevcontainerCli: false })
+      const warn = el.querySelector('.cx-warn')!
+      expect(warn.textContent).toContain('devcontainer CLI')
+      expect(warn.textContent).toContain('npm i -g @devcontainers/cli')
+    })
+
+    it('stays silent when the CLI is present', () => {
+      expect(mount({ hasDevcontainerCli: true }).el.querySelector('.cx-warn')).toBeNull()
+    })
+
+    it('stays silent before the check completes', () => {
+      expect(mount({}).el.querySelector('.cx-warn')).toBeNull()
+    })
+  })
 })

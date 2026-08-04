@@ -30,6 +30,7 @@ import { AgentForm } from './components/AgentForm'
 import type { LibraryCategory, LibraryContents, LibraryItem } from '@shared/types'
 import { RepoPicker } from './components/RepoPicker'
 import { SessionTerminal, type TerminalHost } from './components/SessionTerminal'
+import { launchErrorMessage, decideRunContext } from './runContext'
 import { AllSessions, type BoardMode } from './components/AllSessions'
 import { StatusBar } from './components/StatusBar'
 import { SearchOverlay } from './components/SearchOverlay'
@@ -126,6 +127,23 @@ window.agentIDE.onCost?.(({ sessionId }) => {
       /* cost unavailable — chip stays hidden */
     })
 })
+
+// Whether the devcontainer CLI is installed. undefined until checked, so the
+// bar stays quiet rather than flashing a false warning during boot.
+let hasDevcontainerCli: boolean | undefined
+function loadDevcontainerCli() {
+  window.agentIDE
+    .containerHasCli?.()
+    .then((ok) => {
+      if (hasDevcontainerCli !== ok) {
+        hasDevcontainerCli = ok
+        render()
+      }
+    })
+    .catch(() => {
+      /* older main without the channel — leave undefined (no warning) */
+    })
+}
 
 // The effort AGENT_IDE_EFFORT forces, read once at boot (env can't change while
 // the app runs). null → the picker's effort row is freely editable.
@@ -934,6 +952,7 @@ async function launchAgentFlow(agent: LibraryItem) {
         render()
       } catch (err) {
         console.error('agent-preset launch failed', err)
+        flash(launchErrorMessage(err), 6000)
       }
     },
     onPick: () => {
@@ -1156,10 +1175,10 @@ async function useLibraryItem(item: LibraryItem) {
 async function resolveRunContext(
   proj: Project
 ): Promise<{ useContainer: boolean; importConfig: boolean } | null> {
-  if (!proj.hasDevcontainer) return { useContainer: false, importConfig: false }
-  if (runInContainer.has(proj.id)) {
-    return { useContainer: runInContainer.get(proj.id)!, importConfig: false }
-  }
+  // Precedence lives in decideRunContext (unit-tested): an explicit
+  // Connect/Disconnect outranks the cached hasDevcontainer column.
+  const decided = decideRunContext(proj, runInContainer.get(proj.id))
+  if (decided !== 'ask') return decided
   const choice = await chooseOption<'container' | 'host'>(
     `Run “${proj.name}” in its devcontainer?`,
     [
@@ -1258,7 +1277,10 @@ async function launchFlow(provider: Provider, backlogItemIds: string[] = []) {
         state.view = 'cockpit'
         render()
       } catch (err) {
+        // Surface it: a throw here creates NO session, so a silent catch makes
+        // the launch look like it did nothing at all.
         console.error('session launch failed', err)
+        flash(launchErrorMessage(err), 6000)
       }
     },
     onCancel: closeOverlay
@@ -2129,6 +2151,7 @@ function render() {
       containerState: containerState.get(proj.id) ?? 'none',
       inContainer: runInContainer.get(proj.id) ?? false,
       onToggleContainerMode: () => void toggleContainerMode(),
+      hasDevcontainerCli,
       onStartContainer: startContainer,
       agentNameFor,
       onStopContainer: stopContainer
@@ -2212,6 +2235,7 @@ async function boot() {
       })
   }
   loadForcedEffort() // AGENT_IDE_EFFORT, for the picker's effort row
+  loadDevcontainerCli() // warn in the container bar if the CLI is missing
   loadLibrary() // D14: populate library pill counts (async, re-renders on load)
   render()
   probeServices() // F16: test external-service connectivity on startup (async)

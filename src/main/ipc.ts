@@ -909,6 +909,11 @@ export function registerIpc(
   )
   // Container status for this project, by Docker state (accurate across app
   // restarts): 'running' | 'stopped' (built but exited) | 'none' (never built).
+  // Whether the devcontainer CLI is installed. Container launches hard-fail
+  // without it, so the cockpit checks up front and says so, instead of letting
+  // the user click Launch and get nothing.
+  ipcMain.handle('container:hasCli', () => container.hasCli())
+
   // Persist the project's run mode (Connect / Disconnect). Kept separate from
   // container:start/stop — the mode says where NEW sessions go, not whether
   // Docker has the container up. Validated: unknown projects are ignored.

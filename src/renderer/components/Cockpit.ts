@@ -48,6 +48,10 @@ export interface CockpitProps {
   /** Flip the project between container and host mode. Affects new sessions
    *  only; running sessions keep the context they launched with. */
   onToggleContainerMode?: () => void
+  /** False when the devcontainer CLI is missing. Container launches hard-fail
+   *  without it, so the bar warns up front rather than after a dead click.
+   *  undefined = not checked yet (say nothing). */
+  hasDevcontainerCli?: boolean
 }
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -253,6 +257,15 @@ export function Cockpit(p: CockpitProps): HTMLElement {
     }
     actions.appendChild(btn)
     cbar.appendChild(actions)
+
+    // Missing CLI: container launches throw before a session exists, which
+    // reads as "the button does nothing". Say it here, with the fix.
+    if (p.hasDevcontainerCli === false) {
+      const warn = document.createElement('div')
+      warn.className = 'cx-warn'
+      warn.textContent = 'Needs the devcontainer CLI: npm i -g @devcontainers/cli'
+      cbar.appendChild(warn)
+    }
     el.appendChild(cbar)
   }
 

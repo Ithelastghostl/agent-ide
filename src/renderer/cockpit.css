@@ -709,6 +709,7 @@
 .cx-where { color: var(--text-secondary); }
 .cx-status.on .cx-where { color: var(--text-primary); font-weight: 600; }
 .cx-sub { color: var(--text-muted); margin-left: auto; }
+.cx-warn { padding: 6px 2px 0; font-size: 10.5px; color: var(--warning); }
 .cx-actions { display: flex; gap: 6px; }
 .cx-actions .container-btn { width: auto; flex: 1; }
 /* Connect reads as the primary action; Disconnect is present but not shouted. */
